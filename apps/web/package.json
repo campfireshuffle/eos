@@ -1,0 +1,50 @@
+{
+  "name": "@eos/web",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint",
+    "format": "prettier --write \"**/*.{ts,tsx}\"",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview",
+    "deploy": "pnpm build && wrangler deploy",
+    "preview:worker": "pnpm build && wrangler dev"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.14",
+    "@eos/core": "workspace:*",
+    "@eos/webmcp": "workspace:*",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@lezer/highlight": "^1.2.5",
+    "@workspace/ui": "workspace:*",
+    "idb": "^8.0.4",
+    "loro-crdt": "^1.16.4",
+    "lucide-react": "^1.59.0",
+    "pele": "^1.6.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10",
+    "@tailwindcss/vite": "^4",
+    "@types/node": "^24",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6",
+    "eslint": "^10",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^17",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8",
+    "vite": "^8",
+    "vite-plugin-wasm": "^3.6.0",
+    "wrangler": "^4.151.1"
+  }
+}

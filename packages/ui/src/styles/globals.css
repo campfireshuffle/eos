@@ -1,0 +1,126 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/inter";
+
+@custom-variant dark (&:is(.dark *));
+@source "../../../apps/**/*.{ts,tsx}";
+@source "../../../components/**/*.{ts,tsx}";
+@source "../**/*.{ts,tsx}";
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Inter Variable', Inter, 'Segoe UI', Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, 'JetBrains Mono', 'Cascadia Code', Menlo, Monaco, Consolas, monospace;
+}
+
+:root,
+.dark {
+    color-scheme: dark;
+    /* Eos palette (sampled from the logo, neutral surfaces) */
+    --eos-ink: #0e0e0e;
+    --eos-panel: #191919;
+    --eos-raised: #242424;
+    --eos-line: #262626;
+    --eos-line-hover: #313131;
+    --eos-line-active: #3d3d3d;
+    --eos-body: #ebeae6;
+    --eos-muted: #8b8b88;
+    --eos-faint: #5a5a58;
+    --eos-ivory: #fcf4e4;
+    --eos-champagne: #e6cc9c;
+    --eos-red: #d14d41;
+    --eos-green: #879a39;
+
+    --background: var(--eos-ink);
+    --foreground: var(--eos-body);
+    --card: var(--eos-panel);
+    --card-foreground: var(--eos-body);
+    --popover: var(--eos-panel);
+    --popover-foreground: var(--eos-body);
+    --primary: var(--eos-ivory);
+    --primary-foreground: var(--eos-ink);
+    --secondary: var(--eos-raised);
+    --secondary-foreground: var(--eos-body);
+    --muted: var(--eos-raised);
+    --muted-foreground: var(--eos-muted);
+    --accent: var(--eos-raised);
+    --accent-foreground: var(--eos-body);
+    --destructive: var(--eos-red);
+    --border: var(--eos-line);
+    --input: var(--eos-line-hover);
+    --ring: var(--eos-line-active);
+    --chart-1: #4385be;
+    --chart-2: #3aa99f;
+    --chart-3: #879a39;
+    --chart-4: #d0a215;
+    --chart-5: #da702c;
+    --radius: 0.625rem;
+    --sidebar: var(--eos-ink);
+    --sidebar-foreground: var(--eos-body);
+    --sidebar-primary: var(--eos-ivory);
+    --sidebar-primary-foreground: var(--eos-ink);
+    --sidebar-accent: var(--eos-raised);
+    --sidebar-accent-foreground: var(--eos-body);
+    --sidebar-border: var(--eos-line);
+    --sidebar-ring: var(--eos-line-active);
+
+    /* Pele diagram theme */
+    --pele-bg: transparent;
+    --pele-fg: var(--eos-body);
+    --pele-muted: var(--eos-muted);
+    --pele-line: var(--eos-muted);
+    --pele-surface: var(--eos-raised);
+    --pele-surface-alt: #2c2c2c;
+    --pele-border: var(--eos-line-active);
+    --pele-accent: var(--eos-champagne);
+    --pele-font: var(--font-sans);
+    --pele-radius: 6px;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  body {
+    @apply bg-background text-foreground;
+    }
+}

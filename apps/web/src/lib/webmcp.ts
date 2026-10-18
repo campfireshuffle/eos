@@ -1,0 +1,34 @@
+import type { Eos } from "@eos/core"
+import { createTools, registerTools, type UiBridge } from "@eos/webmcp"
+
+import { download } from "./files"
+import { diagramHref, homeHref, navigate, parseRoute } from "./router"
+import { askConfirm, getUi, requestZoom, setUi } from "./ui-state"
+
+/** Registers Eos's tools with WebMCP while the setting is on. */
+export function connectWebMcp(eos: Eos): () => void {
+  const ui: UiBridge = {
+    origin: location.origin,
+    getView: () => ({ route: parseRoute(location.hash), zoom: getUi().zoomScale, settingsOpen: getUi().settingsOpen }),
+    openDiagram: (id) => navigate(diagramHref(id)),
+    goHome: () => navigate(homeHref()),
+    setLibraryView: ({ starred, tags, sort }) => navigate(homeHref({ starred, tag: tags?.[0] ?? null, sort })),
+    setZoom: requestZoom,
+    openSettings: (open) => setUi({ settingsOpen: open }),
+    confirm: askConfirm,
+    download: (name, data) => download(name, data),
+  }
+  const tools = createTools(eos, ui)
+  let unregister: (() => void) | null = null
+  const sync = () => {
+    const enabled = eos.getSettings().agent.webmcpEnabled
+    if (enabled && !unregister) unregister = registerTools(tools)
+    if (!enabled && unregister) (unregister(), (unregister = null))
+  }
+  sync()
+  const off = eos.subscribe("settings", sync)
+  return () => {
+    off()
+    unregister?.()
+  }
+}

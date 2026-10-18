@@ -1,0 +1,10 @@
+packages:
+  - apps/*
+  - packages/*
+minimumReleaseAgeExclude:
+  - shadcn@4.22.1
+
+allowBuilds:
+  esbuild: true
+  workerd: true
+  sharp: true

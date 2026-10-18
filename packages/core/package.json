@@ -1,0 +1,23 @@
+{
+  "name": "@eos/core",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "idb": "^8.0.4",
+    "loro-crdt": "^1.16.4",
+    "pele": "^1.6.0"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.5",
+    "typescript": "~6.0.2",
+    "vitest": "^5.0.5"
+  }
+}
