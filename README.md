@@ -12,7 +12,7 @@ A local-first Mermaid editor. Diagrams render with [Pele](https://pele.run), liv
 ## Layout
 
 ```
-apps/web          Vite + React app, deployed to Cloudflare (Workers static assets)
+apps/web          Vite + React app, deployed to Cloudflare Workers with cf
 packages/core     Data layer: Loro docs, IndexedDB, library queries, share links
 packages/webmcp   WebMCP tool definitions over the core API
 packages/ui       shadcn/ui components
@@ -35,12 +35,14 @@ Add shadcn components with `pnpm dlx shadcn@latest add <name> -c apps/web`.
 
 ## Deploy
 
+Eos deploys with the [`cf` CLI](https://developers.cloudflare.com/cf/) (beta) and the Cloudflare Vite plugin.
+
 ```sh
-pnpm --filter @eos/web exec wrangler login   # once
+pnpm --filter @eos/web exec cf auth login   # once
 pnpm deploy
 ```
 
-`apps/web/wrangler.jsonc` serves `dist/` as a single-page app on the `eos.lil.run` custom domain.
+`apps/web/cloudflare.config.ts` serves the client build as a single-page app on the `eos.lil.run` custom domain. Check a build without deploying with `pnpm --filter @eos/web deploy:check`.
 
 ## Credits
 

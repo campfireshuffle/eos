@@ -38,3 +38,4 @@ dist-ssr
 
 # Local agent tooling
 .claude/
+.cloudflare/
