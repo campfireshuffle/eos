@@ -51,7 +51,8 @@ test("redo in one tab reaches the other", async () => {
   await a.locator(".cm-content").click()
   await a.keyboard.press("ControlOrMeta+z")
   await expectEditor(b, "A second")
-  await a.keyboard.press("ControlOrMeta+Shift+z")
+  // Uppercase Z, as a real keyboard reports it with Shift held (a lowercase z reads as plain ⌘Z).
+  await a.keyboard.press("ControlOrMeta+Shift+Z")
   await expectEditor(b, "A first second")
 })
 
