@@ -29,14 +29,14 @@ export function SettingsDialog() {
     <Dialog open={open} onOpenChange={(o) => setUi({ settingsOpen: o })}>
       <DialogContent className="flex h-[min(640px,90vh)] w-[1040px] max-w-[calc(100%-2rem)] gap-0 overflow-hidden p-0 sm:max-w-[1040px]">
         <nav className="flex w-[232px] shrink-0 flex-col gap-0.5 border-r border-border bg-background/55 px-2.5 pt-[18px]">
-          <DialogTitle className="px-2.5 pb-3 text-[15px] font-semibold">Settings</DialogTitle>
+          <DialogTitle className="px-2.5 pb-3 text-title font-semibold">Settings</DialogTitle>
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               type="button"
               onClick={() => setUi({ settingsTab: id })}
               className={cn(
-                "flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[13px] text-muted-foreground hover:bg-accent/30 hover:text-foreground",
+                "flex h-8 items-center gap-2.5 rounded-md px-2.5 text-body text-muted-foreground hover:bg-accent/30 hover:text-foreground",
                 tab === id && "bg-accent font-medium text-foreground",
               )}
             >
@@ -45,7 +45,7 @@ export function SettingsDialog() {
           ))}
         </nav>
         <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto px-7 pt-[22px] pb-5">
-          <h2 className="text-xl font-light">{TABS.find((t) => t.id === tab)?.label}</h2>
+          <h2 className="text-heading font-light">{TABS.find((t) => t.id === tab)?.label}</h2>
           {tab === "theming" && <Theming />}
           {tab === "mcp" && <Mcp />}
           {tab === "storage" && <Storage />}
@@ -80,7 +80,7 @@ function Theming() {
     <div className="flex min-h-0 flex-1 flex-col gap-6">
       <section className="flex min-h-0 flex-1 flex-col gap-3">
         <div className="flex items-center gap-3">
-          <h3 className="flex-1 text-sm font-medium">App theme</h3>
+          <h3 className="flex-1 text-body font-medium">App theme</h3>
           <ToggleGroup
             type="single"
             variant="outline"
@@ -105,12 +105,12 @@ function Theming() {
 
       <section className="flex min-h-0 flex-1 flex-col gap-3">
         <div className="flex items-center justify-between gap-2">
-          <h3 className="text-sm font-medium">Diagram theme</h3>
+          <h3 className="text-body font-medium">Diagram theme</h3>
           <a
             href="https://pele.run/theming"
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground"
+            className="inline-flex items-center gap-0.5 text-caption text-muted-foreground hover:text-foreground"
           >
             Pele theming docs <ArrowUpRight className="size-3.5" />
           </a>
@@ -164,7 +164,7 @@ function Mcp() {
   return (
     <div className="flex flex-col gap-6">
       <Step title="1. Turn on WebMCP">
-        <p className="text-[13px] text-muted-foreground">
+        <p className="text-body text-muted-foreground">
           Use Chrome 149+ with the{" "}
           <a className="text-[var(--eos-champagne)] underline underline-offset-2" href="https://developer.chrome.com/origintrials/" target="_blank" rel="noreferrer">
             WebMCP origin trial
@@ -173,7 +173,7 @@ function Mcp() {
         </p>
       </Step>
       <Step title="2. Add Eos to your agent">
-        <p className="text-[13px] text-muted-foreground">
+        <p className="text-body text-muted-foreground">
           Install the{" "}
           <a className="text-[var(--eos-champagne)] underline underline-offset-2" href="https://www.npmjs.com/package/webmcp-server" target="_blank" rel="noreferrer">
             WebMCP bridge
@@ -194,7 +194,7 @@ function Mcp() {
 function Step({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-2">
-      <h3 className="text-sm font-medium">{title}</h3>
+      <h3 className="text-body font-medium">{title}</h3>
       {children}
     </section>
   )
@@ -204,12 +204,12 @@ function CodeBlock({ label, code, language }: { label: string; code: string; lan
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-background">
       <div className="flex items-center border-b border-border py-1 pr-1.5 pl-3">
-        <span className="flex-1 font-mono text-[11px] text-[var(--eos-faint)]">{label}</span>
+        <span className="flex-1 font-mono text-caption text-[var(--eos-faint)]">{label}</span>
         <Button variant="ghost" size="icon-xs" aria-label={`Copy ${label}`} onClick={() => navigator.clipboard.writeText(code)}>
           <Copy />
         </Button>
       </div>
-      <div className="flex text-[13px] [&_.cm-editor]:h-auto">
+      <div className="flex text-body [&_.cm-editor]:h-auto">
         <CodeEditor value={code} language={language} label={label} readOnly gutter={false} />
       </div>
     </div>
@@ -225,7 +225,7 @@ function Storage() {
   }, [eos])
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-[13px]">{usage === null ? "…" : `${formatBytes(usage)} used`}</p>
+      <p className="text-body">{usage === null ? "…" : `${formatBytes(usage)} used`}</p>
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" onClick={async () => download("eos-backup.json", await eos.exportBackup(), "application/json")}>
           <Download /> Export backup
@@ -268,9 +268,9 @@ function About() {
   ]
   return (
     <div className="flex flex-col gap-5">
-      <p className="-mt-3 text-[13px] text-muted-foreground">Eos is a local-first Mermaid editor.</p>
+      <p className="-mt-3 text-body text-muted-foreground">Eos is a local-first Mermaid editor.</p>
       <div className="flex items-center gap-2">
-        <span className="flex-1 text-[13px] font-medium">Enjoying Eos?</span>
+        <span className="flex-1 text-body font-medium">Enjoying Eos?</span>
         <Button variant="outline" size="sm" asChild>
           <a href="https://github.com/campfireshuffle/eos" target="_blank" rel="noreferrer">
             <Star /> Star on GitHub
@@ -283,9 +283,9 @@ function About() {
         </Button>
       </div>
       <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-medium text-[var(--eos-faint)]">Built with</span>
+        <span className="text-caption font-medium text-[var(--eos-faint)]">Built with</span>
         {credits.map(([name, href]) => (
-          <a key={name} href={href} target="_blank" rel="noreferrer" className="w-fit text-[13px] hover:underline">
+          <a key={name} href={href} target="_blank" rel="noreferrer" className="w-fit text-body hover:underline">
             {name}
           </a>
         ))}

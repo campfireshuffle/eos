@@ -75,7 +75,7 @@ export function TagMenu({ ids }: { ids: string[] }) {
                 role="menuitemcheckbox"
                 aria-checked={state === "all" ? true : state === "some" ? "mixed" : false}
                 onClick={() => toggle(t.path)}
-                className="flex h-8 items-center gap-2.5 rounded-md px-2 text-left text-[13px] hover:bg-accent"
+                className="flex h-8 items-center gap-2.5 rounded-md px-2 text-left text-body hover:bg-accent"
               >
                 <span
                   className={cn(
@@ -87,7 +87,7 @@ export function TagMenu({ ids }: { ids: string[] }) {
                   {state === "some" && <Minus className="size-3" />}
                 </span>
                 <span className="flex size-4 items-center justify-center text-muted-foreground">
-                  {t.emoji ? <span className="text-[13px] leading-none">{t.emoji}</span> : <Hash className="size-3.5" />}
+                  {t.emoji ? <span className="text-body leading-none">{t.emoji}</span> : <Hash className="size-3.5" />}
                 </span>
                 <span className="flex-1 truncate">{t.path}</span>
               </button>
@@ -97,12 +97,12 @@ export function TagMenu({ ids }: { ids: string[] }) {
             <button
               type="button"
               onClick={create}
-              className="flex h-8 items-center gap-2.5 rounded-md px-2 text-left text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="flex h-8 items-center gap-2.5 rounded-md px-2 text-left text-body text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <Plus className="size-4" /> Create “{newTag}”
             </button>
           )}
-          {!matches.length && !canCreate && <p className="px-2 py-1.5 text-xs text-muted-foreground">No tags yet.</p>}
+          {!matches.length && !canCreate && <p className="px-2 py-1.5 text-caption text-muted-foreground">No tags yet.</p>}
         </div>
       </PopoverContent>
     </Popover>

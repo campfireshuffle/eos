@@ -36,7 +36,7 @@ export function HistoryMenu({ id }: { id: string }) {
         <TooltipContent>Version history</TooltipContent>
       </Tooltip>
       <PopoverContent align="end" className="w-72 gap-0 p-1.5">
-        <div className="px-2 pt-1 pb-2 text-xs font-medium text-muted-foreground">Version history</div>
+        <div className="px-2 pt-1 pb-2 text-caption font-medium text-muted-foreground">Version history</div>
         <div className="flex max-h-80 flex-col overflow-y-auto">
           {entries.map((e, i) => {
             const latest = i === 0
@@ -50,7 +50,7 @@ export function HistoryMenu({ id }: { id: string }) {
                   setOpen(false)
                 }}
                 className={cn(
-                  "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-accent/40",
+                  "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-body hover:bg-accent/40",
                   active && "bg-accent",
                 )}
               >
@@ -59,11 +59,11 @@ export function HistoryMenu({ id }: { id: string }) {
                   {actorLabel(e.actor)}
                   {latest && <span className="ml-1.5 text-muted-foreground">· Current</span>}
                 </span>
-                <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{formatWhen(e.at)}</span>
+                <span className="shrink-0 text-caption text-muted-foreground tabular-nums">{formatWhen(e.at)}</span>
               </button>
             )
           })}
-          {!entries.length && <p className="px-2 py-1.5 text-xs text-muted-foreground">No history yet.</p>}
+          {!entries.length && <p className="px-2 py-1.5 text-caption text-muted-foreground">No history yet.</p>}
         </div>
       </PopoverContent>
     </Popover>

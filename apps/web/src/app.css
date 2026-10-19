@@ -12,13 +12,3 @@
   height: calc(100% - 2rem) !important;
   max-width: none !important;
 }
-
-/* iOS Safari zooms into any focused field with text under 16px. Keep fields at 16px on touch screens. */
-@media (hover: none) and (pointer: coarse) {
-  input,
-  textarea,
-  select,
-  .cm-editor {
-    font-size: 16px !important;
-  }
-}

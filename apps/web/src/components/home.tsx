@@ -39,7 +39,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
         <header className="flex items-center gap-2 border-b border-border py-3.5 pr-4 pl-4 md:pl-6">
           <SidebarToggle />
           <HistoryNav />
-          <h1 className="flex-1 text-[15px] font-medium">{route.deleted ? "Deleted" : "Diagrams"}</h1>
+          <h1 className="flex-1 text-title font-medium">{route.deleted ? "Deleted" : "Diagrams"}</h1>
           <div className="relative w-[280px] max-md:hidden">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search diagrams" className="pl-8" />
@@ -96,7 +96,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
         </div>
 
         {rows && rows.length === 0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 text-body text-muted-foreground">
             {route.deleted
               ? "Nothing deleted."
               : query || route.tag || route.starred
@@ -113,7 +113,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
             {groupRows(rows ?? [], route.group, route.sort, route.tag).map((g) => (
               <section key={g.key} className="flex flex-col gap-3">
                 {g.label && (
-                  <h2 className="flex items-baseline gap-2 text-xs font-medium text-muted-foreground">
+                  <h2 className="flex items-baseline gap-2 text-caption font-medium text-muted-foreground">
                     {g.label}
                     <span className="text-[var(--eos-faint)] tabular-nums">{g.rows.length}</span>
                   </h2>

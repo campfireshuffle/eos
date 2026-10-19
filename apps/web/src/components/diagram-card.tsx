@@ -33,10 +33,10 @@ export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramInde
       <Thumbnail id={row.id} updatedAt={row.updatedAt} />
       <div className="flex flex-col gap-1.5 border-t border-border px-3.5 pt-3 pb-3.5">
         <div className="flex items-center gap-2">
-          <span className="flex-1 truncate text-sm font-medium">{row.title}</span>
+          <span className="flex-1 truncate text-body font-medium">{row.title}</span>
           {row.starred === 1 && <Star className="size-3.5 fill-[var(--eos-champagne)] text-[var(--eos-champagne)]" />}
         </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 text-caption text-muted-foreground">
           <span className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
             {row.tags.map((t) => (
               <Pill key={t} size="sm">
@@ -89,7 +89,7 @@ function Thumbnail({ id, updatedAt }: { id: string; updatedAt: number }) {
       className="pele-thumb relative flex aspect-[268/150] items-center justify-center overflow-hidden bg-background"
       dangerouslySetInnerHTML={svg ? { __html: svg } : undefined}
     >
-      {svg === "" ? <span className="text-xs text-[var(--eos-faint)]">Can’t render</span> : null}
+      {svg === "" ? <span className="text-caption text-[var(--eos-faint)]">Can’t render</span> : null}
     </div>
   )
 }

@@ -25,7 +25,7 @@ const errorLine = StateField.define<DecorationSet>({
 
 const theme = EditorView.theme(
   {
-    "&": { height: "100%", fontSize: "14px", backgroundColor: "transparent" },
+    "&": { height: "100%", fontSize: "var(--eos-fs-body)", backgroundColor: "transparent" },
     ".cm-scroller": { fontFamily: "var(--font-mono)", lineHeight: "1.72", padding: "14px 0" },
     ".cm-content": { caretColor: "var(--eos-body)" },
     ".cm-gutters": { backgroundColor: "transparent", border: "none", color: "var(--eos-faint)", paddingLeft: "12px" },

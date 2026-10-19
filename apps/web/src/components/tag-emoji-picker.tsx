@@ -25,15 +25,15 @@ export function EmojiGrid({ current, onChoose }: { current: string | null; onCho
             type="button"
             onClick={() => onChoose(e)}
             data-on={current === e}
-            className="flex size-[30px] items-center justify-center rounded-md text-[17px] hover:bg-accent data-[on=true]:bg-accent"
+            className="flex size-[30px] items-center justify-center rounded-md text-title hover:bg-accent data-[on=true]:bg-accent"
           >
             {e}
           </button>
         ))}
       </div>
       <div className="h-px bg-border" />
-      <button type="button" onClick={() => onChoose(null)} className="flex items-center gap-2 px-1 text-left text-[13px] text-muted-foreground hover:text-foreground">
-        <span className="font-mono text-sm">#</span> Use default icon
+      <button type="button" onClick={() => onChoose(null)} className="flex items-center gap-2 px-1 text-left text-body text-muted-foreground hover:text-foreground">
+        <span className="font-mono text-body">#</span> Use default icon
       </button>
     </div>
   )

@@ -28,7 +28,7 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
         role="toolbar"
         aria-label="Selection"
         className={cn(
-          "flex items-center gap-1 rounded-full border border-[var(--eos-line-hover)] py-1.5 pr-1.5 pl-4 text-[13px]",
+          "flex items-center gap-1 rounded-full border border-[var(--eos-line-hover)] py-1.5 pr-1.5 pl-4 text-body",
           "bg-[color-mix(in_srgb,var(--eos-raised)_62%,transparent)] backdrop-blur-xl backdrop-saturate-150",
           "shadow-[0_12px_40px_-8px_rgb(0_0_0/0.35),inset_0_1px_0_color-mix(in_srgb,var(--eos-body)_6%,transparent)]",
           count && "pointer-events-auto",

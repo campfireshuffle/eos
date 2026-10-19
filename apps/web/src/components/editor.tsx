@@ -122,7 +122,7 @@ export function Editor({ id }: { id: string }) {
 
   if (diagram === null) {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center gap-3 bg-card text-sm text-muted-foreground md:rounded-tl-xl">
+      <main className="flex flex-1 flex-col items-center justify-center gap-3 bg-card text-body text-muted-foreground md:rounded-tl-xl">
         This diagram doesn’t exist.
         <Button variant="outline" asChild>
           <a href={homeHref()}>Back to diagrams</a>
@@ -227,7 +227,7 @@ export function Editor({ id }: { id: string }) {
               handleRef={editorRef}
             />
             {result?.ok ? (
-              <footer className="flex items-center gap-1.5 px-4 py-2.5 text-xs text-muted-foreground">
+              <footer className="flex items-center gap-1.5 px-4 py-2.5 text-caption text-muted-foreground">
                 <CircleCheck className="size-3.5 text-[var(--eos-green)]" />{" "}
                 Valid
               </footer>
@@ -235,7 +235,7 @@ export function Editor({ id }: { id: string }) {
               <footer className="flex flex-col gap-1.5 border-t border-border bg-[color-mix(in_srgb,var(--eos-red)_7%,transparent)] px-4 pt-3 pb-3.5">
                 <button
                   type="button"
-                  className="flex items-center gap-2 text-left text-xs font-medium"
+                  className="flex items-center gap-2 text-left text-caption font-medium"
                   onClick={() =>
                     editorRef.current?.focusLine(
                       result.error.line,
@@ -250,7 +250,7 @@ export function Editor({ id }: { id: string }) {
                   {result.error.message}
                 </button>
                 {result.error.snippet && (
-                  <pre className="pl-[22px] font-mono text-xs whitespace-pre text-muted-foreground">
+                  <pre className="pl-[22px] font-mono text-caption whitespace-pre text-muted-foreground">
                     {result.error.snippet}
                   </pre>
                 )}
@@ -277,7 +277,7 @@ export function Editor({ id }: { id: string }) {
                 onSvg={(el) => (svgRef.current = el)}
               />
               {result && !result.ok && (
-                <div className="absolute bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-[var(--eos-line-active)] bg-accent px-3 py-1.5 text-xs whitespace-nowrap text-muted-foreground">
+                <div className="absolute bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-[var(--eos-line-active)] bg-accent px-3 py-1.5 text-caption whitespace-nowrap text-muted-foreground">
                   <TriangleAlert className="size-3.5 text-destructive" />{" "}
                   Couldn’t render — showing the last valid version
                 </div>
@@ -292,7 +292,7 @@ export function Editor({ id }: { id: string }) {
 
 function Banner({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-2.5 rounded-lg border border-[var(--eos-line-hover)] bg-card px-3 py-1.5 text-[13px] md:mr-2">
+    <div className="flex items-center gap-2.5 rounded-lg border border-[var(--eos-line-hover)] bg-card px-3 py-1.5 text-body md:mr-2">
       {children}
     </div>
   )
@@ -316,7 +316,7 @@ function TitleInput({
       onKeyDown={(e) =>
         e.key === "Enter" && (e.target as HTMLInputElement).blur()
       }
-      className="field-sizing-content min-w-[4ch] max-w-full rounded-md bg-transparent px-1.5 py-1 text-sm font-medium outline-none hover:bg-accent/50 focus:bg-accent"
+      className="field-sizing-content min-w-[4ch] max-w-full rounded-md bg-transparent px-1.5 py-1 text-body font-medium outline-none hover:bg-accent/50 focus:bg-accent"
     />
   )
 }
@@ -330,7 +330,7 @@ function PanelHeader({
 }) {
   return (
     <header className="flex h-12 items-center gap-1 border-b border-border pr-2.5 pl-4">
-      <span className="flex-1 text-[13px]">{title}</span>
+      <span className="flex-1 text-body">{title}</span>
       {children}
     </header>
   )

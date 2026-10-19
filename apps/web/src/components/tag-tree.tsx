@@ -221,11 +221,11 @@ export function TagTree({
       <FileTree
         model={model}
         className="block min-h-0 flex-1"
-        style={mobile ? { ...TREE_STYLE, "--trees-font-size-override": "15px" } as CSSProperties : TREE_STYLE}
+        style={TREE_STYLE}
         renderContextMenu={(item, ctx) => {
           const tag = toTag.get(item.path)
           if (!tag) return null
-          const menuItem = "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-accent [&_svg]:size-4"
+          const menuItem = "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-body hover:bg-accent [&_svg]:size-4"
           return (
             <div className="min-w-44 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg">
               <button
@@ -287,7 +287,7 @@ const TREE_STYLE = {
   "--trees-focus-ring-width-override": "1px",
   "--trees-border-radius-override": "calc(var(--radius) * 0.8)",
   "--trees-font-family-override": "var(--font-sans)",
-  "--trees-font-size-override": "13px",
+  "--trees-font-size-override": "var(--eos-fs-body)",
   "--trees-font-weight-semibold-override": "500",
   "--trees-item-padding-x-override": "10px",
   "--trees-item-margin-x-override": "0px",
