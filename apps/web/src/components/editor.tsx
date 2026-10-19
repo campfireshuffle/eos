@@ -21,11 +21,7 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "@workspace/ui/components/resizable"
+import { ResizablePanel, ResizablePanelGroup } from "@workspace/ui/components/resizable"
 import {
   Tooltip,
   TooltipContent,
@@ -41,6 +37,7 @@ import { requestZoom, useUi } from "@/lib/ui-state"
 import { CodeEditor, type CodeEditorHandle } from "./code-editor"
 import { ExportMenu, useExportActions } from "./export-menu"
 import { Preview } from "./preview"
+import { ResizeHandle } from "./resize-handle"
 import { HistoryNav } from "./history-nav"
 import { SidebarToggle } from "./sidebar-toggle"
 
@@ -195,7 +192,7 @@ export function Editor({ id }: { id: string }) {
             ) : null}
           </section>
         </ResizablePanel>
-        <ResizableHandle className="bg-transparent hover:bg-[var(--eos-line-active)]/40 aria-[orientation=horizontal]:h-2 aria-[orientation=vertical]:w-2 data-[separator=active]:bg-[var(--eos-line-active)]/60" />
+        <ResizeHandle />
         <ResizablePanel
           id="preview"
           minSize={mobile ? "160px" : "320px"}
@@ -330,7 +327,7 @@ function useShortcuts(actions: ReturnType<typeof useExportActions>) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey
-      const inText = (e.target as HTMLElement).closest(
+      const inText = (e.target as HTMLElement | null)?.closest?.(
         ".cm-editor, input, textarea"
       )
       if (mod && (e.key === "=" || e.key === "+"))

@@ -9,7 +9,15 @@ import { useEos } from "@/lib/eos"
 import { DIAGRAM_MIME, readDraggedIds } from "@/lib/selection"
 import { homeHref, navigate } from "@/lib/router"
 
+import { Popover, PopoverAnchor, PopoverContent } from "@workspace/ui/components/popover"
+import { Smile, Trash2 } from "lucide-react"
+
+import { askConfirm } from "@/lib/ui-state"
+
 import { EmojiGrid } from "./tag-emoji-picker"
+
+/** Width of the "#"/emoji glyph at the start of a row's label; clicks there open the icon picker. */
+const ICON_HIT = 20
 
 /**
  * The tag tree, rendered by @pierre/trees. Tags become directory paths; each
@@ -33,6 +41,7 @@ export function TagTree({
   const syncing = useRef(false)
   const [dropTarget, setDropTarget] = useState<TagPath | null>(null)
   const host = useRef<HTMLDivElement | null>(null)
+  const [picker, setPicker] = useState<{ tag: TagPath; x: number; y: number } | null>(null)
   useLeafStyles(host, leaves)
 
   const { model } = useFileTree({
@@ -113,9 +122,45 @@ export function TagTree({
     return null
   }
 
+  /** If the pointer is over a row's leading icon glyph, returns that row's tag and anchor point. */
+  const iconHit = (e: React.MouseEvent | React.PointerEvent) => {
+    let row: HTMLElement | null = null
+    let content: HTMLElement | null = null
+    for (const node of e.nativeEvent.composedPath()) {
+      if (!(node instanceof HTMLElement)) continue
+      if (!content && node.getAttribute("data-item-section") === "content") content = node
+      if (node.hasAttribute("data-item-path")) {
+        row = node
+        break
+      }
+    }
+    if (!row || !content) return null
+    const r = content.getBoundingClientRect()
+    if (e.clientX < r.left - 2 || e.clientX > r.left + ICON_HIT) return null
+    const tag = toTag.get(row.getAttribute("data-item-path")!)
+    return tag ? { tag, x: r.left, y: row.getBoundingClientRect().bottom } : null
+  }
+  // Capture runs on the host before the tree's own handlers, so we can keep the row from selecting.
+  const swallowIcon = (e: React.MouseEvent | React.PointerEvent) => {
+    if (e.button !== 0 || !iconHit(e)) return
+    e.stopPropagation()
+    e.preventDefault()
+  }
+
+  const currentEmoji = picker ? findEmoji(tags, picker.tag) : null
+
   return (
     <div
       ref={host}
+      onPointerDownCapture={swallowIcon}
+      onMouseDownCapture={swallowIcon}
+      onClickCapture={(e) => {
+        const hit = e.button === 0 ? iconHit(e) : null
+        if (!hit) return
+        e.stopPropagation()
+        e.preventDefault()
+        setPicker(hit)
+      }}
       className={cn(
         "flex min-h-0 flex-1 flex-col",
         dropTarget && "eos-tag-tree-dropping"
@@ -150,19 +195,50 @@ export function TagTree({
         renderContextMenu={(item, ctx) => {
           const tag = toTag.get(item.path)
           if (!tag) return null
+          const menuItem = "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-accent [&_svg]:size-4"
           return (
-            <div className="w-[272px] rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg">
-              <EmojiGrid
-                current={tags.length ? findEmoji(tags, tag) : null}
-                onChoose={(emoji) => {
-                  void eos.setTagEmoji(tag, emoji)
-                  ctx.close()
+            <div className="min-w-44 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg">
+              <button
+                type="button"
+                className={menuItem}
+                onClick={() => {
+                  const r = ctx.anchorRect
+                  ctx.close({ restoreFocus: false })
+                  setPicker({ tag, x: r.left, y: r.bottom })
                 }}
-              />
+              >
+                <Smile className="text-muted-foreground" /> Change icon
+              </button>
+              <button
+                type="button"
+                className={cn(menuItem, "text-destructive")}
+                onClick={async () => {
+                  ctx.close()
+                  if (await askConfirm(`Remove “${tag}” from every diagram? Nested tags are removed too.`)) void eos.deleteTag(tag)
+                }}
+              >
+                <Trash2 /> Delete tag
+              </button>
             </div>
           )
         }}
       />
+      <Popover open={!!picker} onOpenChange={(open) => !open && setPicker(null)}>
+        <PopoverAnchor asChild>
+          <span className="pointer-events-none fixed size-px" style={{ left: picker?.x ?? 0, top: picker?.y ?? 0 }} />
+        </PopoverAnchor>
+        <PopoverContent align="start" className="w-[272px] p-3">
+          {picker && (
+            <EmojiGrid
+              current={currentEmoji}
+              onChoose={(emoji) => {
+                void eos.setTagEmoji(picker.tag, emoji)
+                setPicker(null)
+              }}
+            />
+          )}
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }
@@ -197,16 +273,10 @@ const TREE_STYLE = {
 function highlightRow(wrapper: HTMLElement | null, treePath: string | null) {
   const root = wrapper?.querySelector(FILE_TREE_TAG_NAME)?.shadowRoot
   if (!root) return
-  root.querySelectorAll<HTMLElement>("[data-eos-drop]").forEach((el) => {
-    el.removeAttribute("data-eos-drop")
-    el.style.outline = ""
-  })
+  root.querySelectorAll<HTMLElement>("[data-eos-drop]").forEach((el) => el.removeAttribute("data-eos-drop"))
   if (!treePath) return
   const row = root.querySelector<HTMLElement>(`[data-item-path="${CSS.escape(treePath)}"]`)
-  if (row) {
-    row.setAttribute("data-eos-drop", "")
-    row.style.outline = "1px solid var(--eos-champagne)"
-  }
+  row?.setAttribute("data-eos-drop", "")
 }
 
 /** Hides the expand chevron on tags without children (the tree treats every tag as a folder). */
@@ -225,6 +295,10 @@ function useLeafStyles(wrapper: React.RefObject<HTMLDivElement | null>, leaves: 
       style.textContent = [
         // Context menu opens on right-click; don't reserve the button lane.
         `[data-item-section="action"] { display: none; }`,
+        // Drop target for dragged diagram cards.
+        `[data-eos-drop] { background: color-mix(in srgb, var(--eos-champagne) 14%, transparent) !important; color: var(--eos-body) !important; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--eos-champagne) 55%, transparent); }`,
+        // The leading glyph opens the icon picker.
+        `[data-item-section="content"] { cursor: default; }`,
         // Only show the focused-row ring while the tree itself has keyboard focus.
         `:host(:not(:focus-within)) [data-item-focused], :host(:not(:focus-within)) [data-item-focused]::before, :host(:not(:focus-within)) [data-item-focused]::after { outline: none !important; box-shadow: none !important; border-color: transparent !important; }`,
         ...leaves.map((p) => `[data-item-path="${CSS.escape(p)}"] [data-item-section="icon"] { visibility: hidden; }`),

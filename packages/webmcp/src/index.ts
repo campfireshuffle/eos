@@ -287,6 +287,17 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
       execute: async ({ from, to }) => (await eos.renameTag(from as string, to as string, agent("rename_tag")), ok()),
     },
     {
+      name: "delete_tag",
+      description: "Delete a tag (and tags nested under it) from every diagram. Asks the person to confirm.",
+      inputSchema: obj({ path: str() }, ["path"]),
+      annotations: { destructiveHint: true },
+      execute: async ({ path }) => {
+        if (!(await confirmed(`The agent wants to delete the tag “${String(path)}” from all diagrams.`)))
+          return fail("user_declined", "The person declined")
+        return ok({ diagrams: await eos.deleteTag(path as string, agent("delete_tag")) })
+      },
+    },
+    {
       name: "set_tag_emoji",
       description: "Set a tag's sidebar icon to an emoji, or null for the default #.",
       inputSchema: obj({ path: str(), emoji: { type: ["string", "null"] } }, ["path"]),

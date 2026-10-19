@@ -52,7 +52,8 @@ export function startCardDrag(e: React.DragEvent, id: string) {
     background: "var(--eos-ivory)",
   })
   document.body.append(ghost)
-  e.dataTransfer.setDragImage(ghost, -8, -8)
+  // Sit below-right of the cursor so the row under it stays readable.
+  e.dataTransfer.setDragImage(ghost, -16, -20)
   setTimeout(() => ghost.remove())
 }
 

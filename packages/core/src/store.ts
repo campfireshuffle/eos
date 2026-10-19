@@ -256,6 +256,20 @@ export class Eos {
     }
   }
 
+  /** Removes a tag (and any tags nested under it) from every diagram. */
+  async deleteTag(path: string, actor: Actor = USER): Promise<number> {
+    const tag = normalizeTag(path)
+    if (!tag) return 0
+    const rows = await this.db.getAllFromIndex("diagrams", "byTag", tag)
+    for (const row of rows) {
+      await this.mutate(row.id, actor, (d) => setTags(d.meta, metaOf(d).tags.filter((t) => !tagMatches(t, tag))))
+    }
+    for (const key of this.workspace.tagEmoji.keys()) if (tagMatches(key, tag)) this.workspace.tagEmoji.delete(key)
+    commit(this.workspace.doc, actor)
+    this.emit("library")
+    return rows.length
+  }
+
   async setTagEmoji(path: string, emoji: string | null, actor: Actor = USER) {
     const tag = normalizeTag(path)
     if (!tag) return

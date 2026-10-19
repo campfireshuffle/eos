@@ -2,11 +2,12 @@ import { useEffect, type ReactNode } from "react"
 import { useDefaultLayout } from "react-resizable-panels"
 
 import { decodeShare } from "@eos/core"
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@workspace/ui/components/resizable"
+import { ResizablePanel, ResizablePanelGroup } from "@workspace/ui/components/resizable"
 import { Sheet, SheetContent, SheetTitle } from "@workspace/ui/components/sheet"
 import { TooltipProvider } from "@workspace/ui/components/tooltip"
 
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import { ResizeHandle } from "@/components/resize-handle"
 import { Editor } from "@/components/editor"
 import { Home } from "@/components/home"
 import { SettingsDialog } from "@/components/settings-dialog"
@@ -75,7 +76,7 @@ function Shell({ route, children }: { route: Route; children: ReactNode }) {
         >
           {sidebar}
         </ResizablePanel>
-        <ResizableHandle className="w-2 bg-transparent after:w-2 hover:bg-[var(--eos-line-active)]/40 data-[separator=active]:bg-[var(--eos-line-active)]/60" />
+        <ResizeHandle />
         <ResizablePanel id="content" minSize="360px" className="flex min-w-0">
           {children}
         </ResizablePanel>

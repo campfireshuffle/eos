@@ -1,6 +1,8 @@
 import { mount, type Mounted } from "pele"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 
+import { cn } from "@workspace/ui/lib/utils"
+
 import { setUi, useUi } from "@/lib/ui-state"
 
 const MIN = 0.1
@@ -89,12 +91,61 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoomRequest])
 
+  const [panning, setPanning] = useState(false)
+  const [spaceHeld, setSpaceHeld] = useState(false)
+
+  // Hold Space to show the hand cursor (as in Figma), unless typing.
+  useEffect(() => {
+    const typing = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.(".cm-editor, input, textarea, [contenteditable]")
+    const down = (e: KeyboardEvent) => e.code === "Space" && !typing(e.target) && (e.preventDefault(), setSpaceHeld(true))
+    const up = (e: KeyboardEvent) => e.code === "Space" && setSpaceHeld(false)
+    window.addEventListener("keydown", down)
+    window.addEventListener("keyup", up)
+    window.addEventListener("blur", () => setSpaceHeld(false))
+    return () => {
+      window.removeEventListener("keydown", down)
+      window.removeEventListener("keyup", up)
+    }
+  }, [])
+
+  /** Pan like a canvas: middle-button drag, Space + drag, or plain left-drag. */
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0 && e.button !== 1) return
+    const el = scroller.current!
+    e.preventDefault() // stops middle-click autoscroll and text selection
+    el.setPointerCapture(e.pointerId)
+    const start = { x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop }
+    setPanning(true)
+    const move = (ev: PointerEvent) => {
+      el.scrollLeft = start.left - (ev.clientX - start.x)
+      el.scrollTop = start.top - (ev.clientY - start.y)
+    }
+    const up = () => {
+      setPanning(false)
+      el.removeEventListener("pointermove", move)
+      el.removeEventListener("pointerup", up)
+      el.removeEventListener("pointercancel", up)
+    }
+    el.addEventListener("pointermove", move)
+    el.addEventListener("pointerup", up)
+    el.addEventListener("pointercancel", up)
+  }
+
+  // When zoomed past fit, leave room around the diagram so any edge can be panned to the middle.
+  const zoomedIn = scale > fit + 0.001
+  const margin = zoomedIn ? Math.round(Math.min(box.w, box.h) * 0.4) : 24
+
   return (
     <div
       ref={scroller}
-      className="h-full w-full overflow-auto"
+      onPointerDown={onPointerDown}
+      onAuxClick={(e) => e.button === 1 && e.preventDefault()}
+      className={cn(
+        "h-full w-full touch-none overflow-auto select-none",
+        panning ? "cursor-grabbing" : zoomedIn || spaceHeld ? "cursor-grab" : "cursor-default",
+      )}
     >
-      <div className="flex min-h-full min-w-full w-max items-center justify-center p-6">
+      <div className="flex min-h-full min-w-full w-max items-center justify-center" style={{ padding: margin }}>
         <div ref={host} className="pele-preview transition-opacity data-[stale=true]:opacity-30" data-stale={!valid} />
       </div>
     </div>

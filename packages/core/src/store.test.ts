@@ -44,6 +44,16 @@ describe("Eos store", () => {
     expect(work.children.map((c) => c.path)).toEqual(["work/backend", "work/payments"])
   })
 
+  it("deletes a tag and its nested tags from every diagram", async () => {
+    const eos = await fresh()
+    const a = await eos.createDiagram({ title: "a", tags: ["work/backend", "ideas"] })
+    const b = await eos.createDiagram({ title: "b", tags: ["work"] })
+    expect(await eos.deleteTag("work")).toBe(2)
+    expect((await eos.getDiagram(a))?.meta.tags).toEqual(["ideas"])
+    expect((await eos.getDiagram(b))?.meta.tags).toEqual([])
+    expect((await eos.listTags()).map((t) => t.path)).toEqual(["ideas"])
+  })
+
   it("persists across instances", async () => {
     const name = `persist-${n++}`
     const first = await Eos.create({ dbName: name, seed: false })
