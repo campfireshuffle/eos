@@ -21,10 +21,10 @@ import { SidebarToggle } from "./sidebar-toggle"
 export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   const eos = useEos()
   const [query, setQuery] = useState("")
-  const rows = useLibrary({ query, starred: route.starred, tags: route.tag ? [route.tag] : [], sort: route.sort })
+  const rows = useLibrary({ query, starred: route.starred, deleted: route.deleted, tags: route.tag ? [route.tag] : [], sort: route.sort })
   const tags = useTags()
   const emoji = route.tag ? findEmoji(tags ?? [], route.tag) : null
-  useEffect(() => clearSelection(), [route.tag, route.starred])
+  useEffect(() => clearSelection(), [route.tag, route.starred, route.deleted])
 
   const create = async () => {
     const id = await eos.createDiagram({ tags: route.tag ? [route.tag] : [] })
@@ -37,7 +37,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
       <header className="flex items-center gap-2 border-b border-border py-3.5 pr-4 pl-4 md:pl-6">
         <SidebarToggle />
         <HistoryNav />
-        <h1 className="flex-1 text-[15px] font-medium">Diagrams</h1>
+        <h1 className="flex-1 text-[15px] font-medium">{route.deleted ? "Recently deleted" : "Diagrams"}</h1>
         <div className="relative w-[280px] max-md:hidden">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search diagrams" className="pl-8" />
@@ -94,10 +94,16 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
 
         {rows && rows.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
-            {query || route.tag || route.starred ? "No diagrams match." : "No diagrams yet."}
-            <Button variant="outline" onClick={create}>
-              <Plus /> New diagram
-            </Button>
+            {route.deleted
+              ? "Nothing in Recently deleted."
+              : query || route.tag || route.starred
+                ? "No diagrams match."
+                : "No diagrams yet."}
+            {!route.deleted && (
+              <Button variant="outline" onClick={create}>
+                <Plus /> New diagram
+              </Button>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-7">
@@ -119,7 +125,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
           </div>
         )}
       </Marquee>
-      <SelectionBar />
+      <SelectionBar deleted={route.deleted} />
     </main>
   )
 }

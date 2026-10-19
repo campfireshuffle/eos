@@ -101,7 +101,7 @@ export class Eos {
 
   async listDiagrams(filter: LibraryFilter = {}): Promise<DiagramIndexRow[]> {
     let rows = await this.db.getAll("diagrams")
-    rows = rows.filter((r) => (filter.includeDeleted ? true : !r.deletedAt))
+    rows = rows.filter((r) => (filter.deleted ? !!r.deletedAt : filter.includeDeleted || !r.deletedAt))
     if (filter.starred) rows = rows.filter((r) => r.starred === 1)
     for (const tag of filter.tags ?? []) rows = rows.filter((r) => r.tags.some((t) => tagMatches(t, tag)))
     const q = filter.query?.trim().toLowerCase()
@@ -122,9 +122,10 @@ export class Eos {
     return buildTagTree(rows, this.workspace.tagEmoji.toJSON() as Record<string, string | null>)
   }
 
-  async counts(): Promise<{ all: number; starred: number }> {
-    const rows = (await this.db.getAll("diagrams")).filter((r) => !r.deletedAt)
-    return { all: rows.length, starred: rows.filter((r) => r.starred).length }
+  async counts(): Promise<{ all: number; starred: number; deleted: number }> {
+    const all = await this.db.getAll("diagrams")
+    const rows = all.filter((r) => !r.deletedAt)
+    return { all: rows.length, starred: rows.filter((r) => r.starred).length, deleted: all.length - rows.length }
   }
 
   // ── Diagrams ───────────────────────────────────────────────────────────────

@@ -43,6 +43,8 @@ export interface LibraryFilter {
   tags?: TagPath[]
   sort?: LibrarySort
   includeDeleted?: boolean
+  /** Only diagrams in Recently deleted. */
+  deleted?: boolean
 }
 
 export type ThemeMode = "system" | "light" | "dark"

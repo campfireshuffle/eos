@@ -105,24 +105,31 @@ export function decodeVersion(version: string): { peer: `${number}`; counter: nu
     })
 }
 
+/** Edits by the same actor within this window collapse into one history entry. */
+const HISTORY_SESSION_MS = 2 * 60_000
+
 export function historyOf(doc: LoroDoc, limit = 50): HistoryEntry[] {
+  const changes = [...doc.getAllChanges().values()].flat().sort((a, b) => a.lamport - b.lamport)
   const entries: HistoryEntry[] = []
-  for (const [, changes] of doc.getAllChanges()) {
-    for (const c of changes) {
-      let actor: Actor = { kind: "user" }
-      try {
-        if (c.message) actor = JSON.parse(c.message) as Actor
-      } catch {
-        // Older changes may carry free-form messages; treat them as the user's.
-      }
-      entries.push({
-        version: `${c.peer}:${c.counter + c.length - 1}`,
-        actor,
-        at: (c.timestamp ?? 0) * 1000,
-      })
+  for (const c of changes) {
+    let actor: Actor = { kind: "user" }
+    try {
+      if (c.message) actor = JSON.parse(c.message) as Actor
+    } catch {
+      // Older changes may carry free-form messages; treat them as the user's.
     }
+    const entry = { version: `${c.peer}:${c.counter + c.length - 1}`, actor, at: (c.timestamp ?? 0) * 1000 }
+    const prev = entries.at(-1)
+    if (prev && sameActor(prev.actor, actor) && entry.at - prev.at < HISTORY_SESSION_MS) {
+      prev.version = entry.version
+      prev.at = entry.at
+    } else entries.push(entry)
   }
-  return entries.sort((a, b) => b.at - a.at).slice(0, limit)
+  return entries.reverse().slice(0, limit)
+}
+
+function sameActor(a: Actor, b: Actor): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
 }
 
 /** Last change time in ms, or 0. */

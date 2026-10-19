@@ -73,7 +73,9 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
   }, [])
 
   const pad = 48
-  const fit = natural && box.w ? Math.min((box.w - pad) / natural.w, (box.h - pad) / natural.h, MAX) : 1
+  // Fit shrinks big diagrams to the pane but won't blow small ones up past 200%.
+  const FIT_MAX = 2
+  const fit = natural && box.w ? Math.min((box.w - pad) / natural.w, (box.h - pad) / natural.h, FIT_MAX) : 1
   const scale = mode === "fit" ? fit : mode
   modeRef.current = mode
   const scaleRef = useRef(scale)
@@ -126,7 +128,11 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
     if (e.button !== 0 && e.button !== 1) return
     const el = scroller.current!
     e.preventDefault() // stops middle-click autoscroll and text selection
-    el.setPointerCapture(e.pointerId)
+    try {
+      el.setPointerCapture(e.pointerId)
+    } catch {
+      // Capture can fail for synthetic or already-released pointers; dragging still works without it.
+    }
     const start = { x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop }
     setPanning(true)
     const move = (ev: PointerEvent) => {

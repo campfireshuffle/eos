@@ -8,6 +8,9 @@ import {
   Star,
   TriangleAlert,
   Undo2,
+  History as HistoryIcon,
+  RotateCcw,
+  Trash2,
 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
@@ -32,9 +35,10 @@ import { useDefaultLayout } from "react-resizable-panels"
 import { useDiagram, useEos } from "@/lib/eos"
 import { useIsMobile } from "@/lib/layout"
 import { homeHref } from "@/lib/router"
-import { requestZoom, useUi } from "@/lib/ui-state"
+import { getUi, requestZoom, setUi, useUi } from "@/lib/ui-state"
 
 import { CodeEditor, type CodeEditorHandle } from "./code-editor"
+import { formatWhen, HistoryMenu } from "./history-menu"
 import { ExportMenu, useExportActions } from "./export-menu"
 import { Preview } from "./preview"
 import { ResizeHandle } from "./resize-handle"
@@ -67,12 +71,28 @@ export function Editor({ id }: { id: string }) {
     }
   }, [eos, id, diagram?.source])
 
+  // Previewing a past version shows its source read-only in both panes.
+  const preview = useUi((s) => s.preview)
+  const previewing = preview?.id === id ? preview : null
+  const [previewSource, setPreviewSource] = useState<string | null>(null)
+  useEffect(() => {
+    if (!previewing) return setPreviewSource(null)
+    let alive = true
+    void eos.getSource(id, previewing.version).then((s) => alive && setPreviewSource(s))
+    return () => {
+      alive = false
+    }
+  }, [eos, id, previewing])
+  // Leaving this diagram ends its preview (but not one just opened for another diagram).
+  useEffect(() => () => void (getUi().preview?.id === id && setUi({ preview: null })), [id])
+  const shown = previewing ? previewSource : source
+
   const result = useMemo(
-    () => (source === null ? null : validate(source)),
-    [source]
+    () => (shown === null ? null : validate(shown)),
+    [shown]
   )
   const lastValid = useRef<string>("")
-  if (result?.ok && source !== null) lastValid.current = source
+  if (result?.ok && shown !== null) lastValid.current = shown
 
   const onChange = (next: string) => {
     sentLocally.current.add(next)
@@ -134,6 +154,35 @@ export function Editor({ id }: { id: string }) {
         </IconButton>
       </div>
 
+      {previewing && (
+        <Banner>
+          <HistoryIcon className="size-4 text-muted-foreground" />
+          <span className="flex-1 truncate">
+            Viewing the version from {formatWhen(previewing.at)} · {previewing.label}
+          </span>
+          <Button
+            size="xs"
+            onClick={async () => {
+              await eos.restoreVersion(id, previewing.version)
+              setUi({ preview: null })
+            }}
+          >
+            Restore this version
+          </Button>
+          <Button size="xs" variant="ghost" onClick={() => setUi({ preview: null })}>
+            Back to latest
+          </Button>
+        </Banner>
+      )}
+      {!previewing && diagram.deletedAt && (
+        <Banner>
+          <Trash2 className="size-4 text-muted-foreground" />
+          <span className="flex-1">This diagram is in Recently deleted.</span>
+          <Button size="xs" onClick={() => eos.restoreDiagram(id)}>
+            <RotateCcw /> Restore
+          </Button>
+        </Banner>
+      )}
       <ResizablePanelGroup
         key={orientation}
         orientation={orientation}
@@ -159,18 +208,21 @@ export function Editor({ id }: { id: string }) {
                   <div className="mx-1 h-4 w-px bg-border" />
                 </>
               )}
+              <HistoryMenu id={id} />
               <IconButton
                 label="Copy source"
-                onClick={() => navigator.clipboard.writeText(source)}
+                onClick={() => navigator.clipboard.writeText(shown ?? "")}
               >
                 <Copy />
               </IconButton>
             </PanelHeader>
             <CodeEditor
-              value={source}
-              onChange={onChange}
-              onUndo={undo}
-              onRedo={redo}
+              key={previewing ? `preview:${previewing.version}` : "live"}
+              value={shown ?? ""}
+              readOnly={!!previewing}
+              onChange={previewing ? undefined : onChange}
+              onUndo={previewing ? undefined : undo}
+              onRedo={previewing ? undefined : redo}
               errorAt={result && !result.ok ? result.error.line || null : null}
               handleRef={editorRef}
             />
@@ -219,7 +271,7 @@ export function Editor({ id }: { id: string }) {
             </PanelHeader>
             <div className="relative min-h-0 flex-1">
               <Preview
-                source={result?.ok ? source : lastValid.current}
+                source={result?.ok ? (shown ?? "") : lastValid.current}
                 valid={!!result?.ok || !lastValid.current}
                 onSvg={(el) => (svgRef.current = el)}
               />
@@ -233,6 +285,14 @@ export function Editor({ id }: { id: string }) {
           </section>
         </ResizablePanel>
       </ResizablePanelGroup>
+    </div>
+  )
+}
+
+function Banner({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2.5 rounded-lg border border-[var(--eos-line-hover)] bg-card px-3 py-1.5 text-[13px] md:mr-2">
+      {children}
     </div>
   )
 }

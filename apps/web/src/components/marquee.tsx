@@ -25,7 +25,11 @@ export function Marquee({ children, className }: { children: ReactNode; classNam
     const start = { x: e.clientX - origin.left + el.scrollLeft, y: e.clientY - origin.top + el.scrollTop }
     const base = e.shiftKey || e.metaKey || e.ctrlKey ? new Set(getSelection()) : new Set<string>()
     let moved = false
-    el.setPointerCapture(e.pointerId)
+    try {
+      el.setPointerCapture(e.pointerId)
+    } catch {
+      // Capture can fail for synthetic or already-released pointers; dragging still works without it.
+    }
 
     const move = (ev: PointerEvent) => {
       const r = el.getBoundingClientRect()

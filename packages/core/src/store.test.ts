@@ -54,6 +54,32 @@ describe("Eos store", () => {
     expect((await eos.listTags()).map((t) => t.path)).toEqual(["ideas"])
   })
 
+  it("soft-deletes, lists, restores and purges", async () => {
+    const eos = await fresh()
+    const id = await eos.createDiagram({ title: "gone" })
+    await eos.deleteDiagram(id)
+    expect((await eos.listDiagrams()).length).toBe(0)
+    expect((await eos.listDiagrams({ deleted: true })).map((r) => r.id)).toEqual([id])
+    expect((await eos.counts()).deleted).toBe(1)
+    await eos.restoreDiagram(id)
+    expect((await eos.listDiagrams()).length).toBe(1)
+    await eos.deleteDiagram(id)
+    await eos.purge(id)
+    expect((await eos.listDiagrams({ includeDeleted: true })).length).toBe(0)
+  })
+
+  it("collapses a burst of edits into one history entry", async () => {
+    const eos = await fresh()
+    const id = await eos.createDiagram({ source: "a" })
+    for (const s of ["ab", "abc", "abcd"]) await eos.setSource(id, s)
+    await eos.setSource(id, "agent", { kind: "agent", tool: "set_source" })
+    const h = await eos.history(id)
+    expect(h.map((e) => e.actor.kind)).toEqual(["agent", "user", "system"].filter((k) => h.some((e) => e.actor.kind === k)))
+    expect(h.filter((e) => e.actor.kind === "user").length).toBe(1)
+    const userEntry = h.find((e) => e.actor.kind === "user")!
+    expect(await eos.getSource(id, userEntry.version)).toBe("abcd")
+  })
+
   it("persists across instances", async () => {
     const name = `persist-${n++}`
     const first = await Eos.create({ dbName: name, seed: false })

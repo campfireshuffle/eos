@@ -9,11 +9,14 @@ interface UiState {
   confirm: { message: string; action: string; resolve: (ok: boolean) => void } | null
   sidebarCollapsed: boolean
   mobileNavOpen: boolean
+  /** A past version being previewed read-only in the editor. */
+  preview: { id: string; version: string; at: number; label: string } | null
 }
 
 let state: UiState = {
   sidebarCollapsed: false,
   mobileNavOpen: false,
+  preview: null,
   settingsOpen: false,
   settingsTab: "theming",
   zoomRequest: null,

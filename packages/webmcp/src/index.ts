@@ -19,6 +19,8 @@ export interface UiBridge {
   setLibraryView(view: { starred?: boolean; tags?: TagPath[]; sort?: LibrarySort }): void
   setZoom(action: "in" | "out" | "fit" | "actual"): void
   openSettings(open: boolean): void
+  /** Shows a past version read-only in the editor, or returns to the latest. */
+  previewVersion(id: DiagramId, version: string | null, meta?: { at: number; label: string }): void
   /** Resolves true when the person allows a destructive agent action. */
   confirm(message: string, action?: string): Promise<boolean>
   download(name: string, data: string | Blob): void
@@ -253,6 +255,27 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
       inputSchema: obj({ id: str(), limit: { type: "number" } }, ["id"]),
       annotations: { readOnlyHint: true },
       execute: async ({ id, limit }) => (await guard(id)) ?? ok({ versions: await eos.history(id as string, limit as number | undefined) }),
+    },
+    {
+      name: "preview_version",
+      description: "Open a diagram and show a past version read-only (as the History menu does), or pass \"latest\" to return to the current version.",
+      inputSchema: obj({ id: str(), version: str("A version id from list_versions, or \"latest\"") }, ["id", "version"]),
+      execute: async ({ id, version }) => {
+        const missing = await guard(id)
+        if (missing) return missing
+        ui.openDiagram(id as string)
+        if (version === "latest") {
+          ui.previewVersion(id as string, null)
+          return ok()
+        }
+        const entry = (await eos.history(id as string, 500)).find((e) => e.version === version)
+        if (!entry) return fail("not_found", "No such version")
+        ui.previewVersion(id as string, version as string, {
+          at: entry.at,
+          label: entry.actor.kind === "agent" ? `Agent · ${entry.actor.tool}` : entry.actor.kind === "user" ? "You" : entry.actor.kind,
+        })
+        return ok()
+      },
     },
     {
       name: "restore_version",

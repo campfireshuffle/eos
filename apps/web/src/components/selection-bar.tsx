@@ -1,4 +1,4 @@
-import { Star, Trash2, X } from "lucide-react"
+import { RotateCcw, Star, Trash2, X } from "lucide-react"
 
 import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
@@ -10,7 +10,7 @@ import { askConfirm } from "@/lib/ui-state"
 import { TagMenu } from "./tag-menu"
 
 /** Floating, glassy action bar for selected cards (à la Linear / Figma). */
-export function SelectionBar() {
+export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
   const eos = useEos()
   const selection = useSelection()
   const count = selection.size
@@ -36,27 +36,58 @@ export function SelectionBar() {
       >
         <span className="pr-2 tabular-nums">{count} selected</span>
         <div className="mx-1 h-4 w-px bg-[var(--eos-line-hover)]" />
-        <Button
-          variant="ghost"
-          size="sm"
-          className="rounded-full"
-          onClick={() => ids.forEach((id) => void eos.setStarred(id, true))}
-        >
-          <Star /> Star
-        </Button>
-        <TagMenu ids={ids} />
-        <Button
-          variant="ghost"
-          size="sm"
-          className="rounded-full text-destructive hover:text-destructive"
-          onClick={async () => {
-            if (!(await askConfirm(`Delete ${count === 1 ? "this diagram" : `${count} diagrams`}?`))) return
-            await Promise.all(ids.map((id) => eos.deleteDiagram(id)))
-            clearSelection()
-          }}
-        >
-          <Trash2 /> Delete
-        </Button>
+        {deleted ? (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="rounded-full"
+              onClick={async () => {
+                await Promise.all(ids.map((id) => eos.restoreDiagram(id)))
+                clearSelection()
+              }}
+            >
+              <RotateCcw /> Restore
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="rounded-full text-destructive hover:text-destructive"
+              onClick={async () => {
+                const what = count === 1 ? "this diagram" : `${count} diagrams`
+                if (!(await askConfirm(`Permanently delete ${what}? This can’t be undone.`, "Delete forever"))) return
+                await Promise.all(ids.map((id) => eos.purge(id)))
+                clearSelection()
+              }}
+            >
+              <Trash2 /> Delete forever
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="rounded-full"
+              onClick={() => ids.forEach((id) => void eos.setStarred(id, true))}
+            >
+              <Star /> Star
+            </Button>
+            <TagMenu ids={ids} />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="rounded-full text-destructive hover:text-destructive"
+              onClick={async () => {
+                if (!(await askConfirm(`Move ${count === 1 ? "this diagram" : `${count} diagrams`} to Recently deleted?`))) return
+                await Promise.all(ids.map((id) => eos.deleteDiagram(id)))
+                clearSelection()
+              }}
+            >
+              <Trash2 /> Delete
+            </Button>
+          </>
+        )}
         <div className="mx-1 h-4 w-px bg-[var(--eos-line-hover)]" />
         <Button variant="ghost" size="icon-sm" className="rounded-full text-muted-foreground" aria-label="Clear selection" onClick={clearSelection}>
           <X />

@@ -1,4 +1,4 @@
-import { LayoutGrid, PanelLeft, Settings, Star } from "lucide-react"
+import { LayoutGrid, PanelLeft, Settings, Star, Trash2 } from "lucide-react"
 import { useState, type ReactNode } from "react"
 
 import type { TagPath } from "@eos/core"
@@ -44,7 +44,7 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
         icon={<LayoutGrid />}
         label="All diagrams"
         count={counts?.all}
-        active={!!home && !home.starred && !home.tag}
+        active={!!home && !home.starred && !home.deleted && !home.tag}
       />
       <NavItem
         href={homeHref({ starred: true, sort: home?.sort, group: home?.group })}
@@ -59,6 +59,15 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
       {!!tags?.length && <TagTree tags={tags} selected={selectedTag} sort={home?.sort} group={home?.group} />}
 
       {!tags?.length && <div className="flex-1" />}
+      {!!counts?.deleted && (
+        <NavItem
+          href={homeHref({ deleted: true, sort: home?.sort, group: home?.group })}
+          icon={<Trash2 />}
+          label="Recently deleted"
+          count={counts.deleted}
+          active={!!home?.deleted}
+        />
+      )}
       <button
         type="button"
         onClick={() => setUi({ settingsOpen: true })}

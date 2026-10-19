@@ -13,6 +13,7 @@ const ui = (confirm = true): UiBridge => ({
   setLibraryView: vi.fn(),
   setZoom: vi.fn(),
   openSettings: vi.fn(),
+  previewVersion: vi.fn(),
   confirm: vi.fn(async () => confirm),
   download: vi.fn(),
 })

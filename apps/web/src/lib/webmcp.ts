@@ -15,6 +15,8 @@ export function connectWebMcp(eos: Eos): () => void {
     setLibraryView: ({ starred, tags, sort }) => navigate(homeHref({ starred, tag: tags?.[0] ?? null, sort })),
     setZoom: requestZoom,
     openSettings: (open) => setUi({ settingsOpen: open }),
+    previewVersion: (id, version, meta) =>
+      setUi({ preview: version ? { id, version, at: meta?.at ?? Date.now(), label: meta?.label ?? "" } : null }),
     confirm: askConfirm,
     download: (name, data) => download(name, data),
   }
