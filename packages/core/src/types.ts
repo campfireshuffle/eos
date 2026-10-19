@@ -62,6 +62,8 @@ export interface DiagramSnapshot {
   id: DiagramId
   meta: DiagramMeta
   source: string
+  /** The version `source` is at, read with it. */
+  version: string
   starred: boolean
   updatedAt: number
   deletedAt?: number

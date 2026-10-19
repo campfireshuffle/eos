@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest"
 
 import { fromBase64, toBase64 } from "./base64"
 import { decodeShare, encodeShare } from "./share"
-import { Eos } from "./store"
+import { Eos, UnknownVersionError } from "./store"
 import type { TextChange } from "./types"
 
 let n = 0
@@ -30,6 +30,18 @@ describe("Eos store", () => {
     expect(await eos.getSource(id)).toBe("one")
     expect(await eos.redo(id)).toBe(true)
     expect(await eos.getSource(id)).toBe("two")
+  })
+
+  it("rejects a version the diagram doesn't have, changing nothing", async () => {
+    const eos = await fresh()
+    const id = await eos.createDiagram({ source: "one" })
+    for (const version of ["bogus", "123:4"]) {
+      await expect(eos.getSource(id, version)).rejects.toBeInstanceOf(UnknownVersionError)
+      await expect(eos.restoreVersion(id, version)).rejects.toBeInstanceOf(UnknownVersionError)
+      await expect(eos.editDiagram(id, { source: "two" }, undefined, { base: version })).rejects.toBeInstanceOf(UnknownVersionError)
+    }
+    expect(await eos.getSource(id)).toBe("one")
+    expect((await eos.canUndo(id)).canUndo).toBe(false)
   })
 
   it("stars, filters and builds the tag tree", async () => {
@@ -156,6 +168,29 @@ describe("editor binding", () => {
     await settle()
     expect(a.state.text).toBe("one\nthreebbbb")
     expect(b.state.text).toBe(a.state.text)
+  })
+
+  it("starts a fresh burst after an undo that found its text already gone", async () => {
+    const name = `gone-${n++}`
+    const one = await Eos.create({ dbName: name, seed: false })
+    const id = await one.createDiagram({ source: "one\ntwo" })
+    const two = await Eos.create({ dbName: name, seed: false })
+    const a = await editor(one, id)
+    const b = await editor(two, id)
+    a.type(3, "x")
+    await settle()
+    b.binding.edit([{ from: 3, to: 4, insert: "" }]) // the other tab deletes the "x"
+    await settle()
+    expect(await one.undo(id)).toBe(false)
+    await new Promise((r) => setTimeout(r, 900)) // a pause, so the next keystroke starts a new burst
+    a.type(0, "z")
+    await settle()
+    b.type(b.binding.text().length, "b") // splits the burst into two steps
+    await settle()
+    a.type(1, "w")
+    await settle()
+    expect(await one.undo(id)).toBe(true)
+    expect(await one.getSource(id)).toBe("one\ntwob")
   })
 
   it("tells a binding when its diagram is closed, and stops editing it", async () => {

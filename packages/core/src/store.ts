@@ -1,5 +1,5 @@
 import { diffChars } from "diff"
-import { LoroDoc, type LoroMap, type LoroText, UndoManager, type Value } from "loro-crdt"
+import { type Frontiers, LoroDoc, type LoroMap, type LoroText, UndoManager, type Value } from "loro-crdt"
 import * as z from "zod/mini"
 
 import { fromBase64, toBase64 } from "./base64"
@@ -59,6 +59,11 @@ interface OpenDiagram extends DiagramDoc {
   undo: UndoManager
   /** An agent's own undo stack: only agent edits. */
   agentUndo: UndoManager
+  /**
+   * Which burst of typing each step on `undo` belongs to (see openDiagram). While an
+   * undo or redo runs, `stepping` is the burst of the steps it moves, which they keep.
+   */
+  burst: { count: number; lastEdit: number; stepping: Value | undefined }
 }
 
 /** Whose undo stack to use. */
@@ -162,6 +167,7 @@ export class Eos {
       id,
       meta: metaOf(d),
       source: sourceOf(d),
+      version: encodeVersion(d.doc),
       starred: row.starred === 1,
       updatedAt: row.updatedAt,
       deletedAt: row.deletedAt,
@@ -185,11 +191,11 @@ export class Eos {
     return id
   }
 
-  /** Changes title, source and tags as one commit, so a single undo reverses all of it. */
   /**
-   * `base` is the version the editor read the source at. The source is then applied as
-   * the edits that turn that version into it, so anything changed since (e.g. the person
-   * typing while an agent worked) is kept instead of being overwritten.
+   * Changes title, source and tags. Title and tags are details, on nobody's undo stack;
+   * the source change is undoable. With `base`, the version the source was read at, the
+   * source is applied as the edits that turn that version into it, so anything changed
+   * since (e.g. the person typing while an agent worked) is kept instead of overwritten.
    */
   async editDiagram(
     id: DiagramId,
@@ -239,18 +245,18 @@ export class Eos {
   async getSource(id: DiagramId, version?: string): Promise<string> {
     const d = await this.openDiagram(id)
     if (!version) return sourceOf(d)
-    return d.doc.forkAt(decodeVersion(version)).getText("source").toString()
+    return d.doc.forkAt(frontiersOf(d, version)).getText("source").toString()
   }
 
   /** Binds an editor to a diagram's source (see SourceBinding). */
   async bindSource(id: DiagramId): Promise<SourceBinding> {
-    const d = await this.openDiagram(id)
-    let open = true
-    this.onClosed(id, () => (open = false))
+    const opened = this.openDiagram(id)
+    const d = await opened
     return {
       text: () => d.text.toString(),
       edit: (changes) => {
-        if (!open) return
+        // Closing a diagram (a delete, or a backup replacing it) drops it from this.open.
+        if (this.open.get(id) !== opened) return
         applyEdits(d.text, changes)
         // Its own origin, so onChange can skip it; it's still the person's edit for undo and history.
         d.doc.commit({ origin: EDITOR_ORIGIN, message: JSON.stringify(USER) })
@@ -298,18 +304,21 @@ export class Eos {
   private async step(id: DiagramId, scope: UndoScope, dir: "undo" | "redo", actor?: Actor): Promise<boolean> {
     const d = await this.openDiagram(id)
     const by: Actor = actor ?? (scope === "agent" ? { kind: "agent", tool: dir, changes: [dir] } : USER)
-    // Label the commit the undo manager makes, so the other stack ignores it and history credits the right actor.
-    d.doc.setNextCommitOptions({ origin: actorOrigin(by), message: JSON.stringify(by) })
     const stack = scope === "agent" ? d.agentUndo : d.undo
     const top = () => (dir === "undo" ? stack.topUndoValue() : stack.topRedoValue())
     const burst = top()
     let done = false
-    do {
-      // Label each commit the undo manager makes, so the other stack ignores it and history credits the right actor.
-      d.doc.setNextCommitOptions({ origin: actorOrigin(by), message: JSON.stringify(by) })
-      if (!stack[dir]()) break
-      done = true
-    } while (scope === "user" && burst !== undefined && top() === burst)
+    d.burst.stepping = burst
+    try {
+      do {
+        // Label each commit the undo manager makes, so the other stack ignores it and history credits the right actor.
+        d.doc.setNextCommitOptions({ origin: actorOrigin(by), message: JSON.stringify(by) })
+        if (!stack[dir]()) break
+        done = true
+      } while (scope === "user" && burst !== undefined && top() === burst)
+    } finally {
+      d.burst.stepping = undefined
+    }
     if (done) await this.afterChange(id, d)
     return done
   }
@@ -324,12 +333,8 @@ export class Eos {
     return historyOf((await this.openDiagram(id)).doc, limit)
   }
 
-  async version(id: DiagramId): Promise<string> {
-    return encodeVersion((await this.openDiagram(id)).doc)
-  }
-
   async restoreVersion(id: DiagramId, version: string, actor: Actor = USER) {
-    await this.mutate(id, actor, (d) => d.doc.revertTo(decodeVersion(version)))
+    await this.mutate(id, actor, (d) => d.doc.revertTo(frontiersOf(d, version)))
   }
 
   // ── Organisation ───────────────────────────────────────────────────────────
@@ -447,8 +452,11 @@ export class Eos {
     })
   }
 
-  /** Throws, before touching the library, if `data` isn't a readable Eos backup. */
-  /** `data` is a backup file's text, or what readBackup returned for it (so a caller that checked it first doesn't decode it twice). */
+  /**
+   * `data` is a backup file's text, or what readBackup returned for it (so a caller that
+   * checked it first doesn't decode it twice). Throws, before touching the library, if it
+   * isn't a readable Eos backup.
+   */
   async importBackup(data: string | Backup, mode: "merge" | "replace") {
     const { settings, workspace, diagrams } = typeof data === "string" ? readBackup(data) : data
     if (mode === "replace") await this.deleteAll({ reseed: false })
@@ -519,30 +527,22 @@ export class Eos {
         if (doc.oplogVersion().length() === 0 && !(await this.db.get("diagrams", id))) {
           throw new Error(`Diagram ${id} not found`)
         }
-        // Commit origins are "user", "agent:<tool>", "import" or "system" (see actorOrigin).
+        // Commit origins are "user" or "user:editor" (keystrokes), "agent:<tool>", "import" or
+        // "system", each prefixed "details:" for title and tag changes (see actorOrigin, commit).
         // Each step is tagged with the burst of typing it belongs to (a new burst after a pause).
         // Edits from other tabs split Loro's steps mid-burst, so ⌘Z undoes every step of a burst.
-        let burst = 0
-        let lastEdit = 0
-        let moved: Value | undefined
+        const burst: OpenDiagram["burst"] = { count: 0, lastEdit: 0, stepping: undefined }
         const undo = new UndoManager(doc, {
           mergeInterval: MERGE_MS,
           maxUndoSteps: 200,
           excludeOriginPrefixes: ["agent", "import", "system", DETAILS],
           onPush: () => {
             // A step moving between the undo and redo stacks keeps its burst.
-            if (moved !== undefined) {
-              const value = moved
-              moved = undefined
-              return { value, cursors: [] }
-            }
+            if (burst.stepping !== undefined) return { value: burst.stepping, cursors: [] }
             const now = Date.now()
-            if (now - lastEdit > MERGE_MS) burst++
-            lastEdit = now
-            return { value: burst, cursors: [] }
-          },
-          onPop: (_isUndo, meta) => {
-            moved = meta.value
+            if (now - burst.lastEdit > MERGE_MS) burst.count++
+            burst.lastEdit = now
+            return { value: burst.count, cursors: [] }
           },
         })
         const agentUndo = new UndoManager(doc, {
@@ -558,6 +558,7 @@ export class Eos {
           meta: doc.getMap("meta"),
           undo,
           agentUndo,
+          burst,
           // Only deletes close a diagram, so a pending index refresh is dropped, not run
           // (running it could write the index row back after the delete).
           dispose: () => {
@@ -696,13 +697,13 @@ function withDefaults(saved: Partial<AppSettings> | undefined): AppSettings {
   }
 }
 
+export type Backup = ReturnType<typeof readBackup>
+
 /**
  * Parses and decodes a backup file, throwing a readable error if it isn't one.
  * Every snapshot is decoded up front, so a damaged file fails before an import
  * that replaces the library deletes anything.
  */
-export type Backup = ReturnType<typeof readBackup>
-
 export function readBackup(data: string) {
   let json: unknown
   try {
@@ -743,13 +744,27 @@ const BackupSchema = z.object({
   diagrams: z.array(z.object({ id: z.string(), deletedAt: z.optional(z.nullable(z.number())), snapshot: z.string() })),
 })
 
+/** Thrown when a version passed in is not one of the diagram's; nothing has changed. */
+export class UnknownVersionError extends Error {}
+
+/** The frontiers `version` names, or `UnknownVersionError` if the diagram has no such version. */
+function frontiersOf(d: OpenDiagram, version: string): Frontiers {
+  const frontiers = decodeVersion(version)
+  try {
+    d.doc.frontiersToVV(frontiers)
+  } catch {
+    throw new UnknownVersionError(`Diagram ${d.id} has no version ${version}`)
+  }
+  return frontiers
+}
+
 /**
  * The edits that turn the text at version `base` into `source`, each placed where that
  * spot of text is now. Loro cursors map positions from the old text to the current one,
  * so changes made since `base` elsewhere in the text are kept.
  */
 function editsFromBase(d: OpenDiagram, base: string, source: string): TextChange[] {
-  const old = d.doc.forkAt(decodeVersion(base)).getText("source")
+  const old = d.doc.forkAt(frontiersOf(d, base)).getText("source")
   // Where the gap after the old text's i-th character is now.
   const gapAfter = (i: number) => (i === 0 ? 0 : (d.doc.getCursorPos(old.getCursor(i - 1)!)?.offset ?? i - 1) + 1)
   const edits: TextChange[] = []

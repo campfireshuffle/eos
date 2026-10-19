@@ -97,14 +97,31 @@ describe("webmcp tools", () => {
     expect(history.some((e: any) => e.actor.kind === "user")).toBe(true)
   })
 
-  it("merges its edit with what the person typed after it read the diagram", async () => {
+  it("merges its source from the version it edited, keeping what the person typed since", async () => {
     const { call, eos } = await setup()
     const { id } = await call("create_diagram", { source: "line one\nline two", open: false })
-    const { diagram } = await call("get_diagram", { id })
+    const read = await call("get_diagram", { id })
+    expect((await call("export", { id, format: "mmd" })).version).toBe(read.version)
     await eos.setSource(id, "line one\nline two\nperson's line") // typed while the agent was working
-    const edit = await call("update_diagram", { id, source: diagram.source.replace("line one", "LINE ONE") })
-    expect(edit.ok).toBe(true)
-    expect((await call("get_diagram", { id })).diagram.source).toBe("LINE ONE\nline two\nperson's line")
+    const edit = await call("update_diagram", {
+      id,
+      source: read.diagram.source.replace("line one", "LINE ONE"),
+      baseVersion: read.version,
+    })
+    // The person's line was merged in, so the result returns the source its version is at.
+    expect(edit.source).toBe("LINE ONE\nline two\nperson's line")
+    await eos.setSource(id, "LINE ONE\nline two\nperson's line\nanother")
+    await call("update_diagram", { id, source: edit.source.replace("two", "TWO"), baseVersion: edit.version })
+    expect((await call("get_diagram", { id })).diagram.source).toBe("LINE ONE\nline TWO\nperson's line\nanother")
+    // Without a base, the source replaces the text.
+    await call("update_diagram", { id, source: "replaced" })
+    expect((await call("get_diagram", { id })).diagram.source).toBe("replaced")
+    // An unknown base changes nothing, title included, and leaves the agent's undo working.
+    expect((await call("update_diagram", { id, title: "T", source: "x", baseVersion: "bogus" })).code).toBe("not_found")
+    const after = (await call("get_diagram", { id })).diagram
+    expect([after.meta.title, after.source]).toEqual(["Untitled", "replaced"])
+    await call("update_diagram", { id, revert: "undo" })
+    expect((await call("get_diagram", { id })).diagram.source).toBe("LINE ONE\nline TWO\nperson's line\nanother")
   })
 
   it("reports parse errors and exports every format", async () => {

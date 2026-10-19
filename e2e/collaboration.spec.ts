@@ -56,14 +56,14 @@ test("redo in one tab reaches the other", async () => {
   await expectEditor(b, "A first second")
 })
 
-test("an agent's edit merges with typing done after it read the diagram", async () => {
+test("an agent's edit merges with typing done after the version it read", async () => {
   const id = await openInBoth("flowchart TD\n  A --> B")
   // The agent works through tab b; the person types in tab a.
-  const { diagram } = await tool<{ diagram: { source: string } }>(b, "get_diagram", { id })
+  const { diagram, version } = await tool<{ diagram: { source: string }; version: string }>(b, "get_diagram", { id })
   await cursorAtEndOf(a, 1)
   await a.keyboard.type("\nC --> D")
   await expectEditor(b, "flowchart TD\n  A --> B\n  C --> D")
-  await tool(b, "update_diagram", { id, source: diagram.source.replace("A --> B", "A --> Z") })
+  await tool(b, "update_diagram", { id, source: diagram.source.replace("A --> B", "A --> Z"), baseVersion: version })
   const merged = "flowchart TD\n  A --> Z\n  C --> D"
   await expectEditor(a, merged)
   expect(await storedText(a, id)).toBe(merged)

@@ -78,7 +78,9 @@ export function Editor({ id }: { id: string }) {
     }
   }, [binding])
 
-  // Undo/redo only appear once this tab has something to undo or redo.
+  // Undo/redo only appear once this tab has something to undo or redo. Checked on every
+  // change to `source`, which follows the binding's edits, local and remote, as they land,
+  // and on every new binding, whose stacks start empty even when its text is the same.
   const [history, setHistory] = useState({ canUndo: false, canRedo: false })
   useEffect(() => {
     let alive = true
@@ -89,7 +91,7 @@ export function Editor({ id }: { id: string }) {
     return () => {
       alive = false
     }
-  }, [eos, id, diagram?.source])
+  }, [eos, id, binding, source])
 
   // Previewing a past version shows its source read-only in both panes.
   const preview = useUi((s) => s.preview)

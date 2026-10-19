@@ -1,4 +1,4 @@
-export { Eos, DEFAULT_SETTINGS, readBackup, type Backup, type UndoScope } from "./store"
+export { Eos, DEFAULT_SETTINGS, readBackup, UnknownVersionError, type Backup, type UndoScope } from "./store"
 export { decodeShare, encodeShare, shareUrl, type SharePayload } from "./share"
 export { diagnose, renderSvg, validate, type Diagnostic } from "./render"
 export { normalizeTag, normalizeTags, tagMatches } from "./tags"

@@ -4,6 +4,7 @@ import {
   readBackup,
   type Backup,
   renderSvg,
+  UnknownVersionError,
   shareUrl,
   validate,
   type Actor,
@@ -123,16 +124,6 @@ function check(source: string) {
 export function createTools(eos: Eos, ui: UiBridge): Tool[] {
   const agent = (tool: string, changes?: string[]): Actor => ({ kind: "agent", tool, ...(changes ? { changes } : {}) })
   const notFound = (id: unknown) => fail("not_found", `No diagram with id ${String(id)}`)
-  /**
-   * The version of each diagram's source the agent last saw. Its later source edits are
-   * applied as changes from that version, so the person's edits made in between survive.
-   */
-  const lastSeen = new Map<DiagramId, string>()
-  const seen = async (id: DiagramId, version?: string) => {
-    const v = version ?? (await eos.version(id))
-    lastSeen.set(id, v)
-    return v
-  }
   /** Asks the person, unless they turned confirmations off. Returns a failure result to send back, or null to go ahead. */
   const ask = async (signal: AbortSignal | undefined, message: string, declined: string, action?: string) => {
     if (signal?.aborted) return fail("cancelled", "The call was cancelled")
@@ -177,7 +168,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
     tool({
       name: "get_diagram",
       description:
-        "One diagram: title, tags, starred, Mermaid source and current version id (pass it back as expectedVersion when editing). version reads the source at a past version; history: true adds the version list, where agent edits are listed separately from the person's.",
+        "One diagram: title, tags, starred, Mermaid source and the version id it's at (pass it to update_diagram as baseVersion or expectedVersion). version reads the source at a past version; history: true adds the version list, where agent edits are listed separately from the person's.",
       input: {
         id: z.string(),
         version: z.optional(z.string().check(z.describe("A version id from history"))),
@@ -185,23 +176,24 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
       },
       annotations: { readOnlyHint: true, untrustedContentHint: true },
       execute: async ({ id, version, history }) => {
-        const d = await eos.getDiagram(id)
-        if (!d) return notFound(id)
+        const found = await eos.getDiagram(id)
+        if (!found) return notFound(id)
+        const { version: current, ...d } = found
         // Any version the diagram has is readable, including ones from earlier tool results
         // that history has since folded into a later entry.
         let source = d.source
         if (version) {
           try {
             source = await eos.getSource(d.id, version)
-          } catch {
+          } catch (error) {
+            if (!(error instanceof UnknownVersionError)) throw error
             return fail("not_found", `This diagram has no version ${version}`)
           }
         }
         const entries = history ? await eos.history(d.id, 500) : []
-        await seen(d.id, version)
         return ok({
           diagram: { ...d, source },
-          version: await eos.version(d.id),
+          version: version ?? current,
           ...check(source),
           // Each entry lists everything that changed in it once, under changes.
           ...(history
@@ -244,7 +236,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
     tool({
       name: "export",
       description:
-        "Export a diagram (id) or raw Mermaid (source). Formats: svg, png (data URL), mmd, link (a share link that opens a copy in anyone's Eos), backup (the whole library as JSON; no id needed). Invalid Mermaid returns parse_error with line and column, so this also works as a dry-run check. download: true also saves the file like the Export menu.",
+        "Export a diagram (id) or raw Mermaid (source). Formats: svg, png (data URL), mmd (with the version id it's at, for a diagram), link (a share link that opens a copy in anyone's Eos), backup (the whole library as JSON; no id needed). Invalid Mermaid returns parse_error with line and column, so this also works as a dry-run check. download: true also saves the file like the Export menu.",
       input: {
         format: z.enum(["svg", "png", "mmd", "link", "backup"]),
         id: z.optional(z.string()),
@@ -271,7 +263,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
         const parsed = check(text)
         if (format === "mmd") {
           if (download) ui.download(`${title}.mmd`, text)
-          return ok({ data: text, ...parsed })
+          return ok({ data: text, ...(d ? { version: d.version } : {}), ...parsed })
         }
         if (!parsed.valid) return fail("parse_error", "The Mermaid source doesn't parse", { error: parsed.error })
         const svg = renderSvg(text)
@@ -288,7 +280,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
     tool({
       name: "create_diagram",
       description:
-        "Create a diagram from Mermaid source, or import one from an Eos share link (fromShareLink). To duplicate, read a diagram with get_diagram and create from its source. Opens it unless open is false. Returns whether the source parses.",
+        "Create a diagram from Mermaid source, or import one from an Eos share link (fromShareLink). To duplicate, read a diagram with get_diagram and create from its source. Opens it unless open is false. Returns the version id its source is at and whether the source parses.",
       input: {
         title: z.optional(z.string()),
         source: z.optional(z.string().check(z.describe("Mermaid source"))),
@@ -312,16 +304,17 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
         } else {
           id = await eos.createDiagram({ title: i.title, source: i.source, tags: i.tags }, agent("create_diagram", ["created"]))
         }
+        // Read before opening it, so the version is the source as created, without anything typed since.
+        const d = (await eos.getDiagram(id))!
         if (i.starred) await eos.setStarred(id, true, agent("create_diagram"))
         if (i.open !== false) ui.openDiagram(id)
-        const d = (await eos.getDiagram(id))!
-        return ok({ id, version: await seen(id), ...check(d.source) })
+        return ok({ id, version: d.version, ...check(d.source) })
       },
     }),
     tool({
       name: "update_diagram",
       description:
-        'Edit a diagram. Every field is optional and the edit lands as one change in history, credited to the agent: title, source (full Mermaid; applied as a minimal diff), starred, addTags, removeTags. revert: "undo" or "redo" steps back or forward through the agent\'s own edits, keeping the person\'s, or a version id from get_diagram\'s history restores that version. deleted: true moves it to Deleted (asks the person; reversible), false restores it. A new source is merged as the changes you made to the version you last read, so edits the person made since then are kept; pass expectedVersion from get_diagram to refuse the edit instead if they changed anything.',
+        "Edit a diagram. Every field is optional and the edit lands as one change in history, credited to the agent: title, source (full Mermaid; applied as a minimal diff), starred, addTags, removeTags. revert: \"undo\" or \"redo\" steps back or forward through the agent's own edits, keeping the person's, or a version id from get_diagram's history restores that version. deleted: true moves it to Deleted (asks the person; reversible), false restores it. Pass baseVersion, the version id returned with the source you edited, to merge your source as the changes you made to it, keeping edits others made since; without it, source replaces the text. When others' edits were merged in, the result includes the merged source. expectedVersion refuses the edit if anything changed since that version.",
       input: {
         id: z.string(),
         title: z.optional(z.string()),
@@ -331,14 +324,15 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
         removeTags: z.optional(z.array(z.string())),
         revert: z.optional(z.string().check(z.describe('"undo", "redo" or a version id'))),
         deleted: z.optional(z.boolean()),
+        baseVersion: z.optional(z.string()),
         expectedVersion: z.optional(z.string()),
       },
       execute: async (i, signal) => {
         const { id } = i
         const d = await eos.getDiagram(id)
         if (!d) return notFound(id)
-        if (i.expectedVersion !== undefined && i.expectedVersion !== (await eos.version(id)))
-          return fail("stale", "The diagram changed since that version; read it again", { version: await eos.version(id) })
+        if (i.expectedVersion !== undefined && i.expectedVersion !== d.version)
+          return fail("stale", "The diagram changed since that version; read it again", { version: d.version })
         if (i.revert !== undefined && i.source !== undefined) return fail("invalid_input", "Use either revert or source, not both")
 
         const changes = (["title", "source", "addTags", "removeTags"] as const)
@@ -351,20 +345,25 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
             if (!done) return fail("nothing_to_revert", `No agent edit to ${r}`)
           } else {
             try {
-              await eos.getSource(id, r)
-            } catch {
+              await eos.restoreVersion(id, r, agent("update_diagram", ["restored version"]))
+            } catch (error) {
+              if (!(error instanceof UnknownVersionError)) throw error
               return fail("not_found", `revert must be "undo", "redo" or a version id; this diagram has no version ${r}`)
             }
-            await eos.restoreVersion(id, r, agent("update_diagram", ["restored version"]))
           }
         }
         if (changes.length) {
-          await eos.editDiagram(
-            id,
-            { title: i.title, source: i.source, addTags: i.addTags, removeTags: i.removeTags },
-            agent("update_diagram", [...new Set(changes)]),
-            { base: i.expectedVersion ?? lastSeen.get(id) }
-          )
+          try {
+            await eos.editDiagram(
+              id,
+              { title: i.title, source: i.source, addTags: i.addTags, removeTags: i.removeTags },
+              agent("update_diagram", [...new Set(changes)]),
+              { base: i.baseVersion }
+            )
+          } catch (error) {
+            if (!(error instanceof UnknownVersionError)) throw error
+            return fail("not_found", `This diagram has no version ${i.baseVersion}`)
+          }
         }
         if (i.starred !== undefined) await eos.setStarred(id, i.starred, agent("update_diagram", ["starred"]))
         if (i.deleted === true) {
@@ -374,7 +373,12 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
         } else if (i.deleted === false) await eos.restoreDiagram(id)
 
         const now = (await eos.getDiagram(id))!
-        return ok({ version: await seen(id), ...check(now.source), agentUndo: await eos.canUndo(id, "agent") })
+        return ok({
+          version: now.version,
+          ...(i.source !== undefined && now.source !== i.source ? { source: now.source } : {}),
+          ...check(now.source),
+          agentUndo: await eos.canUndo(id, "agent"),
+        })
       },
     }),
     tool({
