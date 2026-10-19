@@ -24,6 +24,8 @@ export interface UiBridge {
   /** Resolves true when the person allows a destructive agent action. */
   confirm(message: string, action?: string): Promise<boolean>
   download(name: string, data: string | Blob): void
+  /** The theme in effect: resolved light/dark plus the app and diagram CSS, defaults included. */
+  getTheme(): { resolvedMode: "light" | "dark"; appCss: string; diagramCss: string }
   origin: string
 }
 
@@ -373,9 +375,20 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
       execute: async () => ok({ settings: eos.getSettings() }),
     },
     {
+      name: "get_theme",
+      description:
+        "Get the theme in effect: mode, the resolved light/dark appearance, and the full app (--eos-*) and diagram (--pele-*) CSS including defaults. Edit this CSS and pass it to set_theme. Pele variables are documented at https://pele.run/theming.",
+      inputSchema: obj({}),
+      annotations: { readOnlyHint: true },
+      execute: async () => {
+        const { theme } = eos.getSettings()
+        return ok({ mode: theme.mode, ...ui.getTheme(), overridden: { app: !!theme.customCss, diagram: !!theme.diagramCss } })
+      },
+    },
+    {
       name: "set_theme",
       description:
-        "Change the theme: mode (light, dark or system), app CSS variables (--eos-*) and/or diagram CSS variables (--pele-*). Pass null to reset a CSS override.",
+        "Change the theme: mode (light, dark or system), app CSS variables (--eos-*) and/or diagram CSS variables (--pele-*). Call get_theme first for the current CSS. Pass null to reset a CSS override to the default.",
       inputSchema: obj({
         mode: { type: "string", enum: ["system", "light", "dark"] },
         appCss: { type: ["string", "null"] },

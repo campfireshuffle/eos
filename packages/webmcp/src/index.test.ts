@@ -16,6 +16,7 @@ const ui = (confirm = true): UiBridge => ({
   previewVersion: vi.fn(),
   confirm: vi.fn(async () => confirm),
   download: vi.fn(),
+  getTheme: () => ({ resolvedMode: "light", appCss: ":root {}", diagramCss: ".pele {}" }),
 })
 
 let n = 0
@@ -60,6 +61,15 @@ describe("webmcp tools", () => {
     expect(url).toMatch(/^https:\/\/eos\.lil\.run\/#\/import\?d=/)
     const imported = await call("import_share_link", { url, open: false })
     expect((await call("get_source", { id: imported.id })).source).toContain("pie")
+  })
+
+  it("reads and changes the theme", async () => {
+    const { call } = await setup()
+    expect((await call("get_theme")).diagramCss).toBe(".pele {}")
+    await call("set_theme", { mode: "dark", diagramCss: ".pele { --pele-fg: red; }" })
+    const theme = await call("get_theme")
+    expect(theme.mode).toBe("dark")
+    expect(theme.overridden.diagram).toBe(true)
   })
 
   it("registers with modelContext when available", () => {

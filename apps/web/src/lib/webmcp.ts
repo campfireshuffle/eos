@@ -2,6 +2,7 @@ import type { Eos } from "@eos/core"
 import { createTools, registerTools, type UiBridge } from "@eos/webmcp"
 
 import { download } from "./files"
+import { currentAppCss, DEFAULT_DIAGRAM_CSS } from "./theme"
 import { diagramHref, homeHref, navigate, parseRoute } from "./router"
 import { askConfirm, getUi, requestZoom, setUi } from "./ui-state"
 
@@ -19,6 +20,11 @@ export function connectWebMcp(eos: Eos): () => void {
       setUi({ preview: version ? { id, version, at: meta?.at ?? Date.now(), label: meta?.label ?? "" } : null }),
     confirm: askConfirm,
     download: (name, data) => download(name, data),
+    getTheme: () => ({
+      resolvedMode: document.documentElement.classList.contains("dark") ? "dark" : "light",
+      appCss: eos.getSettings().theme.customCss ?? currentAppCss(),
+      diagramCss: eos.getSettings().theme.diagramCss ?? DEFAULT_DIAGRAM_CSS,
+    }),
   }
   const tools = createTools(eos, ui)
   let unregister: (() => void) | null = null

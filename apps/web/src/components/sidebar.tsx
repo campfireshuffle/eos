@@ -1,4 +1,4 @@
-import { LayoutGrid, PanelLeft, Settings, Star, Trash2 } from "lucide-react"
+import { PanelLeft, Settings, Star, Trash2 } from "lucide-react"
 import { useState, type ReactNode } from "react"
 
 import type { TagPath } from "@eos/core"
@@ -40,13 +40,6 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
       </div>
 
       <NavItem
-        href={homeHref({ sort: home?.sort, group: home?.group })}
-        icon={<LayoutGrid />}
-        label="All diagrams"
-        count={counts?.all}
-        active={!!home && !home.starred && !home.deleted && !home.tag}
-      />
-      <NavItem
         href={homeHref({ starred: true, sort: home?.sort, group: home?.group })}
         icon={<Star />}
         label="Starred"
@@ -55,10 +48,6 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
         onDropIds={(ids) => ids.forEach((id) => void eos.setStarred(id, true))}
       />
 
-      {!!tags?.length && <div className="px-2.5 pt-4 pb-1 text-xs font-medium text-[var(--eos-faint)]">Tags</div>}
-      {!!tags?.length && <TagTree tags={tags} selected={selectedTag} sort={home?.sort} group={home?.group} />}
-
-      {!tags?.length && <div className="flex-1" />}
       {!!counts?.deleted && (
         <NavItem
           href={homeHref({ deleted: true, sort: home?.sort, group: home?.group })}
@@ -68,6 +57,11 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
           active={!!home?.deleted}
         />
       )}
+
+      {!!tags?.length && <div className="px-2.5 pt-4 pb-1 text-xs font-medium text-[var(--eos-faint)]">Tags</div>}
+      {!!tags?.length && <TagTree tags={tags} selected={selectedTag} sort={home?.sort} group={home?.group} />}
+
+      {!tags?.length && <div className="flex-1" />}
       <button
         type="button"
         onClick={() => setUi({ settingsOpen: true })}
