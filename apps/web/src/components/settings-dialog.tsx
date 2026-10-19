@@ -1,4 +1,4 @@
-import { ArrowUpRight, Bot, Copy, Database, Download, Heart, Info, Monitor, Moon, Palette, RotateCcw, Star, Sun } from "lucide-react"
+import { ArrowUpRight, Bot, Check, Copy, Database, Download, Heart, Info, Monitor, Moon, Palette, RotateCcw, Star, Sun } from "lucide-react"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 
 import type { AppSettings, ThemeMode } from "@eos/core"
@@ -191,50 +191,61 @@ function Mcp() {
   return (
     <div className="flex flex-col gap-6">
       <p className="text-body text-muted-foreground">
-        Eos offers its actions to AI agents through{" "}
+        AI agents can use Eos through{" "}
         <a className={link} href="https://developer.chrome.com/docs/ai/webmcp" target="_blank" rel="noreferrer">
           WebMCP
         </a>
-        , a proposed browser standard. Any agent that speaks MCP can use them: create, edit, organise, theme and export
-        diagrams. Eos asks you before an agent deletes anything.
+        . Eos asks you before an agent deletes anything.
       </p>
-      <Step title="1. Turn on WebMCP in Chrome">
+      <Step title="1. Turn on WebMCP">
         <p className="text-body text-muted-foreground">
-          In Chrome 150 or newer, open <code className="font-mono text-caption">chrome://flags/#enable-webmcp-testing</code>, set
-          it to Enabled and relaunch.
+          In Chrome 150+, enable <ChromeUrl url="chrome://flags/#enable-webmcp-testing" /> and relaunch.
         </p>
-        <p className={cn("text-body", available ? "text-[var(--eos-green)]" : "text-muted-foreground")}>
-          {available ? "WebMCP is on in this browser." : "WebMCP isn't on in this browser yet."}
+        <p className={cn("text-caption", available ? "text-[var(--eos-green)]" : "text-[var(--eos-faint)]")}>
+          {available ? "On in this browser" : "Not on in this browser yet"}
         </p>
       </Step>
       <Step title="2. Connect your agent">
         <p className="text-body text-muted-foreground">
-          Add{" "}
+          Enable <ChromeUrl url="chrome://inspect/#remote-debugging" />, then add{" "}
           <a className={link} href="https://github.com/ChromeDevTools/chrome-devtools-mcp" target="_blank" rel="noreferrer">
             Chrome DevTools MCP
           </a>{" "}
-          to your agent's MCP servers. It connects to the Chrome you have open, so first turn on remote debugging at{" "}
-          <code className="font-mono text-caption">chrome://inspect/#remote-debugging</code>.
+          to your agent:
         </p>
         <CodeBlock
           label="MCP config"
           language="json"
           code={JSON.stringify({ mcpServers: { eos: { command: "npx", args: MCP_ARGS } } }, null, 2)}
         />
-        <p className="text-body text-muted-foreground">Or, for agents that take a command:</p>
-        <CodeBlock label="Command" language="shell" code={`npx ${MCP_ARGS.join(" ")}`} />
       </Step>
-      <Step title="3. Ask your agent">
-        <p className="text-body text-muted-foreground">
-          With Eos open, try “List the WebMCP tools on eos.lil.run”, then “Make a flowchart of our deploy process”. To use
-          Chrome's built-in model instead, try the{" "}
-          <a className={link} href="https://github.com/GoogleChromeLabs/webmcp-extension" target="_blank" rel="noreferrer">
-            example WebMCP extension
-          </a>
-          .
-        </p>
+      <Step title="3. Try it">
+        <p className="text-body text-muted-foreground">Ask your agent to “list the WebMCP tools on eos.lil.run”.</p>
       </Step>
     </div>
+  )
+}
+
+/**
+ * A chrome:// address. Browsers don't let pages open these, so clicking copies it
+ * for pasting into the address bar.
+ */
+function ChromeUrl({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      type="button"
+      title="Copy, then paste into the address bar"
+      onClick={() => {
+        void navigator.clipboard.writeText(url)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1500)
+      }}
+      className="inline-flex max-w-full items-center gap-1 rounded bg-background px-1.5 align-baseline font-mono text-caption break-all text-foreground hover:bg-accent [&_svg]:size-3 [&_svg]:shrink-0"
+    >
+      {url}
+      {copied ? <Check className="text-[var(--eos-green)]" /> : <Copy className="text-muted-foreground" />}
+    </button>
   )
 }
 
