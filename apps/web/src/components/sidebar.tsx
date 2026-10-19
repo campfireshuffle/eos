@@ -20,7 +20,8 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
   const selectedTag = home?.tag ?? activeTag ?? null
 
   return (
-    <aside className="flex h-full w-full min-w-0 flex-col gap-0.5 overflow-hidden px-1.5 pt-2.5 pb-1.5">
+    // On desktop the sidebar sits 8px in from the window, so the bottom gap matches the 14px side inset.
+    <aside className="flex h-full w-full min-w-0 flex-col gap-0.5 overflow-hidden px-1.5 pt-2.5 pb-1.5 md:pb-3.5">
       <div className="flex items-center gap-2 px-2.5 pb-3">
         <a href={homeHref()} className="flex flex-1 items-center gap-2">
           {/* In light mode the ivory bird sits on a dark tile so it stays legible. */}
@@ -65,14 +66,21 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
       <button
         type="button"
         onClick={() => setUi({ settingsOpen: true })}
-        className="flex h-8 items-center gap-2.5 rounded-md px-2.5 text-body text-muted-foreground hover:bg-accent hover:text-foreground max-md:h-10 [&_svg]:size-4"
+        className={NAV_ITEM}
       >
-        <Settings /> Settings
+        <span className="flex size-4 items-center justify-center">
+          <Settings />
+        </span>
+        <span className="flex-1 truncate text-left">Settings</span>
       </button>
     </aside>
   )
 }
 
+
+/** One row style for every sidebar item: links (Starred, Deleted) and the Settings button. */
+const NAV_ITEM =
+  "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-body text-muted-foreground transition-colors max-md:h-10 hover:bg-accent/30 hover:text-foreground [&_svg]:size-4 [&_svg]:shrink-0"
 
 function NavItem({
   href,
@@ -107,7 +115,7 @@ function NavItem({
         onDropIds(readDraggedIds(e.dataTransfer))
       }}
       className={cn(
-        "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-body text-muted-foreground transition-colors max-md:h-10 hover:bg-accent/30 hover:text-foreground [&_svg]:size-4 [&_svg]:shrink-0",
+        NAV_ITEM,
         active && "bg-accent font-medium text-foreground",
         over && "outline outline-1 outline-[var(--eos-champagne)]",
       )}
