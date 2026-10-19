@@ -1,5 +1,5 @@
 import { Plus, Search } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import type { LibrarySort } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
@@ -8,8 +8,10 @@ import { NativeSelect, NativeSelectOption } from "@workspace/ui/components/nativ
 
 import { useEos, useLibrary, useTags } from "@/lib/eos"
 import { diagramHref, homeHref, navigate, type Route } from "@/lib/router"
+import { clearSelection, useSelection } from "@/lib/selection"
 
 import { DiagramCard } from "./diagram-card"
+import { Marquee } from "./marquee"
 import { Pill } from "./pill"
 import { HistoryNav } from "./history-nav"
 import { SidebarToggle } from "./sidebar-toggle"
@@ -20,6 +22,8 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   const rows = useLibrary({ query, starred: route.starred, tags: route.tag ? [route.tag] : [], sort: route.sort })
   const tags = useTags()
   const emoji = route.tag ? findEmoji(tags ?? [], route.tag) : null
+  const selection = useSelection()
+  useEffect(() => clearSelection(), [route.tag, route.starred])
 
   const create = async () => {
     const id = await eos.createDiagram({ tags: route.tag ? [route.tag] : [] })
@@ -46,7 +50,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
         <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search diagrams" className="pl-8" />
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4 md:p-6">
+      <Marquee className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4 md:p-6">
         <div className="flex items-center gap-2">
           <div className="flex flex-1 items-center gap-2">
             {route.starred && (
@@ -58,6 +62,15 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
               <Pill icon={emoji} removeHref={homeHref({ starred: route.starred, sort: route.sort })} removeLabel={`Remove ${route.tag} filter`}>
                 {route.tag}
               </Pill>
+            )}
+            {selection.size > 0 && (
+              <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Pill>{selection.size} selected</Pill>
+                <span className="max-md:hidden">Drag onto a tag or Starred</span>
+                <button type="button" onClick={clearSelection} className="hover:text-foreground">
+                  Clear
+                </button>
+              </span>
             )}
           </div>
           <NativeSelect
@@ -84,7 +97,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
             {rows?.map((row) => <DiagramCard key={row.id} row={row} />)}
           </div>
         )}
-      </div>
+      </Marquee>
     </main>
   )
 }

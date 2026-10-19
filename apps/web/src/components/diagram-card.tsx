@@ -5,14 +5,30 @@ import { renderSvg, type DiagramIndexRow } from "@eos/core"
 
 import { useEos } from "@/lib/eos"
 import { diagramHref } from "@/lib/router"
+import { clearSelection, startCardDrag, toggleSelected, useSelection } from "@/lib/selection"
+import { cn } from "@workspace/ui/lib/utils"
 
 import { Pill } from "./pill"
 
 export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramIndexRow }) {
+  const selected = useSelection().has(row.id)
   return (
     <a
       href={diagramHref(row.id)}
-      className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-[var(--eos-line-active)]"
+      data-card-id={row.id}
+      draggable
+      onDragStart={(e) => startCardDrag(e, row.id)}
+      onClick={(e) => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey) {
+          e.preventDefault()
+          toggleSelected(row.id)
+        } else clearSelection()
+      }}
+      aria-selected={selected}
+      className={cn(
+        "group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors select-none hover:border-[var(--eos-line-active)]",
+        selected && "border-[var(--eos-champagne)] ring-1 ring-[var(--eos-champagne)] hover:border-[var(--eos-champagne)]",
+      )}
     >
       <Thumbnail id={row.id} updatedAt={row.updatedAt} />
       <div className="flex flex-col gap-1.5 border-t border-border px-3.5 pt-3 pb-3.5">

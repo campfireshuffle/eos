@@ -46,7 +46,7 @@ pnpm deploy
 
 ## Credits
 
-Built on [Pele](https://github.com/obsidianmd/pele) by kepano (MIT), [Loro](https://loro.dev), [CodeMirror](https://codemirror.net), [shadcn/ui](https://ui.shadcn.com) and [Lucide](https://lucide.dev).
+Built on [Pele](https://github.com/obsidianmd/pele) by kepano (MIT), [Loro](https://loro.dev), [CodeMirror](https://codemirror.net), [@pierre/trees](https://trees.software) (Apache-2.0), [shadcn/ui](https://ui.shadcn.com) and [Lucide](https://lucide.dev).
 
 ## License
 

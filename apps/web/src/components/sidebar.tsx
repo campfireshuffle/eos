@@ -1,24 +1,26 @@
-import { Hash, LayoutGrid, PanelLeft, Settings, Star } from "lucide-react"
-import type { ReactNode } from "react"
+import { LayoutGrid, PanelLeft, Settings, Star } from "lucide-react"
+import { useState, type ReactNode } from "react"
 
-import type { TagPath, TagRecord } from "@eos/core"
+import type { TagPath } from "@eos/core"
 import { cn } from "@workspace/ui/lib/utils"
 
-import { useCounts, useTags } from "@/lib/eos"
+import { useCounts, useEos, useTags } from "@/lib/eos"
 import { homeHref, type Route } from "@/lib/router"
 import { toggleSidebar } from "@/lib/layout"
+import { DIAGRAM_MIME, readDraggedIds } from "@/lib/selection"
 import { setUi } from "@/lib/ui-state"
 
-import { TagEmojiPicker } from "./tag-emoji-picker"
+import { TagTree } from "./tag-tree"
 
 export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPath | null }) {
+  const eos = useEos()
   const tags = useTags()
   const counts = useCounts()
   const home = route.name === "home" ? route : null
   const selectedTag = home?.tag ?? activeTag ?? null
 
   return (
-    <aside className="flex h-full w-full min-w-0 flex-col gap-0.5 overflow-y-auto px-1.5 pt-2.5 pb-1.5">
+    <aside className="flex h-full w-full min-w-0 flex-col gap-0.5 overflow-hidden px-1.5 pt-2.5 pb-1.5">
       <div className="flex items-center gap-2 px-2.5 pb-3">
         <a href={homeHref()} className="flex flex-1 items-center gap-2">
           <img src="/logo.png" alt="" className="h-8 w-8 object-contain" />
@@ -47,12 +49,13 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
         label="Starred"
         count={counts?.starred}
         active={!!home?.starred}
+        onDropIds={(ids) => ids.forEach((id) => void eos.setStarred(id, true))}
       />
 
       {!!tags?.length && <div className="px-2.5 pt-4 pb-1 text-xs font-medium text-[var(--eos-faint)]">Tags</div>}
-      <TagTree tags={tags ?? []} selected={selectedTag} sort={home?.sort} depth={0} />
+      {!!tags?.length && <TagTree tags={tags} selected={selectedTag} sort={home?.sort} />}
 
-      <div className="flex-1" />
+      {!tags?.length && <div className="flex-1" />}
       <button
         type="button"
         onClick={() => setUi({ settingsOpen: true })}
@@ -64,37 +67,43 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
   )
 }
 
-function TagTree({ tags, selected, sort, depth }: { tags: TagRecord[]; selected: TagPath | null; sort?: string; depth: number }) {
-  return (
-    <div className={cn("flex flex-col gap-0.5", depth > 0 && "pl-[18px]")}>
-      {tags.map((tag) => (
-        <div key={tag.path} className="flex flex-col gap-0.5">
-          <NavItem
-            href={homeHref({ tag: tag.path, sort: sort as never })}
-            icon={
-              <TagEmojiPicker path={tag.path} emoji={tag.emoji}>
-                {tag.emoji ? <span className="text-[13px] leading-none">{tag.emoji}</span> : <Hash />}
-              </TagEmojiPicker>
-            }
-            label={tag.path.split("/").pop()!}
-            count={tag.count}
-            active={selected === tag.path}
-          />
-          {tag.children.length > 0 && <TagTree tags={tag.children} selected={selected} sort={sort} depth={depth + 1} />}
-        </div>
-      ))}
-    </div>
-  )
-}
 
-function NavItem({ href, icon, label, count, active }: { href: string; icon: ReactNode; label: string; count?: number; active?: boolean }) {
+function NavItem({
+  href,
+  icon,
+  label,
+  count,
+  active,
+  onDropIds,
+}: {
+  href: string
+  icon: ReactNode
+  label: string
+  count?: number
+  active?: boolean
+  onDropIds?: (ids: string[]) => void
+}) {
+  const [over, setOver] = useState(false)
   return (
     <a
       href={href}
       aria-current={active ? "page" : undefined}
+      onDragOver={(e) => {
+        if (!onDropIds || !e.dataTransfer.types.includes(DIAGRAM_MIME)) return
+        e.preventDefault()
+        setOver(true)
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        setOver(false)
+        if (!onDropIds) return
+        e.preventDefault()
+        onDropIds(readDraggedIds(e.dataTransfer))
+      }}
       className={cn(
-        "flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground [&_svg]:size-4 [&_svg]:shrink-0",
+        "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground [&_svg]:size-4 [&_svg]:shrink-0",
         active && "bg-accent font-medium text-foreground",
+        over && "outline outline-1 outline-[var(--eos-champagne)]",
       )}
     >
       <span className="flex size-4 items-center justify-center">{icon}</span>

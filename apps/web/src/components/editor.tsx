@@ -112,6 +112,7 @@ export function Editor({ id }: { id: string }) {
         <SidebarToggle />
         <HistoryNav />
         <TitleInput value={title} onCommit={(t) => eos.renameDiagram(id, t)} />
+        <div className="flex-1" />
         <IconButton
           label={diagram.starred ? "Unstar" : "Star"}
           onClick={() => eos.setStarred(id, !diagram.starred)}
@@ -243,7 +244,7 @@ function TitleInput({
       onKeyDown={(e) =>
         e.key === "Enter" && (e.target as HTMLInputElement).blur()
       }
-      className="min-w-0 flex-1 rounded-md bg-transparent px-1.5 py-1 text-sm font-medium outline-none hover:bg-accent/50 focus:bg-accent"
+      className="field-sizing-content min-w-[4ch] max-w-full rounded-md bg-transparent px-1.5 py-1 text-sm font-medium outline-none hover:bg-accent/50 focus:bg-accent"
     />
   )
 }
