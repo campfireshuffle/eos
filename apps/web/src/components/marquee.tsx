@@ -33,6 +33,8 @@ export function Marquee({
     if (target.closest("[data-card-id], a, button, input, select, textarea, [role=menu]")) return
     const el = root.current!
     const origin = el.getBoundingClientRect()
+    // A press on the scrollbar scrolls; it isn't a selection.
+    if (e.clientX >= origin.left + el.clientLeft + el.clientWidth || e.clientY >= origin.top + el.clientTop + el.clientHeight) return
     const start = { x: e.clientX - origin.left + el.scrollLeft, y: e.clientY - origin.top + el.scrollTop }
     const base = e.shiftKey || e.metaKey || e.ctrlKey ? new Set(getSelection()) : new Set<string>()
     let moved = false
@@ -43,6 +45,9 @@ export function Marquee({
     }
 
     const move = (ev: PointerEvent) => {
+      // The release can be missed (it happened outside the window, or a drag-and-drop took over).
+      // A move with no button held means the gesture is over, so never keep drawing.
+      if (ev.buttons === 0) return up()
       const r = el.getBoundingClientRect()
       const cur = { x: ev.clientX - r.left + el.scrollLeft, y: ev.clientY - r.top + el.scrollTop }
       const rect = { x: Math.min(start.x, cur.x), y: Math.min(start.y, cur.y), w: Math.abs(cur.x - start.x), h: Math.abs(cur.y - start.y) }
@@ -60,14 +65,17 @@ export function Marquee({
     }
     const up = () => {
       el.removeEventListener("pointermove", move)
-      el.removeEventListener("pointerup", up)
-      el.removeEventListener("pointercancel", up)
+      window.removeEventListener("pointerup", up)
+      window.removeEventListener("pointercancel", up)
+      window.removeEventListener("blur", up)
       if (!moved && !base.size) clearSelection()
       setBox(null)
     }
     el.addEventListener("pointermove", move)
-    el.addEventListener("pointerup", up)
-    el.addEventListener("pointercancel", up)
+    // Listen for the release anywhere, not just over the library.
+    window.addEventListener("pointerup", up)
+    window.addEventListener("pointercancel", up)
+    window.addEventListener("blur", up)
   }
 
   return (
