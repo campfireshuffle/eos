@@ -26,7 +26,7 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
         <a href={homeHref()} className="flex flex-1 items-center gap-2">
           {/* In light mode the ivory bird sits on a dark tile so it stays legible. */}
           <span className="flex size-8 items-center justify-center rounded-lg bg-[var(--eos-primary)] dark:bg-transparent">
-            <img src="/logo.png" alt="" className="size-6 object-contain dark:size-8" />
+            <img src="/logo.png" alt="" className="size-6 object-contain dark:size-7" />
           </span>
           <span className="text-heading font-semibold tracking-tight">Eos</span>
         </a>
