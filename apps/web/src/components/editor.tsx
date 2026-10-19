@@ -406,16 +406,18 @@ function useShortcuts(actions: ReturnType<typeof useExportActions>) {
       const inText = (e.target as HTMLElement | null)?.closest?.(
         ".cm-editor, input, textarea"
       )
-      if (mod && (e.key === "=" || e.key === "+"))
-        (e.preventDefault(), requestZoom("in"))
-      else if (mod && e.key === "-") (e.preventDefault(), requestZoom("out"))
-      else if (mod && e.shiftKey && e.key.toLowerCase() === "l")
-        (e.preventDefault(), void actions.copyShareLink())
-      else if (mod && e.shiftKey && e.key.toLowerCase() === "c")
-        (e.preventDefault(), void actions.copySvg())
-      else if (!inText && e.shiftKey && e.code === "Digit1") requestZoom("fit")
-      else if (!inText && e.shiftKey && e.code === "Digit0")
-        requestZoom("actual")
+      const action =
+        mod && (e.key === "=" || e.key === "+") ? () => requestZoom("in")
+        : mod && e.key === "-" ? () => requestZoom("out")
+        : mod && e.shiftKey && e.key.toLowerCase() === "l" ? () => void actions.copyShareLink()
+        : mod && e.shiftKey && e.key.toLowerCase() === "c" ? () => void actions.copySvg()
+        : !inText && e.shiftKey && e.code === "Digit1" ? () => requestZoom("fit")
+        : !inText && e.shiftKey && e.code === "Digit0" ? () => requestZoom("actual")
+        : null
+      if (!action) return
+      // ⌘ shortcuts would otherwise zoom or act on the whole page.
+      if (mod) e.preventDefault()
+      action()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)

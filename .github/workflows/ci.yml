@@ -16,10 +16,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Components must use the cn from @workspace/ui/lib/utils, which knows Eos's text-* sizes.
-      # The stock "cn" treats text-body as a colour and drops colour classes like text-primary-foreground.
-      - name: No stock cn imports
-        run: "! grep -rn 'from \"cn\"' packages/ui/src apps/web/src"
+      # Lint also bans the stock "cn" import (see eslint.config.mjs).
+      - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build

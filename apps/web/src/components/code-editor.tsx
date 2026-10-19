@@ -137,7 +137,10 @@ export function CodeEditor({
     let to = prev.length
     let end = value.length
     while (from < to && from < end && prev[from] === value[from]) from++
-    while (to > from && end > from && prev[to - 1] === value[end - 1]) (to--, end--)
+    while (to > from && end > from && prev[to - 1] === value[end - 1]) {
+      to--
+      end--
+    }
     v.dispatch({ changes: { from, to, insert: value.slice(from, end) }, annotations: external.of(true) })
   }, [value])
 
