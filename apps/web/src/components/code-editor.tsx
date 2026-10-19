@@ -1,9 +1,9 @@
-import { defaultKeymap, indentWithTab } from "@codemirror/commands"
+import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands"
 import { Annotation, EditorState, StateEffect, StateField } from "@codemirror/state"
 import { Decoration, EditorView, keymap, lineNumbers, drawSelection, type DecorationSet } from "@codemirror/view"
 import { useEffect, useRef } from "react"
 
-import { mermaidHighlighting } from "@/lib/mermaid-language"
+import { languageExtension, type CodeLanguage } from "@/lib/mermaid-language"
 
 const external = Annotation.define<boolean>()
 const setErrorLine = StateEffect.define<number | null>()
@@ -25,7 +25,7 @@ const errorLine = StateField.define<DecorationSet>({
 
 const theme = EditorView.theme(
   {
-    "&": { height: "100%", fontSize: "13px", backgroundColor: "transparent" },
+    "&": { height: "100%", fontSize: "14px", backgroundColor: "transparent" },
     ".cm-scroller": { fontFamily: "var(--font-mono)", lineHeight: "1.72", padding: "14px 0" },
     ".cm-content": { caretColor: "var(--eos-body)" },
     ".cm-gutters": { backgroundColor: "transparent", border: "none", color: "var(--eos-faint)", paddingLeft: "12px" },
@@ -39,6 +39,8 @@ const theme = EditorView.theme(
   { dark: true },
 )
 
+const noGutterTheme = EditorView.theme({ ".cm-scroller": { padding: "10px 14px" } })
+
 export interface CodeEditorHandle {
   focusLine(line: number, column: number): void
 }
@@ -48,15 +50,24 @@ export function CodeEditor({
   onChange,
   onUndo,
   onRedo,
-  errorAt,
+  errorAt = null,
   handleRef,
+  language = "mermaid",
+  label = "Mermaid source",
+  readOnly = false,
+  gutter = true,
 }: {
   value: string
-  onChange: (value: string) => void
-  onUndo: () => void
-  onRedo: () => void
-  errorAt: number | null
+  onChange?: (value: string) => void
+  /** When given, undo/redo go to these (e.g. Loro); otherwise CodeMirror keeps its own history. */
+  onUndo?: () => void
+  onRedo?: () => void
+  errorAt?: number | null
   handleRef?: React.RefObject<CodeEditorHandle | null>
+  language?: CodeLanguage
+  label?: string
+  readOnly?: boolean
+  gutter?: boolean
 }) {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
@@ -69,24 +80,29 @@ export function CodeEditor({
       state: EditorState.create({
         doc: value,
         extensions: [
-          lineNumbers(),
+          gutter ? lineNumbers() : [],
           drawSelection(),
           EditorState.tabSize.of(2),
-          // Undo goes through Loro so agent and user edits share one history.
-          keymap.of([
-            { key: "Mod-z", run: () => (callbacks.current.onUndo(), true), preventDefault: true },
-            { key: "Mod-Shift-z", run: () => (callbacks.current.onRedo(), true), preventDefault: true },
-            { key: "Mod-y", run: () => (callbacks.current.onRedo(), true), preventDefault: true },
-            indentWithTab,
-            ...defaultKeymap,
-          ]),
-          mermaidHighlighting,
+          EditorState.readOnly.of(readOnly),
+          EditorView.editable.of(!readOnly),
+          onUndo
+            ? // Undo goes through Loro so agent and user edits share one history.
+              keymap.of([
+                { key: "Mod-z", run: () => (callbacks.current.onUndo?.(), true), preventDefault: true },
+                { key: "Mod-Shift-z", run: () => (callbacks.current.onRedo?.(), true), preventDefault: true },
+                { key: "Mod-y", run: () => (callbacks.current.onRedo?.(), true), preventDefault: true },
+                indentWithTab,
+                ...defaultKeymap,
+              ])
+            : [history(), keymap.of([...historyKeymap, indentWithTab, ...defaultKeymap])],
+          languageExtension(language),
           errorLine,
           theme,
-          EditorView.contentAttributes.of({ "aria-label": "Mermaid source", spellcheck: "false", autocapitalize: "off" }),
+          gutter ? [] : noGutterTheme,
+          EditorView.contentAttributes.of({ "aria-label": label, spellcheck: "false", autocapitalize: "off" }),
           EditorView.updateListener.of((u) => {
             if (u.docChanged && !u.transactions.some((t) => t.annotation(external))) {
-              callbacks.current.onChange(u.state.doc.toString())
+              callbacks.current.onChange?.(u.state.doc.toString())
             }
           }),
         ],

@@ -34,7 +34,7 @@ export function homeHref(view: { starred?: boolean; tag?: TagPath | null; sort?:
 export const diagramHref = (id: string) => `#/d/${id}`
 
 export function navigate(href: string, { replace = false } = {}) {
-  if (replace) history.replaceState(null, "", href)
+  if (replace) history.replaceState(history.state, "", href)
   else location.hash = href.replace(/^#/, "")
   if (replace) window.dispatchEvent(new HashChangeEvent("hashchange"))
 }

@@ -350,8 +350,19 @@ export class Eos {
     this.emit("library")
   }
 
+  /** Imports a shared diagram, or returns the existing one if it's byte-for-byte the same. */
   async importShare(payload: SharePayload): Promise<DiagramId> {
+    const existing = await this.findIdentical(payload.title, payload.source)
+    if (existing) return existing
     return this.createDiagram(payload, { kind: "import", source: "share-link" })
+  }
+
+  private async findIdentical(title: string, source: string): Promise<DiagramId | null> {
+    const candidates = (await this.db.getAll("diagrams")).filter(
+      (r) => !r.deletedAt && r.title === (title.trim() || "Untitled") && source.startsWith(r.sourcePreview),
+    )
+    for (const row of candidates) if ((await this.getSource(row.id)) === source) return row.id
+    return null
   }
 
   /** Permanently removes soft-deleted diagrams. */

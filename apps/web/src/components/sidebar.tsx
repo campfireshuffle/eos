@@ -21,8 +21,8 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
     <aside className="flex h-full w-full min-w-0 flex-col gap-0.5 overflow-y-auto px-1.5 pt-2.5 pb-1.5">
       <div className="flex items-center gap-2 px-2.5 pb-3">
         <a href={homeHref()} className="flex flex-1 items-center gap-2">
-          <img src="/logo.png" alt="" className="h-[22px] w-[26px] object-contain" />
-          <span className="text-[17px] font-semibold tracking-tight">Eos</span>
+          <img src="/logo.png" alt="" className="h-8 w-8 object-contain" />
+          <span className="text-lg font-semibold tracking-tight">Eos</span>
         </a>
         <button
           type="button"

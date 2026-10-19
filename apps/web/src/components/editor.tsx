@@ -1,6 +1,6 @@
 import {
-  ArrowLeft,
-  ArrowRight,
+  
+  
   ChevronDown,
   CircleCheck,
   Copy,
@@ -41,6 +41,7 @@ import { requestZoom, useUi } from "@/lib/ui-state"
 import { CodeEditor, type CodeEditorHandle } from "./code-editor"
 import { ExportMenu, useExportActions } from "./export-menu"
 import { Preview } from "./preview"
+import { HistoryNav } from "./history-nav"
 import { SidebarToggle } from "./sidebar-toggle"
 
 export function Editor({ id }: { id: string }) {
@@ -109,12 +110,7 @@ export function Editor({ id }: { id: string }) {
     <div className="flex min-w-0 flex-1 flex-col gap-2">
       <div className="flex items-center gap-1.5 pt-1.5 pr-1 pl-1.5">
         <SidebarToggle />
-        <IconButton label="Back" onClick={() => history.back()}>
-          <ArrowLeft />
-        </IconButton>
-        <IconButton label="Forward" onClick={() => history.forward()}>
-          <ArrowRight />
-        </IconButton>
+        <HistoryNav />
         <TitleInput value={title} onCommit={(t) => eos.renameDiagram(id, t)} />
         <IconButton
           label={diagram.starred ? "Unstar" : "Star"}

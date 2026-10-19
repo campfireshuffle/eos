@@ -11,6 +11,7 @@ import { diagramHref, homeHref, navigate, type Route } from "@/lib/router"
 
 import { DiagramCard } from "./diagram-card"
 import { Pill } from "./pill"
+import { HistoryNav } from "./history-nav"
 import { SidebarToggle } from "./sidebar-toggle"
 
 export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
@@ -30,6 +31,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
     <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-card">
       <header className="flex items-center gap-2 border-b border-border py-3.5 pr-4 pl-4 md:pl-6">
         <SidebarToggle />
+        <HistoryNav />
         <h1 className="flex-1 text-xl font-light">Diagrams</h1>
         <div className="relative w-[280px] max-md:hidden">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -57,7 +59,6 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
                 {route.tag}
               </Pill>
             )}
-            {!route.starred && !route.tag && <span className="text-xs text-muted-foreground">All diagrams</span>}
           </div>
           <NativeSelect
             value={route.sort}

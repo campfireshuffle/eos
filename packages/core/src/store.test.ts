@@ -64,6 +64,16 @@ describe("Eos store", () => {
   })
 })
 
+describe("share imports", () => {
+  it("reuses an identical diagram instead of duplicating it", async () => {
+    const eos = await fresh()
+    const id = await eos.createDiagram({ title: "Same", source: "pie\n  \"a\": 1" })
+    expect(await eos.importShare({ title: "Same", source: "pie\n  \"a\": 1" })).toBe(id)
+    expect(await eos.importShare({ title: "Same", source: "pie\n  \"a\": 2" })).not.toBe(id)
+    expect((await eos.listDiagrams()).length).toBe(2)
+  })
+})
+
 describe("share links", () => {
   it("round-trips a payload", async () => {
     const encoded = await encodeShare({ title: "T", source: "flowchart TD\n  A-->B", tags: ["x"] })

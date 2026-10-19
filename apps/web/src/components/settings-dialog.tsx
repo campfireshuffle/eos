@@ -3,13 +3,15 @@ import { useEffect, useRef, useState, type ReactNode } from "react"
 
 import { Button } from "@workspace/ui/components/button"
 import { Dialog, DialogContent, DialogTitle } from "@workspace/ui/components/dialog"
-import { Textarea } from "@workspace/ui/components/textarea"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { useEos, useSettings } from "@/lib/eos"
 import { download } from "@/lib/files"
 import { DEFAULT_THEME_CSS } from "@/lib/theme"
+import type { CodeLanguage } from "@/lib/mermaid-language"
 import { askConfirm, setUi, useUi } from "@/lib/ui-state"
+
+import { CodeEditor } from "./code-editor"
 
 const TABS = [
   { id: "theming", label: "Theming", icon: Palette },
@@ -58,13 +60,9 @@ function Theming() {
   const [css, setCss] = useState(settings.theme.customCss ?? DEFAULT_THEME_CSS)
   return (
     <>
-      <Textarea
-        value={css}
-        onChange={(e) => setCss(e.target.value)}
-        spellCheck={false}
-        aria-label="Theme CSS"
-        className="min-h-0 flex-1 resize-none font-mono text-[13px] leading-[22px]"
-      />
+      <div className="flex min-h-0 flex-1 overflow-hidden rounded-lg border border-input bg-background/40 focus-within:border-ring">
+        <CodeEditor value={css} onChange={setCss} language="css" label="Theme CSS" />
+      </div>
       <div className="flex items-center gap-2">
         <Button
           variant="ghost"
@@ -105,9 +103,10 @@ function Mcp() {
           </a>
           , then add it to your agent:
         </p>
-        <CodeBlock label="Claude Code" code="claude mcp add webmcp -- npx webmcp-server" />
+        <CodeBlock label="Claude Code" language="shell" code="claude mcp add webmcp -- npx webmcp-server" />
         <CodeBlock
           label="mcp.json"
+          language="json"
           code={`{\n  "mcpServers": {\n    "webmcp": { "command": "npx", "args": ["webmcp-server"] }\n  }\n}`}
         />
       </Step>
@@ -124,7 +123,7 @@ function Step({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
-function CodeBlock({ label, code }: { label: string; code: string }) {
+function CodeBlock({ label, code, language }: { label: string; code: string; language: CodeLanguage }) {
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-background">
       <div className="flex items-center border-b border-border py-1 pr-1.5 pl-3">
@@ -133,7 +132,9 @@ function CodeBlock({ label, code }: { label: string; code: string }) {
           <Copy />
         </Button>
       </div>
-      <pre className="px-3.5 py-2.5 font-mono text-xs leading-5">{code}</pre>
+      <div className="flex text-[13px] [&_.cm-editor]:h-auto">
+        <CodeEditor value={code} language={language} label={label} readOnly gutter={false} />
+      </div>
     </div>
   )
 }

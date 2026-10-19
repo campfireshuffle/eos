@@ -1,4 +1,8 @@
+import { css } from "@codemirror/lang-css"
+import { json } from "@codemirror/lang-json"
 import { HighlightStyle, StreamLanguage, syntaxHighlighting } from "@codemirror/language"
+import { shell } from "@codemirror/legacy-modes/mode/shell"
+import type { Extension } from "@codemirror/state"
 import { tags as t } from "@lezer/highlight"
 
 const KEYWORDS =
@@ -24,13 +28,30 @@ const mermaid = StreamLanguage.define<{ depth: number }>({
   },
 })
 
+/** One palette for every code surface in Eos. */
 const style = HighlightStyle.define([
-  { tag: t.keyword, color: "var(--eos-champagne)" },
-  { tag: t.string, color: "#b9c59a" },
-  { tag: t.variableName, color: "#d9a684" },
-  { tag: t.operator, color: "var(--eos-muted)" },
-  { tag: t.number, color: "#9fb6d9" },
-  { tag: t.comment, color: "#6b6b69", fontStyle: "italic" },
+  { tag: [t.keyword, t.modifier, t.controlKeyword, t.definitionKeyword], color: "var(--eos-champagne)" },
+  { tag: [t.string, t.special(t.string), t.regexp], color: "#b9c59a" },
+  { tag: [t.variableName, t.propertyName, t.attributeName, t.labelName], color: "#d9a684" },
+  { tag: [t.definition(t.variableName), t.function(t.variableName), t.className, t.tagName], color: "#9fb6d9" },
+  { tag: [t.number, t.bool, t.null, t.atom, t.color, t.unit], color: "#c7a6d9" },
+  { tag: [t.operator, t.punctuation, t.bracket, t.separator], color: "var(--eos-muted)" },
+  { tag: [t.comment, t.lineComment, t.blockComment], color: "#6b6b69", fontStyle: "italic" },
 ])
 
-export const mermaidHighlighting = [mermaid, syntaxHighlighting(style)]
+const highlight = syntaxHighlighting(style)
+
+export type CodeLanguage = "mermaid" | "css" | "json" | "shell"
+
+export function languageExtension(language: CodeLanguage): Extension {
+  switch (language) {
+    case "css":
+      return [css(), highlight]
+    case "json":
+      return [json(), highlight]
+    case "shell":
+      return [StreamLanguage.define(shell), highlight]
+    default:
+      return [mermaid, highlight]
+  }
+}
