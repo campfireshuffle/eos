@@ -25,8 +25,21 @@ export type Database = IDBPDatabase<EosDB>
 /** Reserved id for the workspace doc (stars, tag emoji). */
 export const WORKSPACE_ID = "__workspace"
 
-export function openEosDB(name = "eos"): Promise<Database> {
-  return openDB<EosDB>(name, 2, {
+export interface OpenHooks {
+  /** Another tab still has an older version open, so the upgrade is waiting for it. */
+  onBlocked?: () => void
+  /** A newer version of Eos in another tab needs this connection closed. */
+  onVersionChange?: () => void
+}
+
+export async function openEosDB(name = "eos", hooks: OpenHooks = {}): Promise<Database> {
+  const db = await openDB<EosDB>(name, 2, {
+    blocked: () => hooks.onBlocked?.(),
+    // Never hold up a newer tab's upgrade: close, then let the app decide (it reloads).
+    blocking: () => {
+      db.close()
+      hooks.onVersionChange?.()
+    },
     upgrade(db, oldVersion) {
       // v1 had a thumbnails cache; Pele renders cards fast enough that it was never used.
       if (oldVersion === 1) (db as unknown as IDBPDatabase).deleteObjectStore("thumbnails")
@@ -40,4 +53,5 @@ export function openEosDB(name = "eos"): Promise<Database> {
       db.createObjectStore("settings")
     },
   })
+  return db
 }

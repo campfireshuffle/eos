@@ -1,6 +1,6 @@
 import { LoroDoc, type LoroMap, UndoManager } from "loro-crdt"
 
-import { openEosDB, WORKSPACE_ID, type Database } from "./db"
+import { openEosDB, WORKSPACE_ID, type Database, type OpenHooks } from "./db"
 import {
   actorOrigin,
   commit,
@@ -78,8 +78,8 @@ export class Eos {
     this.workspace = workspace
   }
 
-  static async create(options: { dbName?: string; seed?: boolean } = {}): Promise<Eos> {
-    const db = await openEosDB(options.dbName)
+  static async create(options: { dbName?: string; seed?: boolean } & OpenHooks = {}): Promise<Eos> {
+    const db = await openEosDB(options.dbName, options)
     const doc = await loadDoc(db, WORKSPACE_ID)
     const workspace = { doc, starred: doc.getMap("starred"), tagEmoji: doc.getMap("tagEmoji") }
     const eos = new Eos(db, workspace)
