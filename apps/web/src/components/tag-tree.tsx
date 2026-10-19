@@ -7,6 +7,8 @@ import { cn } from "@workspace/ui/lib/utils"
 
 import { useEos } from "@/lib/eos"
 import { DIAGRAM_MIME, readDraggedIds } from "@/lib/selection"
+import { isTouchHolding, touchHoldCancel, touchHoldEnd, touchHoldStart } from "@/lib/touch-hold"
+import { useIsMobile } from "@/lib/layout"
 import { homeHref, navigate } from "@/lib/router"
 
 import { Popover, PopoverAnchor, PopoverContent } from "@workspace/ui/components/popover"
@@ -49,13 +51,15 @@ export function TagTree({
   if (picker) lastPicker.current = picker
   const shownPicker = picker ?? lastPicker.current
   useLeafStyles(host, leaves)
+  // Bigger rows for fingers on phones. Read once: the phone drawer mounts its own tree.
+  const mobile = useIsMobile()
 
   const { model } = useFileTree({
     paths,
     initialExpansion: "open",
     icons: { set: "none" },
     density: "default",
-    itemHeight: 32,
+    itemHeight: mobile ? 40 : 32,
     flattenEmptyDirectories: false,
     sort: byTagPath,
     renderRowDecoration: ({ row }) => {
@@ -66,6 +70,8 @@ export function TagTree({
     },
     onSelectionChange: (selection) => {
       if (syncing.current) return
+      // Ending a press-and-hold (a touch drag) selects the row; that isn't a tap.
+      if (isTouchHolding()) return
       const tag = selection[0]
         ? handlers.current.toTag.get(selection[0])
         : undefined
@@ -159,6 +165,10 @@ export function TagTree({
   return (
     <div
       ref={host}
+      onTouchStartCapture={touchHoldStart}
+      onTouchMoveCapture={touchHoldCancel}
+      onTouchEndCapture={touchHoldEnd}
+      onTouchCancelCapture={touchHoldEnd}
       onPointerDownCapture={swallowIcon}
       onMouseDownCapture={swallowIcon}
       onClickCapture={(e) => {
@@ -198,7 +208,7 @@ export function TagTree({
       <FileTree
         model={model}
         className="block min-h-0 flex-1"
-        style={TREE_STYLE}
+        style={mobile ? { ...TREE_STYLE, "--trees-font-size-override": "15px" } as CSSProperties : TREE_STYLE}
         renderContextMenu={(item, ctx) => {
           const tag = toTag.get(item.path)
           if (!tag) return null
@@ -306,6 +316,8 @@ function useLeafStyles(wrapper: React.RefObject<HTMLDivElement | null>, leaves: 
         `[data-eos-drop] { background: color-mix(in srgb, var(--eos-champagne) 14%, transparent) !important; color: var(--eos-body) !important; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--eos-champagne) 55%, transparent); }`,
         // The leading glyph opens the icon picker.
         `[data-item-section="content"] { cursor: default; }`,
+        // Press-and-hold drags a tag; don't show iOS's text callout or selection.
+        `[data-item-path] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }`,
         // Only show the focused-row ring while the tree itself has keyboard focus.
         `:host(:not(:focus-within)) [data-item-focused], :host(:not(:focus-within)) [data-item-focused]::before, :host(:not(:focus-within)) [data-item-focused]::after { outline: none !important; box-shadow: none !important; border-color: transparent !important; }`,
         ...leaves.map((p) => `[data-item-path="${CSS.escape(p)}"] [data-item-section="icon"] { visibility: hidden; }`),

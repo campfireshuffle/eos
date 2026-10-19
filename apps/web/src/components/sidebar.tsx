@@ -65,7 +65,7 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
       <button
         type="button"
         onClick={() => setUi({ settingsOpen: true })}
-        className="flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground [&_svg]:size-4"
+        className="flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground max-md:h-10 max-md:text-[15px] [&_svg]:size-4"
       >
         <Settings /> Settings
       </button>
@@ -107,7 +107,7 @@ function NavItem({
         onDropIds(readDraggedIds(e.dataTransfer))
       }}
       className={cn(
-        "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent/30 hover:text-foreground [&_svg]:size-4 [&_svg]:shrink-0",
+        "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-[13px] text-muted-foreground transition-colors max-md:h-10 max-md:text-[15px] hover:bg-accent/30 hover:text-foreground [&_svg]:size-4 [&_svg]:shrink-0",
         active && "bg-accent font-medium text-foreground",
         over && "outline outline-1 outline-[var(--eos-champagne)]",
       )}

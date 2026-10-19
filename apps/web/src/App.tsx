@@ -14,6 +14,7 @@ import { SettingsDialog } from "@/components/settings-dialog"
 import { Sidebar } from "@/components/sidebar"
 import { useDiagram, useEos, useSettings } from "@/lib/eos"
 import { sidebarPanel, useIsMobile } from "@/lib/layout"
+import { isTouchHolding } from "@/lib/touch-hold"
 import { diagramHref, homeHref, navigate, useRoute, type Route } from "@/lib/router"
 import { applyTheme } from "@/lib/theme"
 import { setUi, useUi } from "@/lib/ui-state"
@@ -52,7 +53,13 @@ function Shell({ route, children }: { route: Route; children: ReactNode }) {
         {/* On phones the page itself scrolls (so Safari can collapse its toolbar); the editor pins itself to the viewport. */}
         <div className="flex min-h-svh flex-col">{children}</div>
         <Sheet open={mobileNavOpen} onOpenChange={(open) => setUi({ mobileNavOpen: open })}>
-          <SheetContent side="left" showCloseButton={false} className="w-72 max-w-[85vw] bg-background p-0">
+          <SheetContent
+            side="left"
+            showCloseButton={false}
+            className="w-72 max-w-[85vw] bg-background p-0"
+            // A tag drag's preview floats outside the drawer; touching it isn't "outside".
+            onInteractOutside={(e) => isTouchHolding() && e.preventDefault()}
+          >
             <SheetTitle className="sr-only">Navigation</SheetTitle>
             {sidebar}
           </SheetContent>
