@@ -1,4 +1,4 @@
-import { Plus, Search, X } from "lucide-react"
+import { Plus, Search } from "lucide-react"
 import { useState } from "react"
 
 import type { LibrarySort } from "@eos/core"
@@ -10,6 +10,8 @@ import { useEos, useLibrary, useTags } from "@/lib/eos"
 import { diagramHref, homeHref, navigate, type Route } from "@/lib/router"
 
 import { DiagramCard } from "./diagram-card"
+import { Pill } from "./pill"
+import { SidebarToggle } from "./sidebar-toggle"
 
 export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   const eos = useEos()
@@ -26,35 +28,41 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
 
   return (
     <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-card">
-      <header className="flex items-center gap-2 border-b border-border py-3.5 pr-4 pl-6">
+      <header className="flex items-center gap-2 border-b border-border py-3.5 pr-4 pl-4 md:pl-6">
+        <SidebarToggle />
         <h1 className="flex-1 text-xl font-light">Diagrams</h1>
-        <div className="relative w-[280px]">
+        <div className="relative w-[280px] max-md:hidden">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search diagrams" className="pl-8" />
         </div>
-        <Button onClick={create}>
-          <Plus /> New diagram
+        <Button onClick={create} aria-label="New diagram">
+          <Plus /> <span className="max-sm:hidden">New diagram</span>
         </Button>
       </header>
+      <div className="relative border-b border-border px-4 py-2.5 md:hidden">
+        <Search className="pointer-events-none absolute top-1/2 left-6.5 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search diagrams" className="pl-8" />
+      </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-6">
+      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4 md:p-6">
         <div className="flex items-center gap-2">
           <div className="flex flex-1 items-center gap-2">
-            {route.starred && <FilterChip label="Starred" href={homeHref({ tag: route.tag, sort: route.sort })} />}
+            {route.starred && (
+              <Pill removeHref={homeHref({ tag: route.tag, sort: route.sort })} removeLabel="Remove Starred filter">
+                Starred
+              </Pill>
+            )}
             {route.tag && (
-              <FilterChip
-                label={route.tag}
-                mono
-                icon={emoji}
-                href={homeHref({ starred: route.starred, sort: route.sort })}
-              />
+              <Pill icon={emoji} removeHref={homeHref({ starred: route.starred, sort: route.sort })} removeLabel={`Remove ${route.tag} filter`}>
+                {route.tag}
+              </Pill>
             )}
             {!route.starred && !route.tag && <span className="text-xs text-muted-foreground">All diagrams</span>}
           </div>
           <NativeSelect
             value={route.sort}
             onChange={(e) => navigate(homeHref({ starred: route.starred, tag: route.tag, sort: e.target.value as LibrarySort }), { replace: true })}
-            className="w-[170px]"
+            className="w-[150px] md:w-[170px]"
             aria-label="Sort"
           >
             <NativeSelectOption value="modified">Sort: Modified</NativeSelectOption>
@@ -80,17 +88,6 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   )
 }
 
-function FilterChip({ label, href, mono, icon }: { label: string; href: string; mono?: boolean; icon?: string | null }) {
-  return (
-    <span className="flex items-center gap-1.5 rounded-full border border-[var(--eos-line-active)] bg-accent py-0.5 pr-1.5 pl-2.5 text-xs">
-      {icon && <span>{icon}</span>}
-      <span className={mono ? "font-mono text-[var(--eos-champagne)]" : ""}>{label}</span>
-      <a href={href} aria-label={`Remove ${label} filter`} className="rounded-full p-0.5 text-muted-foreground hover:text-foreground">
-        <X className="size-3" />
-      </a>
-    </span>
-  )
-}
 
 function findEmoji(tags: { path: string; emoji: string | null; children: unknown[] }[], path: string): string | null {
   for (const t of tags) {

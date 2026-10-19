@@ -6,6 +6,7 @@ import { cn } from "@workspace/ui/lib/utils"
 
 import { useCounts, useTags } from "@/lib/eos"
 import { homeHref, type Route } from "@/lib/router"
+import { toggleSidebar } from "@/lib/layout"
 import { setUi } from "@/lib/ui-state"
 
 import { TagEmojiPicker } from "./tag-emoji-picker"
@@ -17,13 +18,20 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
   const selectedTag = home?.tag ?? activeTag ?? null
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col gap-0.5 px-1.5 pt-2.5 pb-1.5">
+    <aside className="flex h-full w-full min-w-0 flex-col gap-0.5 overflow-y-auto px-1.5 pt-2.5 pb-1.5">
       <div className="flex items-center gap-2 px-2.5 pb-3">
         <a href={homeHref()} className="flex flex-1 items-center gap-2">
           <img src="/logo.png" alt="" className="h-[22px] w-[26px] object-contain" />
           <span className="text-[17px] font-semibold tracking-tight">Eos</span>
         </a>
-        <PanelLeft className="size-4 text-muted-foreground" aria-hidden />
+        <button
+          type="button"
+          aria-label="Hide sidebar"
+          onClick={toggleSidebar}
+          className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <PanelLeft className="size-4" />
+        </button>
       </div>
 
       <NavItem

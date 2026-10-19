@@ -28,9 +28,12 @@ export function TagEmojiPicker({ path, emoji, children }: { path: string; emoji:
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         asChild
+        // The trigger sits inside a nav link: stop the link from navigating, then toggle ourselves.
+        // (Radix skips its own toggle when the event is default-prevented.)
         onClick={(e) => {
           e.preventDefault()
           e.stopPropagation()
+          setOpen((o) => !o)
         }}
       >
         <span role="button" aria-label={`Change icon for ${path}`} className="flex size-4 items-center justify-center rounded hover:bg-accent">

@@ -7,9 +7,13 @@ interface UiState {
   zoomRequest: { action: "in" | "out" | "fit" | "actual"; n: number } | null
   zoomScale: number
   confirm: { message: string; resolve: (ok: boolean) => void } | null
+  sidebarCollapsed: boolean
+  mobileNavOpen: boolean
 }
 
 let state: UiState = {
+  sidebarCollapsed: false,
+  mobileNavOpen: false,
   settingsOpen: false,
   settingsTab: "theming",
   zoomRequest: null,

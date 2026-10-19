@@ -6,6 +6,8 @@ import { renderSvg, type DiagramIndexRow } from "@eos/core"
 import { useEos } from "@/lib/eos"
 import { diagramHref } from "@/lib/router"
 
+import { Pill } from "./pill"
+
 export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramIndexRow }) {
   return (
     <a
@@ -18,13 +20,14 @@ export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramInde
           <span className="flex-1 truncate text-sm font-medium">{row.title}</span>
           {row.starred === 1 && <Star className="size-3.5 fill-[var(--eos-champagne)] text-[var(--eos-champagne)]" />}
         </div>
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          {row.tags.length > 0 && (
-            <>
-              <span className="truncate font-mono text-[var(--eos-champagne)]">{row.tags.map((t) => `#${t}`).join(" ")}</span>
-              <span className="text-[var(--eos-faint)]">·</span>
-            </>
-          )}
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+            {row.tags.map((t) => (
+              <Pill key={t} size="sm">
+                {t}
+              </Pill>
+            ))}
+          </span>
           <span className="shrink-0">{relativeTime(row.updatedAt)}</span>
         </div>
       </div>

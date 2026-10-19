@@ -1,6 +1,9 @@
-import { useEffect } from "react"
+import { useEffect, type ReactNode } from "react"
+import { useDefaultLayout } from "react-resizable-panels"
 
 import { decodeShare } from "@eos/core"
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@workspace/ui/components/resizable"
+import { Sheet, SheetContent, SheetTitle } from "@workspace/ui/components/sheet"
 import { TooltipProvider } from "@workspace/ui/components/tooltip"
 
 import { ConfirmDialog } from "@/components/confirm-dialog"
@@ -9,8 +12,10 @@ import { Home } from "@/components/home"
 import { SettingsDialog } from "@/components/settings-dialog"
 import { Sidebar } from "@/components/sidebar"
 import { useDiagram, useEos, useSettings } from "@/lib/eos"
-import { diagramHref, homeHref, navigate, useRoute } from "@/lib/router"
+import { sidebarPanel, useIsMobile } from "@/lib/layout"
+import { diagramHref, homeHref, navigate, useRoute, type Route } from "@/lib/router"
 import { applyThemeCss } from "@/lib/theme"
+import { setUi, useUi } from "@/lib/ui-state"
 
 export function App() {
   const route = useRoute()
@@ -20,25 +25,67 @@ export function App() {
 
   return (
     <TooltipProvider delayDuration={400}>
-      <div className="flex h-svh gap-2 p-2">
-        {route.name === "diagram" ? <EditorRoute id={route.id} /> : <Sidebar route={route} />}
+      <Shell route={route}>
         {route.name === "home" && <Home route={route} />}
-      </div>
+        {route.name === "diagram" && <Editor id={route.id} />}
+      </Shell>
       <SettingsDialog />
       <ConfirmDialog />
     </TooltipProvider>
   )
 }
 
-function EditorRoute({ id }: { id: string }) {
-  const route = useRoute()
-  const diagram = useDiagram(id)
+function Shell({ route, children }: { route: Route; children: ReactNode }) {
+  const mobile = useIsMobile()
+  const mobileNavOpen = useUi((s) => s.mobileNavOpen)
+  const layout = useDefaultLayout({ id: "eos-shell", storage: localStorage })
+  const sidebar = <RouteSidebar route={route} />
+
+  // Close the mobile drawer whenever the route changes.
+  const hash = location.hash
+  useEffect(() => setUi({ mobileNavOpen: false }), [hash])
+
+  if (mobile) {
+    return (
+      <>
+        <div className="flex h-svh flex-col p-2">{children}</div>
+        <Sheet open={mobileNavOpen} onOpenChange={(open) => setUi({ mobileNavOpen: open })}>
+          <SheetContent side="left" showCloseButton={false} className="w-72 max-w-[85vw] bg-background p-0">
+            <SheetTitle className="sr-only">Navigation</SheetTitle>
+            {sidebar}
+          </SheetContent>
+        </Sheet>
+      </>
+    )
+  }
+
   return (
-    <>
-      <Sidebar route={route} activeTag={diagram?.meta.tags[0] ?? null} />
-      <Editor id={id} />
-    </>
+    <div className="h-svh p-2">
+      <ResizablePanelGroup orientation="horizontal" {...layout}>
+        <ResizablePanel
+          id="sidebar"
+          panelRef={sidebarPanel}
+          defaultSize="240px"
+          minSize="180px"
+          maxSize="420px"
+          collapsible
+          collapsedSize="0px"
+          onResize={(size) => setUi({ sidebarCollapsed: size.inPixels < 1 })}
+        >
+          {sidebar}
+        </ResizablePanel>
+        <ResizableHandle className="w-2 bg-transparent after:w-2 hover:bg-[var(--eos-line-active)]/40 data-[separator=active]:bg-[var(--eos-line-active)]/60" />
+        <ResizablePanel id="content" minSize="360px" className="flex min-w-0">
+          {children}
+        </ResizablePanel>
+      </ResizablePanelGroup>
+    </div>
   )
+}
+
+function RouteSidebar({ route }: { route: Route }) {
+  const diagram = useDiagram(route.name === "diagram" ? route.id : "")
+  return <Sidebar route={route} activeTag={route.name === "diagram" ? (diagram?.meta.tags[0] ?? null) : null} />
 }
 
 function useShareImport(data: string | null) {

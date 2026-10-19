@@ -1,14 +1,4 @@
 /* Pele diagrams inherit the Eos palette through --pele-* variables (see globals.css). */
-.pele-preview {
-  overflow: hidden;
-}
-
-.pele-preview > svg,
-.pele-preview .pele {
-  width: 100%;
-  height: 100%;
-}
-
 .pele-thumb svg {
   height: auto;
   pointer-events: none;
