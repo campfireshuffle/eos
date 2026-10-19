@@ -42,9 +42,14 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
   const sourceRef = useRef(source)
   const measuredSource = useRef<string | null>(null)
 
+  // Bumped on every Pele render: each render is a fresh <svg> that needs the zoom size applied again,
+  // even when its natural size and the scale are unchanged (e.g. a re-layout after a resize).
+  const [renders, setRenders] = useState(0)
+
   const measure = () => {
     const svg = host.current?.querySelector("svg")
     onSvg(svg ?? null)
+    setRenders((n) => n + 1)
     const vb = svg?.viewBox.baseVal
     if (!vb || vb.width <= 0) return
     const edited = measuredSource.current !== null && measuredSource.current !== sourceRef.current
@@ -144,7 +149,7 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
       el.scrollLeft += r.left + a.fx * r.width - a.x
       el.scrollTop += r.top + a.fy * r.height - a.y
     }
-  }, [scale, natural, source])
+  }, [scale, natural, source, renders])
 
   useEffect(() => {
     if (!zoomRequest || zoomRequest.n <= handled.current) return
