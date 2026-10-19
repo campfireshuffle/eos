@@ -2,6 +2,8 @@ import { useSyncExternalStore } from "react"
 
 import type { LibrarySort, TagPath } from "@eos/core"
 
+import { onNavigate } from "./history"
+
 export type LibraryGroup = "date" | "subtag" | "none"
 
 export type Route =
@@ -54,17 +56,15 @@ export function homeHref(
 export const diagramHref = (id: string) => `#/d/${id}`
 
 export function navigate(href: string, { replace = false } = {}) {
-  if (replace) history.replaceState(history.state, "", href)
-  else location.hash = href.replace(/^#/, "")
-  if (replace) window.dispatchEvent(new HashChangeEvent("hashchange"))
-}
-
-const subscribe = (cb: () => void) => {
-  window.addEventListener("hashchange", cb)
-  return () => window.removeEventListener("hashchange", cb)
+  if (!replace) return void (location.hash = href.replace(/^#/, ""))
+  // The same history entry with a new URL, so its stamp in history.state carries over.
+  history.replaceState(history.state, "", href)
+  // replaceState fires nothing; announce the new URL the way a real hash change does.
+  window.dispatchEvent(new HashChangeEvent("hashchange"))
 }
 
 export function useRoute(): Route {
-  const hash = useSyncExternalStore(subscribe, () => location.hash)
+  // History tells us of each navigation, so the route and the history entry change together.
+  const hash = useSyncExternalStore(onNavigate, () => location.hash)
   return parseRoute(hash)
 }

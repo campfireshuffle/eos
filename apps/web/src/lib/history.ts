@@ -2,30 +2,34 @@ import { useSyncExternalStore } from "react"
 
 /**
  * Tracks our position in the tab's history so back/forward only show when they
- * would stay inside Eos. Each entry is stamped with an index in history.state.
+ * would stay inside Eos. Each entry is stamped in history.state with its index and
+ * a key of its own; replacing an entry keeps both.
  */
+type Stamp = { eosIndex: number; eosKey: string }
+
 const KEY = "eos-history-max"
 let index = 0
 let max = 0
+let key = ""
+/** The URL hash when the entry was last stamped. */
+let hash = ""
 const listeners = new Set<() => void>()
 
-/** How we reached the current entry: a new navigation, or back/forward (and reloads). */
-let arrival: "push" | "traverse" = "traverse"
-
 function stamp() {
-  const state = history.state as { eosIndex?: number } | null
+  const state = history.state as Partial<Stamp> | null
   if (typeof state?.eosIndex === "number") {
     index = state.eosIndex
-    arrival = "traverse"
+    key = state.eosKey!
   } else {
-    arrival = "push"
     // A new entry: it becomes the newest, dropping any forward entries.
     index = sessionIndex() === null ? 0 : index + 1
     max = index
-    history.replaceState({ ...(state ?? {}), eosIndex: index }, "")
+    key = Math.random().toString(36).slice(2)
+    history.replaceState({ ...(state ?? {}), eosIndex: index, eosKey: key } satisfies Stamp, "")
   }
   max = Math.max(max, index)
   sessionStorage.setItem(KEY, String(max))
+  hash = location.hash
   listeners.forEach((l) => l())
 }
 
@@ -36,17 +40,25 @@ function sessionIndex(): number | null {
 
 export function initHistory() {
   const saved = sessionIndex()
-  const state = history.state as { eosIndex?: number } | null
+  const state = history.state as Partial<Stamp> | null
   if (saved !== null && typeof state?.eosIndex === "number") {
     index = state.eosIndex
+    key = state.eosKey!
     max = saved
+    hash = location.hash
   } else {
     sessionStorage.removeItem(KEY)
     stamp()
   }
+  // A hash navigation fires popstate and then hashchange. Stamping on hashchange moves to the new entry
+  // and the new route in one update, so nothing renders the old route under the new entry.
   window.addEventListener("hashchange", stamp)
-  window.addEventListener("popstate", stamp)
+  // Back or forward between entries with the same URL fires popstate alone.
+  window.addEventListener("popstate", () => location.hash === hash && stamp())
 }
+
+/** Calls back after each navigation, once the entry is stamped and the route has changed. */
+export const onNavigate = (cb: () => void) => (listeners.add(cb), () => listeners.delete(cb))
 
 let snapshot = { canGoBack: false, canGoForward: false }
 function read() {
@@ -56,16 +68,10 @@ function read() {
 }
 
 export function useHistoryNav() {
-  return useSyncExternalStore((cb) => (listeners.add(cb), () => listeners.delete(cb)), read)
+  return useSyncExternalStore(onNavigate, read)
 }
 
-/** The current entry's position in this tab's history, and how we got there. */
-export function currentEntry(): { index: number; arrival: "push" | "traverse" } {
-  return { index, arrival }
-}
-
-/** Calls back after each navigation, once the entry has been stamped. */
-export function onNavigate(cb: () => void): () => void {
-  listeners.add(cb)
-  return () => listeners.delete(cb)
+/** A key unique to the current history entry: new for each new navigation, the same when it's gone back to. */
+export function useHistoryEntry(): string {
+  return useSyncExternalStore(onNavigate, () => key)
 }
