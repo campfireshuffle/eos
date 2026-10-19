@@ -1,5 +1,5 @@
 import { ArrowUpRight, Bot, Check, Copy, Database, Download, Heart, Info, Monitor, Moon, Palette, RotateCcw, Star, Sun } from "lucide-react"
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react"
+import { Fragment, lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react"
 
 import type { AppSettings, ThemeMode } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
@@ -14,7 +14,9 @@ import { currentAppCss, DEFAULT_DIAGRAM_CSS } from "@/lib/theme"
 import type { CodeLanguage } from "@/lib/mermaid-language"
 import { askConfirm, setUi, useUi } from "@/lib/ui-state"
 
-import { CodeEditor } from "./code-editor"
+// CodeMirror is part of the editor's download; Settings fetches it when first opened.
+const CodeEditor = lazy(() => import("./code-editor").then((m) => ({ default: m.CodeEditor })))
+
 
 const TABS = [
   { id: "theming", label: "Theming", icon: Palette },
@@ -178,7 +180,9 @@ function Theming() {
 function CssBox({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
   return (
     <div className="flex min-h-[140px] flex-1 overflow-hidden rounded-lg border border-input bg-background/40 focus-within:border-ring">
-      <CodeEditor value={value} onChange={onChange} language="css" label={label} />
+      <Suspense fallback={null}>
+        <CodeEditor value={value} onChange={onChange} language="css" label={label} />
+      </Suspense>
     </div>
   )
 }
@@ -282,7 +286,9 @@ function CodeBlock({ label, code, language }: { label: string; code: string; lan
         </Button>
       </div>
       <div className="flex text-body [&_.cm-editor]:h-auto">
-        <CodeEditor value={code} language={language} label={label} readOnly gutter={false} />
+        <Suspense fallback={<pre className="overflow-x-auto px-3 py-2.5 font-mono text-caption">{code}</pre>}>
+          <CodeEditor value={code} language={language} label={label} readOnly gutter={false} />
+        </Suspense>
       </div>
     </div>
   )

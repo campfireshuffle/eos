@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react"
+import { lazy, Suspense, useEffect, type ReactNode } from "react"
 import { useDefaultLayout } from "react-resizable-panels"
 
 import { decodeShare } from "@eos/core"
@@ -9,7 +9,6 @@ import { cn } from "@workspace/ui/lib/utils"
 
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ResizeHandle } from "@/components/resize-handle"
-import { Editor } from "@/components/editor"
 import { Home } from "@/components/home"
 import { SettingsDialog } from "@/components/settings-dialog"
 import { Sidebar } from "@/components/sidebar"
@@ -18,6 +17,11 @@ import { sidebarPanel, useIsMobile } from "@/lib/layout"
 import { diagramHref, homeHref, navigate, useRoute, type Route } from "@/lib/router"
 import { applyTheme } from "@/lib/theme"
 import { setUi, useUi } from "@/lib/ui-state"
+
+// The editor (CodeMirror, the preview and its gestures) is a separate download, so the
+// library opens without it. It's fetched in the background once the app is idle.
+const loadEditor = () => import("@/components/editor")
+const Editor = lazy(() => loadEditor().then((m) => ({ default: m.Editor })))
 
 export function App() {
   const route = useRoute()
@@ -29,12 +33,20 @@ export function App() {
   useEffect(() => {
     if (editorId) window.scrollTo({ top: 0 })
   }, [editorId])
+  useEffect(() => {
+    const idle = window.requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 1500))
+    idle(() => void loadEditor())
+  }, [])
 
   return (
     <TooltipProvider delayDuration={400}>
       <Shell route={route}>
         {route.name === "home" && <Home route={route} />}
-        {route.name === "diagram" && <Editor key={route.id} id={route.id} />}
+        {route.name === "diagram" && (
+          <Suspense fallback={<div className="flex-1 bg-card md:rounded-tl-xl" />}>
+            <Editor key={route.id} id={route.id} />
+          </Suspense>
+        )}
       </Shell>
       <SettingsDialog />
       <ConfirmDialog />
