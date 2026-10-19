@@ -334,6 +334,11 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
         if (i.expectedVersion !== undefined && i.expectedVersion !== d.version)
           return fail("stale", "The diagram changed since that version; read it again", { version: d.version })
         if (i.revert !== undefined && i.source !== undefined) return fail("invalid_input", "Use either revert or source, not both")
+        // Asked before anything changes, so a declined delete leaves the whole edit undone.
+        if (i.deleted === true) {
+          const refused = await ask(signal, `The agent wants to move “${d.meta.title}” to Deleted.`, "The person declined to delete it")
+          if (refused) return refused
+        }
 
         const changes = (["title", "source", "addTags", "removeTags"] as const)
           .filter((k) => i[k] !== undefined)
@@ -366,11 +371,8 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
           }
         }
         if (i.starred !== undefined) await eos.setStarred(id, i.starred, agent("update_diagram", ["starred"]))
-        if (i.deleted === true) {
-          const refused = await ask(signal, `The agent wants to move “${d.meta.title}” to Deleted.`, "The person declined to delete it")
-          if (refused) return refused
-          await eos.deleteDiagram(id)
-        } else if (i.deleted === false) await eos.restoreDiagram(id)
+        if (i.deleted === true) await eos.deleteDiagram(id)
+        else if (i.deleted === false) await eos.restoreDiagram(id)
 
         const now = (await eos.getDiagram(id))!
         return ok({
@@ -502,7 +504,8 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
     }),
     tool({
       name: "delete_all_data",
-      description: "Delete every diagram and setting in this browser. Asks the person to confirm. Can't be undone.",
+      description:
+        "Delete every diagram in this browser, with its stars and tag emoji. Settings are kept. Asks the person to confirm. Can't be undone.",
       input: {},
       annotations: { consequentialHint: true, destructiveHint: true },
       execute: async (_, signal) => {

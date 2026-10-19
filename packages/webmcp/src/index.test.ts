@@ -152,6 +152,9 @@ describe("webmcp tools", () => {
     const { call, eos } = await setup(false)
     const { id } = await call("create_diagram", { title: "Keep me", open: false })
     expect((await call("update_diagram", { id, deleted: true })).code).toBe("user_declined")
+    // A declined delete leaves the rest of the edit undone too.
+    expect((await call("update_diagram", { id, title: "Renamed", deleted: true })).code).toBe("user_declined")
+    expect((await eos.getDiagram(id))?.meta.title).toBe("Keep me")
     expect((await call("delete_tag", { path: "x" })).code).toBe("user_declined")
     expect((await eos.listDiagrams()).length).toBe(1)
   })
