@@ -18,7 +18,7 @@
 </p>
 
 Write Mermaid and the preview updates as you type, rendered by [Pele](https://pele.run), a fast Mermaid
-renderer. Every diagram stays in your browser: no account, no server. Tag and star diagrams, fuzzy-search them, roll back to any version, and share a
+renderer. Every diagram stays in your browser, so you don't need an account. Tag and star diagrams, fuzzy-search them, roll back to any version, and share a
 diagram as a link.
 
 An agent in your browser can do anything you can in the app: create, edit, organise, theme and export
