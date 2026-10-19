@@ -91,13 +91,13 @@ function Theming() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
       <section className="flex min-h-0 flex-1 flex-col gap-3">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="text-body font-medium">App theme</h3>
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <h3 className="text-body font-medium whitespace-nowrap">App theme</h3>
           <a
             href="https://github.com/campfireshuffle/eos/blob/main/docs/theming.md"
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-0.5 text-caption text-muted-foreground hover:text-foreground"
+            className="inline-flex items-center gap-0.5 text-caption whitespace-nowrap text-muted-foreground hover:text-foreground"
           >
             Theming reference <ArrowUpRight className="size-3.5" />
           </a>
@@ -110,14 +110,15 @@ function Theming() {
             value={theme.mode}
             onValueChange={(mode) => mode && void save({ mode: mode as ThemeMode })}
             aria-label="Color mode"
+            className="max-sm:w-full"
           >
-            <ToggleGroupItem value="light" aria-label="Light">
+            <ToggleGroupItem value="light" aria-label="Light" className="max-sm:flex-1">
               <Sun /> Light
             </ToggleGroupItem>
-            <ToggleGroupItem value="dark" aria-label="Dark">
+            <ToggleGroupItem value="dark" aria-label="Dark" className="max-sm:flex-1">
               <Moon /> Dark
             </ToggleGroupItem>
-            <ToggleGroupItem value="system" aria-label="System">
+            <ToggleGroupItem value="system" aria-label="System" className="max-sm:flex-1">
               <Monitor /> System
             </ToggleGroupItem>
           </ToggleGroup>
@@ -126,13 +127,13 @@ function Theming() {
       </section>
 
       <section className="flex min-h-0 flex-1 flex-col gap-3">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="text-body font-medium">Diagram theme</h3>
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <h3 className="text-body font-medium whitespace-nowrap">Diagram theme</h3>
           <a
             href="https://pele.run/theming"
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-0.5 text-caption text-muted-foreground hover:text-foreground"
+            className="inline-flex items-center gap-0.5 text-caption whitespace-nowrap text-muted-foreground hover:text-foreground"
           >
             Pele theming docs <ArrowUpRight className="size-3.5" />
           </a>
@@ -177,7 +178,7 @@ function Theming() {
 function CssBox({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
   return (
     <div className="flex min-h-[140px] flex-1 overflow-hidden rounded-lg border border-input bg-background/40 focus-within:border-ring">
-      <CodeEditor value={value} onChange={onChange} language="css" label={label} wrap />
+      <CodeEditor value={value} onChange={onChange} language="css" label={label} />
     </div>
   )
 }
@@ -281,7 +282,7 @@ function CodeBlock({ label, code, language }: { label: string; code: string; lan
         </Button>
       </div>
       <div className="flex text-body [&_.cm-editor]:h-auto">
-        <CodeEditor value={code} language={language} label={label} readOnly gutter={false} wrap />
+        <CodeEditor value={code} language={language} label={label} readOnly gutter={false} />
       </div>
     </div>
   )
