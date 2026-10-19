@@ -2,6 +2,7 @@ import { LoroDoc, type LoroMap, UndoManager } from "loro-crdt"
 
 import { openEosDB, WORKSPACE_ID, type Database } from "./db"
 import {
+  actorOrigin,
   commit,
   compact,
   decodeVersion,
@@ -42,8 +43,14 @@ type Topic = "library" | "settings" | `diagram:${string}`
 type Listener = () => void
 
 interface OpenDiagram extends DiagramDoc {
+  /** The person's ⌘Z stack: skips agent edits, which stay in history to restore from. */
   undo: UndoManager
+  /** An agent's own undo stack: only agent edits. */
+  agentUndo: UndoManager
 }
+
+/** Whose undo stack to use. */
+export type UndoScope = "user" | "agent"
 
 interface Workspace {
   doc: LoroDoc
@@ -167,6 +174,22 @@ export class Eos {
     return id
   }
 
+  /** Changes title, source and tags as one commit, so a single undo reverses all of it. */
+  async editDiagram(
+    id: DiagramId,
+    edit: { title?: string; source?: string; addTags?: string[]; removeTags?: string[] },
+    actor: Actor = USER,
+  ) {
+    await this.mutate(id, actor, (d) => {
+      if (edit.title !== undefined) d.meta.set("title", edit.title.trim() || "Untitled")
+      if (edit.source !== undefined) d.text.update(edit.source)
+      if (edit.addTags?.length || edit.removeTags?.length) {
+        const drop = new Set(normalizeTags(edit.removeTags ?? []))
+        setTags(d.meta, normalizeTags([...metaOf(d).tags, ...(edit.addTags ?? [])]).filter((t) => !drop.has(t)))
+      }
+    })
+  }
+
   async renameDiagram(id: DiagramId, title: string, actor: Actor = USER) {
     await this.mutate(id, actor, (d) => d.meta.set("title", title.trim() || "Untitled"))
   }
@@ -199,23 +222,29 @@ export class Eos {
 
   // ── History ────────────────────────────────────────────────────────────────
 
-  async undo(id: DiagramId): Promise<boolean> {
+  /** Undoes the person's last edit, or with scope "agent" the agent's last edit. Each skips the other's edits. */
+  async undo(id: DiagramId, scope: UndoScope = "user", actor?: Actor): Promise<boolean> {
+    return this.step(id, scope, "undo", actor)
+  }
+
+  async redo(id: DiagramId, scope: UndoScope = "user", actor?: Actor): Promise<boolean> {
+    return this.step(id, scope, "redo", actor)
+  }
+
+  private async step(id: DiagramId, scope: UndoScope, dir: "undo" | "redo", actor?: Actor): Promise<boolean> {
     const d = await this.openDiagram(id)
-    const done = d.undo.undo()
+    const by: Actor = actor ?? (scope === "agent" ? { kind: "agent", tool: dir, changes: [dir] } : USER)
+    // Label the commit the undo manager makes, so the other stack ignores it and history credits the right actor.
+    d.doc.setNextCommitOptions({ origin: actorOrigin(by), message: JSON.stringify(by) })
+    const done = (scope === "agent" ? d.agentUndo : d.undo)[dir]()
     if (done) await this.afterChange(id, d)
     return done
   }
 
-  async redo(id: DiagramId): Promise<boolean> {
+  async canUndo(id: DiagramId, scope: UndoScope = "user"): Promise<{ canUndo: boolean; canRedo: boolean }> {
     const d = await this.openDiagram(id)
-    const done = d.undo.redo()
-    if (done) await this.afterChange(id, d)
-    return done
-  }
-
-  async canUndo(id: DiagramId): Promise<{ canUndo: boolean; canRedo: boolean }> {
-    const d = await this.openDiagram(id)
-    return { canUndo: d.undo.canUndo(), canRedo: d.undo.canRedo() }
+    const stack = scope === "agent" ? d.agentUndo : d.undo
+    return { canUndo: stack.canUndo(), canRedo: stack.canRedo() }
   }
 
   async history(id: DiagramId, limit?: number): Promise<HistoryEntry[]> {
@@ -400,7 +429,9 @@ export class Eos {
         if (doc.oplogVersion().length() === 0 && !(await this.db.get("diagrams", id))) {
           throw new Error(`Diagram ${id} not found`)
         }
-        const undo = new UndoManager(doc, { mergeInterval: 800, maxUndoSteps: 200 })
+        // Commit origins are "user", "agent:<tool>", "import" or "system" (see actorOrigin).
+        const undo = new UndoManager(doc, { mergeInterval: 800, maxUndoSteps: 200, excludeOriginPrefixes: ["agent", "import", "system"] })
+        const agentUndo = new UndoManager(doc, { mergeInterval: 0, maxUndoSteps: 200, excludeOriginPrefixes: ["user", "import", "system"] })
         const stop = persistDoc(this.db, id, doc, (bytes) => this.broadcast({ type: "update", id, bytes }))
         return {
           id,
@@ -408,6 +439,7 @@ export class Eos {
           text: doc.getText("source"),
           meta: doc.getMap("meta"),
           undo,
+          agentUndo,
           dispose: () => {
             stop()
             void compact(this.db, id, doc)
@@ -422,12 +454,13 @@ export class Eos {
 
   private async mutate(id: DiagramId, actor: Actor, fn: (d: OpenDiagram) => void) {
     const d = await this.openDiagram(id)
-    d.undo.groupStart()
+    const stack = actor.kind === "agent" ? d.agentUndo : d.undo
+    stack.groupStart()
     try {
       fn(d)
       commit(d.doc, actor)
     } finally {
-      d.undo.groupEnd()
+      stack.groupEnd()
     }
     await this.afterChange(id, d)
   }

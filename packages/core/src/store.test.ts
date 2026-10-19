@@ -125,4 +125,35 @@ describe("share links", () => {
     expect((await eos.listDiagrams({ query: "checkout" })).map((r) => r.id)).toEqual([title, body])
     expect((await eos.listDiagrams({ query: "chekout" })).map((r) => r.id)).toContain(title)
   })
+
+  it("keeps agent edits out of the person's undo stack, and groups them in history", async () => {
+    const eos = await fresh()
+    const id = await eos.createDiagram({ title: "Mixed", source: "flowchart TD\n  A-->B" })
+    await eos.setSource(id, "flowchart TD\n  A-->B\n  B-->C")
+    await eos.editDiagram(id, { title: "Agent title", addTags: ["ai"] }, { kind: "agent", tool: "update_diagram", changes: ["title", "tags"] })
+    await eos.editDiagram(id, { source: "flowchart TD\n  A-->B\n  B-->C\n  C-->D" }, { kind: "agent", tool: "update_diagram", changes: ["source"] })
+
+    // The person's undo reverts their own edit and leaves the agent's title, tags and line alone.
+    await eos.undo(id)
+    let d = (await eos.getDiagram(id))!
+    expect(d.meta.title).toBe("Agent title")
+    expect(d.meta.tags).toEqual(["ai"])
+    expect(d.source).toContain("C-->D")
+    expect(d.source).not.toContain("B-->C")
+
+    // The agent's undo reverts only the agent's last edit.
+    await eos.undo(id, "agent")
+    d = (await eos.getDiagram(id))!
+    expect(d.source).not.toContain("C-->D")
+    expect(d.meta.title).toBe("Agent title")
+
+    // Newest first: agent undo, the person's undo, the agent's two edits (grouped), the person's edit, creation.
+    const kinds = (await eos.history(id)).map((e) => [e.actor.kind, e.changes?.sort()])
+    expect(kinds).toEqual([
+      ["agent", ["undo"]],
+      ["user", undefined],
+      ["agent", ["source", "tags", "title"]],
+      ["user", undefined],
+    ])
+  })
 })

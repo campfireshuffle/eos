@@ -101,7 +101,7 @@ function metaOf(doc: LoroDoc): LoroMap { return doc.getMap("meta"); }
 
 Notes:
 
-- **Editor binding.** CodeMirror transactions map to `LoroText.insert/delete`. If a whole-buffer replacement comes from an external source, such as the agent's `set_source` tool or a paste-replace, use `text.update(newSource)`, which runs a minimal diff. That keeps concurrent edits elsewhere in the text intact.
+- **Editor binding.** CodeMirror transactions map to `LoroText.insert/delete`. If a whole-buffer replacement comes from an external source, such as an agent's `update_diagram({ source })` or a paste-replace, use `text.update(newSource)`, which runs a minimal diff. That keeps concurrent edits elsewhere in the text intact.
 - **Tags** go in a `LoroList<string>`, not a comma string. Concurrent add/remove of different tags then merges cleanly, and duplicates are de-duplicated on read.
 - **`updatedAt` is not stored in the doc.** It is derived from the last change's timestamp (see §4) and cached in the index (§2).
 - **Doc-level settings applied on every open:** `doc.setRecordTimestamp(true)`, so each `Change` carries a Unix timestamp in seconds, and the default `setChangeMergeInterval`. Consecutive local commits merge into one `Change` only if their messages match, so changes made by different actors stay separate (verified).
@@ -304,23 +304,20 @@ function agentEdit(doc: LoroDoc, tool: string, fn: () => void, summary?: string)
 
 ## 4. Undo/redo and history
 
-### Undo/redo (this tab: user + agent)
+### Undo/redo: one stack for you, one for agents
+
+Every commit carries its actor as the origin: `user`, `agent:<tool>`, `import` or `system` (§3). Each open diagram has two `UndoManager`s that filter on it:
 
 ```ts
-const undo = new UndoManager(doc, {
-  mergeInterval: 500,                       // ms; keystrokes within 0.5 s are one step
-  maxUndoSteps: 200,
-  excludeOriginPrefixes: ["library:"],      // bulk retags (§1a) are not undo steps
-  onPush: (isUndo, _range, _ev) => ({ value: null, cursors: [selectionCursor()] }),
-  onPop:  (_isUndo, { cursors }) => restoreSelection(cursors),
-});
+const undo      = new UndoManager(doc, { mergeInterval: 800, maxUndoSteps: 200, excludeOriginPrefixes: ["agent", "import", "system"] })
+const agentUndo = new UndoManager(doc, { mergeInterval: 0,   maxUndoSteps: 200, excludeOriginPrefixes: ["user", "import", "system"] })
 ```
 
-- `UndoManager` only ever records the doc's own peer, so other tabs' edits are never on this tab's stack. Its steps are rebased over edits from other tabs, so undoing your line after another tab changed a different line leaves that other line in place (verified with an excluded origin, which Loro treats the same way).
-- Agent edits **are** on the stack. `agentEdit()` wraps each tool call in `groupStart()`/`groupEnd()`, so one tool call is one step. ⌘Z after the agent's edit reverts that edit, the way it would for a collaborator working in the same editor. Steps are not tagged by actor, so the `undo` tool can also undo the user's last step. That is the same thing ⌘Z does.
-- Use `groupStart()`/`groupEnd()` to make multi-step UI operations, such as "rename node everywhere", a single step.
-- Undo stacks live in memory only and do not survive reloads. That matches what people expect from editors.
-- While previewing history (`checkout`), call `undo.pause()`, then `resume()` after `checkoutToLatest()`, so previewing neither records steps nor clears the stack.
+- **⌘Z never undoes an agent.** Your stack skips agent commits; Loro rebases your steps over them, so undoing your line leaves the agent's lines in place. An agent's edit is reversed from history (restore an earlier version) or by the agent itself.
+- **Agents undo only their own work.** `update_diagram({ revert: "undo" })` uses `agentUndo`. It refuses with `person_edited` if you have edited since the agent's last change, because titles and tags are last-write-wins and an undo would overwrite your newer value.
+- **Undo commits are labelled too.** Before stepping, the store calls `doc.setNextCommitOptions({ origin, message })` with the actor doing the undo, so the commit an undo makes stays off the other stack and history credits the right person.
+- **One write, one step.** Each store write wraps its change in `groupStart()`/`groupEnd()` on the actor's stack; `editDiagram` changes title, source and tags in one commit.
+- Undo stacks live in memory only and do not survive reloads.
 
 ### Shared history
 
@@ -454,105 +451,29 @@ Overrides are sanitised before use. Only `--*` keys are accepted. `customCss` is
 
 ## 10. WebMCP tools
 
-**Principle:** an agent can do anything a person can do in the UI. Every tool is a thin wrapper over the same `Actions` module the UI calls, so there is no separate agent-only path. The rules that follow from that:
+**Principle:** an agent can do anything a person can do, through a small set of deep tools: one per kind of job, with optional fields rather than extra tools. Agents with tool search and code mode chain calls themselves, so fewer, clearer tools mean fewer wrong picks. Reads, ordinary writes and permanent deletes are separate tools because harnesses approve by `readOnlyHint`/`destructiveHint`, which apply to a whole tool.
 
-- **Writes are attributed to the agent.** They commit with origin `agent:<tool>` and an `{ kind: "agent", tool }` actor message (§3), so they show up in history like any other change. The agent shares the tab's Loro peer; the commit message is what tells its edits apart from the user's.
-- **Diagram writes are undoable.** Each tool call is wrapped in `undo.groupStart()`/`groupEnd()`, so it is exactly one step on the tab's undo stack. ⌘Z or the `undo` tool reverts it.
-- **Library writes are reversed by the opposite call.** Stars, tags and settings are not on the undo stack. To reverse one, call its counterpart (e.g. `set_starred` with `false`).
-- **Results include the new version.** Each write returns `{ ok: true, version }`, where `version` is the frontiers encoded as `"peer:counter,…"`.
-- **Errors are typed.** Failures come back as `{ ok: false, code, message }`, with codes such as `not_found`, `invalid_input`, `parse_error`, `user_declined`, `disabled`, `stale`.
-- **The user can turn it off.** If `settings.agent.webmcpEnabled` is false, no tools are registered.
+- **Writes are attributed to the agent** (`{ kind: "agent", tool, changes }`), shown apart from yours in the History panel, and kept off your undo stack (§4).
+- **Results are typed.** `{ ok: true, … }` or `{ ok: false, code, message }` with codes like `not_found`, `invalid_input`, `parse_error`, `stale`, `person_edited`, `user_declined`.
+- **Mermaid is always checked.** Tools that take or return source report `valid` and, on failure, the error's line and column.
+- **Confirmation is in the page.** Deletes open Eos's own dialog and wait; a model can't get past it. Agents can read but not change agent settings, so they can't turn confirmation off.
+- **Off switch.** With `settings.agent.webmcpEnabled` false, no tools are registered.
 
-```ts
-type Id = DiagramId;
-type VersionId = string; // encoded frontiers, from list_versions or a write result
-interface Tool<I> { name: string; description: string; inputSchema: JSONSchema /* derived from I */; execute(i: I): Promise<unknown> }
-
-const mc = (document as any).modelContext ?? (navigator as any).modelContext; // see Open questions
-const reg = new AbortController();                 // abort() unregisters every tool
-for (const t of tools) mc?.registerTool(t, { signal: reg.signal });
-```
-
-Key for the tables below: **R** reads only. **W** writes data. **V** changes only what the user is looking at. **⚠** waits for the user to confirm.
-
-**Confirmation.** WebMCP has no user-confirmation API yet. For ⚠ tools, Eos opens its own in-page dialog ("The agent wants to delete *Checkout flow*. Allow / Deny"), and `execute` waits for the answer. If the user denies, the tool returns `user_declined`. A model cannot get past this step, because the dialog is part of the page, not something the tool's caller controls.
-
-### Library
-
-| Tool | Input | | Description |
-| --- | --- | --- | --- |
-| `list_diagrams` | `{ query?: string; starred?: boolean; tags?: TagPath[]; sort?: LibrarySort; includeDeleted?: boolean; limit?: number; cursor?: string }` | R | Same filter semantics as the chips (§2), plus full-text `query` over title and source preview. Returns index rows and `nextCursor`. |
-| `get_diagram` | `{ id: Id }` | R | Meta, tags, starred, created/updated, current `version`, and source. |
-| `list_tags` | `{}` | R | Tag tree with emoji, order and diagram counts. |
-
-### Diagrams
-
-| Tool | Input | | Description |
-| --- | --- | --- | --- |
-| `create_diagram` | `{ title?: string; source?: string; tags?: TagPath[]; open?: boolean }` | W | Creates a new doc. `open` defaults to true. Returns `id`. |
-| `rename_diagram` | `{ id: Id; title: string }` | W | Sets `meta.title`. |
-| `duplicate_diagram` | `{ id: Id; title?: string }` | W | New doc with the same source and tags, starting with fresh history. |
-| `delete_diagram` | `{ id: Id }` | W ⚠ | Soft delete, moved to "Deleted". |
-| `restore_diagram` | `{ id: Id }` | W | Undoes a soft delete. |
-
-### Source
-
-| Tool | Input | | Description |
-| --- | --- | --- | --- |
-| `get_source` | `{ id: Id; version?: VersionId }` | R | Source now, or at a past version (uses `forkAt`, so the live doc is not detached). |
-| `set_source` | `{ id: Id; source: string }` | W | Replaces the whole source via `text.update()`, a minimal diff, so concurrent edits survive. |
-| `patch_source` | `{ id: Id; edits: { line: number; endLine?: number; expect?: string; text: string }[] }` | W | Replaces 1-based line ranges, all in one commit. If any range no longer matches its `expect` text, nothing is applied and the tool returns `stale`. |
-| `validate_source` | `{ id?: Id; source?: string }` | R | Parses the source with Pele's parser. Returns `{ ok, errors: { line, col, message }[] }`. |
-
-### Rendering and export
-
-| Tool | Input | | Description |
-| --- | --- | --- | --- |
-| `render_svg` | `{ id?: Id; source?: string; theme?: "current" \| "light" \| "dark" }` | R | Returns the SVG string, the same output as the preview. |
-| `export_diagram` | `{ id: Id; format: "svg" \| "png" \| "mmd"; scale?: number; download?: boolean }` | R | Returns the file (PNG as base64). With `download: true`, it also saves the file through the browser, as the Export menu does. |
-| `get_share_link` | `{ id: Id; includeTags?: boolean; copy?: boolean }` | R | Returns the §6 URL. `copy` writes it to the clipboard, which may fail when the tab has no recent user activation; the URL is returned either way. |
-| `import_share_link` | `{ url: string; open?: boolean }` | W | Same as opening the link: creates a new diagram and returns `id` (or `existingId` for a duplicate). |
-
-### History
-
-| Tool | Input | | Description |
-| --- | --- | --- | --- |
-| `undo` / `redo` | `{ id: Id }` | W | The tab's `UndoManager`, same as ⌘Z / ⇧⌘Z. Returns `{ ok, canUndo, canRedo }`. |
-| `list_versions` | `{ id: Id; limit?: number; actor?: Actor["kind"] }` | R | History entries (§4) with `VersionId`, actor, time, summary. |
-| `preview_version` | `{ id: Id; version: VersionId \| "latest" }` | V | Opens the read-only history preview (`checkout`), or returns to latest. |
-| `restore_version` | `{ id: Id; version: VersionId }` | W | `revertTo` as a new change, like "Restore to here". |
-
-### Organisation
-
-| Tool | Input | | Description |
-| --- | --- | --- | --- |
-| `set_starred` | `{ id: Id; starred: boolean }` | W | Workspace `starred` map. |
-| `add_tags` / `remove_tags` | `{ id: Id; tags: TagPath[] }` | W | Edits `meta.tags`. Paths are normalised. |
-| `rename_tag` | `{ from: TagPath; to: TagPath }` | W | Renames or moves a tag together with everything under it, across all diagrams (§1a). |
-| `set_tag_style` | `{ path: TagPath; emoji?: string \| null; order?: string }` | W | `null` resets the emoji to `#`. |
-
-### Navigation and view
-
-| Tool | Input | | Description |
-| --- | --- | --- | --- |
-| `get_view` | `{}` | R | Current route, open diagram, filters, sort, zoom, editor selection, and whether a history preview is open. |
-| `open_diagram` | `{ id: Id; line?: number }` | V | Opens the editor, optionally scrolled to a line. |
-| `go_home` | `{}` | V | Library grid. |
-| `set_library_view` | `{ starred?: boolean; tags?: TagPath[]; sort?: LibrarySort }` | V | Sets the chips and sort exactly as clicking would, URL hash included. |
-| `set_zoom` | `{ action: "in" \| "out" \| "fit" \| "actual" }` | V | Preview zoom. |
-| `open_settings` | `{ open: boolean }` | V | Shows or hides the Settings modal. |
-
-### Settings and data
-
-| Tool | Input | | Description |
-| --- | --- | --- | --- |
-| `get_settings` | `{}` | R | The `AppSettings` record (§8). |
-| `set_theme` | `{ mode?: "system" \| "light" \| "dark"; overrides?: Record<string, string \| null>; customCss?: string \| null }` | W | Merges into the theme. `null` removes a key. Goes through the same sanitising as the UI. |
-| `reset_theme` | `{}` | W | Clears overrides and `customCss`. |
-| `get_storage_usage` | `{}` | R | `navigator.storage.estimate()`, `persisted()`, and diagram/byte counts. |
-| `export_backup` | `{ download?: boolean }` | R | `.eos` backup: JSON `{ v: 1, settings, workspace, diagrams: { id, snapshot }[] }` with snapshots as base64. |
-| `import_backup` | `{ data: string; mode: "merge" \| "replace" }` | W (⚠ for replace) | `merge` imports each snapshot into the matching doc, which is a CRDT merge and loses nothing. `replace` wipes local data first. |
-| `delete_all_data` | `{}` | W ⚠ | Clears every store and unregisters the tabs. Not undoable. |
+| Tool | Kind | Does |
+| --- | --- | --- |
+| `get_library({ query?, starred?, tags?, deleted?, sort? })` | read | Diagrams, the tag tree and counts. |
+| `get_diagram({ id, version?, history? })` | read | Title, tags, star, source (now or at a version), version id; `history` adds the version list. |
+| `get_view()` | read | Page, open diagram, filters, zoom, Settings open. |
+| `get_settings()` | read | Settings, the theme in effect with full CSS, storage used. |
+| `export({ format, id? \| source?, includeTags?, download? })` | read | `svg`, `png`, `mmd`, `link`, `backup`. Doubles as a dry-run parse check. |
+| `create_diagram({ title?, source?, tags?, starred?, fromShareLink?, open? })` | write | New diagram, duplicate (from `get_diagram`'s source) or import a share link. |
+| `update_diagram({ id, title?, source?, starred?, addTags?, removeTags?, revert?, deleted?, expectedVersion? })` | write | Every edit as one change. `revert`: `"undo"`, `"redo"` or a version id. `deleted: true` moves to Deleted (asks). `expectedVersion` refuses stale edits. |
+| `update_tag({ path, moveTo?, emoji? })` | write | Rename or move a tag (including to the top level), set its icon. |
+| `set_view({ page?, diagramId?, filters?, previewVersion?, zoom?, settingsOpen? })` | write | Navigation and UI state. |
+| `set_theme({ mode?, appCss?, diagramCss? })` | write | Theming. |
+| `delete_tag({ path })` | destructive | Remove a tag everywhere (asks). |
+| `import_backup({ data, mode })` | destructive | Merge, or replace (asks). |
+| `delete_all_data()` | destructive | Wipe this browser's data (asks). |
 
 ## Open questions
 

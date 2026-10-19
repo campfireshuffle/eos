@@ -16,7 +16,7 @@ export interface UiBridge {
   getView(): unknown
   openDiagram(id: DiagramId): void
   goHome(): void
-  setLibraryView(view: { starred?: boolean; tags?: TagPath[]; sort?: LibrarySort }): void
+  setLibraryView(view: { starred?: boolean; deleted?: boolean; tags?: TagPath[]; sort?: LibrarySort }): void
   setZoom(action: "in" | "out" | "fit" | "actual"): void
   openSettings(open: boolean): void
   /** Shows a past version read-only in the editor, or returns to the latest. */
@@ -24,6 +24,8 @@ export interface UiBridge {
   /** Resolves true when the person allows a destructive agent action. */
   confirm(message: string, action?: string): Promise<boolean>
   download(name: string, data: string | Blob): void
+  /** Rasterises an SVG to a PNG data URL (2×), as the Export menu does. */
+  toPng(svg: string): Promise<{ dataUrl: string; blob: Blob }>
   /** The theme in effect: resolved light/dark plus the app and diagram CSS, defaults included. */
   getTheme(): { resolvedMode: "light" | "dark"; appCss: string; diagramCss: string }
   origin: string
@@ -43,354 +45,278 @@ const str = (description?: string) => ({ type: "string", ...(description ? { des
 const bool = (description?: string) => ({ type: "boolean", ...(description ? { description } : {}) })
 const strArr = (description?: string) => ({ type: "array", items: { type: "string" }, ...(description ? { description } : {}) })
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, required })
-const sortSchema = { type: "string", enum: ["modified", "created", "title"] }
+const enumOf = (values: string[], description?: string) => ({ type: "string", enum: values, ...(description ? { description } : {}) })
+const sortSchema = enumOf(["modified", "created", "title"])
 
 const ok = (extra: object = {}) => ({ ok: true, ...extra })
-const fail = (code: string, message: string) => ({ ok: false, code, message })
+const fail = (code: string, message: string, extra: object = {}) => ({ ok: false, code, message, ...extra })
 
+type Input = Record<string, unknown>
+const has = (i: Input, key: string) => i[key] !== undefined && i[key] !== null
+
+/** Parse result for Mermaid source, in the shape every tool returns it. */
+function check(source: string) {
+  const r = validate(source)
+  return r.ok ? { valid: true, type: r.type } : { valid: false, error: r.error }
+}
+
+/**
+ * Eos's WebMCP tools. Kept deliberately few and deep (one tool per kind of job,
+ * optional fields instead of extra tools). Reads, writes and permanent deletes are
+ * separate tools so harnesses can auto-approve reads by their annotations.
+ */
 export function createTools(eos: Eos, ui: UiBridge): Tool[] {
-  const agent = (tool: string): Actor => ({ kind: "agent", tool })
-  const exists = async (id: unknown) => typeof id === "string" && !!(await eos.getDiagram(id))
-  const guard = async (id: unknown) => ((await exists(id)) ? null : fail("not_found", `No diagram with id ${String(id)}`))
+  const agent = (tool: string, changes?: string[]): Actor => ({ kind: "agent", tool, ...(changes ? { changes } : {}) })
   const confirmed = async (message: string, action?: string) =>
     !eos.getSettings().agent.confirmDestructive || (await ui.confirm(message, action))
-  const write = async (id: string, tool: string, fn: (a: Actor) => Promise<void>) => {
-    const missing = await guard(id)
-    if (missing) return missing
-    await fn(agent(tool))
-    return ok({ version: await eos.version(id) })
-  }
+  const notFound = (id: unknown) => fail("not_found", `No diagram with id ${String(id)}`)
 
-  const tools: Tool[] = [
-    // Library
+  return [
+    // ── Reads ────────────────────────────────────────────────────────────────
     {
-      name: "list_diagrams",
-      description: "List diagrams in the library. Same filters as the sidebar: starred, tags (includes nested tags), text query, sort.",
-      inputSchema: obj({ query: str(), starred: bool(), tags: strArr(), sort: sortSchema, includeDeleted: bool() }),
+      name: "get_library",
+      description:
+        "The library: diagrams (id, title, tags, starred, dates), the tag tree with emoji and counts, and totals. Filters work like the sidebar: query (fuzzy title and contents), starred, tags (include nested tags), deleted (only diagrams in Deleted), sort.",
+      inputSchema: obj({ query: str(), starred: bool(), tags: strArr(), deleted: bool(), sort: sortSchema }),
       annotations: { readOnlyHint: true },
-      execute: async (i) => ok({ diagrams: await eos.listDiagrams(i as never) }),
+      execute: async (i) =>
+        ok({
+          diagrams: (await eos.listDiagrams(i as never)).map(({ sourceText: _s, tagPrefixes: _p, titleKey: _k, ...row }) => row),
+          tags: await eos.listTags(),
+          counts: await eos.counts(),
+        }),
     },
     {
       name: "get_diagram",
-      description: "Get a diagram's title, tags, starred state, Mermaid source and current version.",
-      inputSchema: obj({ id: str() }, ["id"]),
-      annotations: { readOnlyHint: true },
-      execute: async ({ id }) => {
-        const d = await eos.getDiagram(id as string)
-        return d ? ok({ diagram: d, version: await eos.version(d.id) }) : fail("not_found", "Diagram not found")
-      },
-    },
-    {
-      name: "list_tags",
-      description: "List the tag tree with emoji and diagram counts.",
-      inputSchema: obj({}),
-      annotations: { readOnlyHint: true },
-      execute: async () => ok({ tags: await eos.listTags() }),
-    },
-    // Diagrams
-    {
-      name: "create_diagram",
-      description: "Create a diagram from Mermaid source. Opens it unless open is false.",
-      inputSchema: obj({ title: str(), source: str("Mermaid source"), tags: strArr(), open: bool() }),
-      execute: async (i) => {
-        const id = await eos.createDiagram(i as never, agent("create_diagram"))
-        if (i.open !== false) ui.openDiagram(id)
-        return ok({ id })
-      },
-    },
-    {
-      name: "rename_diagram",
-      description: "Rename a diagram.",
-      inputSchema: obj({ id: str(), title: str() }, ["id", "title"]),
-      execute: ({ id, title }) => write(id as string, "rename_diagram", (a) => eos.renameDiagram(id as string, title as string, a)),
-    },
-    {
-      name: "duplicate_diagram",
-      description: "Copy a diagram's source and tags into a new diagram with fresh history.",
-      inputSchema: obj({ id: str(), title: str() }, ["id"]),
-      execute: async ({ id, title }) =>
-        (await guard(id)) ?? ok({ id: await eos.duplicateDiagram(id as string, title as string | undefined, agent("duplicate_diagram")) }),
-    },
-    {
-      name: "delete_diagram",
-      description: "Move a diagram to Deleted. Asks the person to confirm.",
-      inputSchema: obj({ id: str() }, ["id"]),
-      annotations: { destructiveHint: true },
-      execute: async ({ id }) => {
-        const d = await eos.getDiagram(id as string)
-        if (!d) return fail("not_found", "Diagram not found")
-        if (!(await confirmed(`The agent wants to delete “${d.meta.title}”.`))) return fail("user_declined", "The person declined")
-        await eos.deleteDiagram(d.id)
-        return ok()
-      },
-    },
-    {
-      name: "restore_diagram",
-      description: "Restore a diagram from Deleted.",
-      inputSchema: obj({ id: str() }, ["id"]),
-      execute: async ({ id }) => (await guard(id)) ?? (await eos.restoreDiagram(id as string), ok()),
-    },
-    // Source
-    {
-      name: "get_source",
-      description: "Get a diagram's Mermaid source, now or at a past version.",
-      inputSchema: obj({ id: str(), version: str() }, ["id"]),
-      annotations: { readOnlyHint: true },
-      execute: async ({ id, version }) =>
-        (await guard(id)) ?? ok({ source: await eos.getSource(id as string, version as string | undefined) }),
-    },
-    {
-      name: "set_source",
-      description: "Replace a diagram's Mermaid source. Applied as a minimal diff; undoable.",
-      inputSchema: obj({ id: str(), source: str() }, ["id", "source"]),
-      execute: ({ id, source }) => write(id as string, "set_source", (a) => eos.setSource(id as string, source as string, a)),
-    },
-    {
-      name: "patch_source",
       description:
-        "Replace 1-based line ranges in one step. If an edit's `expect` text no longer matches, nothing is applied and `stale` is returned.",
-      inputSchema: obj(
-        {
-          id: str(),
-          edits: {
-            type: "array",
-            items: obj({ line: { type: "number" }, endLine: { type: "number" }, expect: str(), text: str() }, ["line", "text"]),
-          },
-        },
-        ["id", "edits"],
-      ),
-      execute: async ({ id, edits }) => {
-        const missing = await guard(id)
-        if (missing) return missing
-        const lines = (await eos.getSource(id as string)).split("\n")
-        const list = [...(edits as { line: number; endLine?: number; expect?: string; text: string }[])].sort((a, b) => b.line - a.line)
-        for (const e of list) {
-          const end = e.endLine ?? e.line
-          if (e.expect !== undefined && lines.slice(e.line - 1, end).join("\n") !== e.expect) {
-            return fail("stale", `Line ${e.line} no longer matches`)
-          }
-        }
-        for (const e of list) lines.splice(e.line - 1, (e.endLine ?? e.line) - e.line + 1, ...e.text.split("\n"))
-        return write(id as string, "patch_source", (a) => eos.setSource(id as string, lines.join("\n"), a))
-      },
-    },
-    {
-      name: "validate_source",
-      description: "Parse Mermaid source with Pele. Returns the error line, column and message if it fails.",
-      inputSchema: obj({ id: str(), source: str() }),
+        "One diagram: title, tags, starred, Mermaid source and current version id (pass it back as expectedVersion when editing). version reads the source at a past version; history: true adds the version list, where agent edits are listed separately from the person's.",
+      inputSchema: obj({ id: str(), version: str("A version id from history"), history: bool() }, ["id"]),
       annotations: { readOnlyHint: true },
-      execute: async ({ id, source }) => {
-        const text = typeof source === "string" ? source : await eos.getSource(id as string)
-        const r = validate(text)
-        return r.ok ? ok({ type: r.type, errors: [] }) : { ok: false, code: "parse_error", errors: [r.error] }
-      },
-    },
-    // Rendering & export
-    {
-      name: "render_svg",
-      description: "Render a diagram (or raw Mermaid source) to SVG with Pele.",
-      inputSchema: obj({ id: str(), source: str() }),
-      annotations: { readOnlyHint: true },
-      execute: async ({ id, source }) => {
-        const text = typeof source === "string" ? source : await eos.getSource(id as string)
-        try {
-          return ok({ svg: renderSvg(text) })
-        } catch (e) {
-          return fail("parse_error", (e as Error).message)
-        }
-      },
-    },
-    {
-      name: "export_diagram",
-      description: "Export a diagram as SVG or Mermaid (.mmd). With download: true, also saves the file like the Export menu.",
-      inputSchema: obj({ id: str(), format: { type: "string", enum: ["svg", "mmd"] }, download: bool() }, ["id", "format"]),
-      annotations: { readOnlyHint: true },
-      execute: async ({ id, format, download }) => {
+      execute: async ({ id, version, history }) => {
         const d = await eos.getDiagram(id as string)
-        if (!d) return fail("not_found", "Diagram not found")
-        const data = format === "svg" ? renderSvg(d.source) : d.source
-        if (download) ui.download(`${d.meta.title}.${format}`, data)
-        return ok({ data })
-      },
-    },
-    {
-      name: "get_share_link",
-      description: "Get a link that opens a copy of the diagram in someone else's Eos library.",
-      inputSchema: obj({ id: str(), includeTags: bool() }, ["id"]),
-      annotations: { readOnlyHint: true },
-      execute: async ({ id, includeTags }) => {
-        const d = await eos.getDiagram(id as string)
-        if (!d) return fail("not_found", "Diagram not found")
-        const enc = await encodeShare({ title: d.meta.title, source: d.source, tags: includeTags ? d.meta.tags : [] })
-        return ok({ url: shareUrl(ui.origin, enc) })
-      },
-    },
-    {
-      name: "import_share_link",
-      description: "Import a diagram from an Eos share link.",
-      inputSchema: obj({ url: str(), open: bool() }, ["url"]),
-      execute: async ({ url, open }) => {
-        const encoded = new URL(url as string).hash.match(/[?&]d=([^&]+)/)?.[1] ?? ""
-        const payload = await decodeShare(encoded)
-        if (!payload) return fail("invalid_input", "Not a valid Eos share link")
-        const id = await eos.importShare(payload)
-        if (open !== false) ui.openDiagram(id)
-        return ok({ id })
-      },
-    },
-    // History
-    {
-      name: "undo",
-      description: "Undo the last change to a diagram (same as ⌘Z).",
-      inputSchema: obj({ id: str() }, ["id"]),
-      execute: async ({ id }) => (await guard(id)) ?? (await eos.undo(id as string), ok(await eos.canUndo(id as string))),
-    },
-    {
-      name: "redo",
-      description: "Redo the last undone change (same as ⇧⌘Z).",
-      inputSchema: obj({ id: str() }, ["id"]),
-      execute: async ({ id }) => (await guard(id)) ?? (await eos.redo(id as string), ok(await eos.canUndo(id as string))),
-    },
-    {
-      name: "list_versions",
-      description: "List a diagram's history: version id, who made the change (user or agent), and when.",
-      inputSchema: obj({ id: str(), limit: { type: "number" } }, ["id"]),
-      annotations: { readOnlyHint: true },
-      execute: async ({ id, limit }) => (await guard(id)) ?? ok({ versions: await eos.history(id as string, limit as number | undefined) }),
-    },
-    {
-      name: "preview_version",
-      description: "Open a diagram and show a past version read-only (as the History menu does), or pass \"latest\" to return to the current version.",
-      inputSchema: obj({ id: str(), version: str("A version id from list_versions, or \"latest\"") }, ["id", "version"]),
-      execute: async ({ id, version }) => {
-        const missing = await guard(id)
-        if (missing) return missing
-        ui.openDiagram(id as string)
-        if (version === "latest") {
-          ui.previewVersion(id as string, null)
-          return ok()
-        }
-        const entry = (await eos.history(id as string, 500)).find((e) => e.version === version)
-        if (!entry) return fail("not_found", "No such version")
-        ui.previewVersion(id as string, version as string, {
-          at: entry.at,
-          label: entry.actor.kind === "agent" ? `Agent · ${entry.actor.tool}` : entry.actor.kind === "user" ? "You" : entry.actor.kind,
+        if (!d) return notFound(id)
+        const source = version ? await eos.getSource(d.id, version as string) : d.source
+        return ok({
+          diagram: { ...d, source },
+          version: await eos.version(d.id),
+          ...check(source),
+          ...(history ? { history: await eos.history(d.id, 200) } : {}),
         })
-        return ok()
       },
     },
-    {
-      name: "restore_version",
-      description: "Restore a past version as a new change.",
-      inputSchema: obj({ id: str(), version: str() }, ["id", "version"]),
-      execute: ({ id, version }) =>
-        write(id as string, "restore_version", (a) => eos.restoreVersion(id as string, version as string, a)),
-    },
-    // Organisation
-    {
-      name: "set_starred",
-      description: "Star or unstar a diagram.",
-      inputSchema: obj({ id: str(), starred: bool() }, ["id", "starred"]),
-      execute: async ({ id, starred }) => (await guard(id)) ?? (await eos.setStarred(id as string, !!starred, agent("set_starred")), ok()),
-    },
-    {
-      name: "add_tags",
-      description: "Add tags to a diagram. Use slashes for nesting, e.g. work/backend.",
-      inputSchema: obj({ id: str(), tags: strArr() }, ["id", "tags"]),
-      execute: ({ id, tags }) => write(id as string, "add_tags", (a) => eos.addTags(id as string, tags as string[], a)),
-    },
-    {
-      name: "remove_tags",
-      description: "Remove tags from a diagram.",
-      inputSchema: obj({ id: str(), tags: strArr() }, ["id", "tags"]),
-      execute: ({ id, tags }) => write(id as string, "remove_tags", (a) => eos.removeTags(id as string, tags as string[], a)),
-    },
-    {
-      name: "rename_tag",
-      description: "Rename or move a tag and everything nested under it, across all diagrams.",
-      inputSchema: obj({ from: str(), to: str() }, ["from", "to"]),
-      execute: async ({ from, to }) => (await eos.renameTag(from as string, to as string, agent("rename_tag")), ok()),
-    },
-    {
-      name: "delete_tag",
-      description: "Delete a tag (and tags nested under it) from every diagram. Asks the person to confirm.",
-      inputSchema: obj({ path: str() }, ["path"]),
-      annotations: { destructiveHint: true },
-      execute: async ({ path }) => {
-        if (!(await confirmed(`The agent wants to delete the tag “${String(path)}” from all diagrams.`)))
-          return fail("user_declined", "The person declined")
-        return ok({ diagrams: await eos.deleteTag(path as string, agent("delete_tag")) })
-      },
-    },
-    {
-      name: "set_tag_emoji",
-      description: "Set a tag's sidebar icon to an emoji, or null for the default #.",
-      inputSchema: obj({ path: str(), emoji: { type: ["string", "null"] } }, ["path"]),
-      execute: async ({ path, emoji }) => (await eos.setTagEmoji(path as string, (emoji as string) ?? null, agent("set_tag_emoji")), ok()),
-    },
-    // Navigation & view
     {
       name: "get_view",
-      description: "What the person is looking at: route, open diagram, filters, sort, zoom.",
+      description: "What the person is looking at: page, open diagram, library filters, preview zoom, whether Settings is open.",
       inputSchema: obj({}),
       annotations: { readOnlyHint: true },
       execute: async () => ok({ view: ui.getView() }),
     },
     {
-      name: "open_diagram",
-      description: "Open a diagram in the editor.",
-      inputSchema: obj({ id: str() }, ["id"]),
-      execute: async ({ id }) => (await guard(id)) ?? (ui.openDiagram(id as string), ok()),
-    },
-    {
-      name: "go_home",
-      description: "Go to the diagram library.",
-      inputSchema: obj({}),
-      execute: async () => (ui.goHome(), ok()),
-    },
-    {
-      name: "set_library_view",
-      description: "Set the library's filters and sort, as clicking a tag, Starred or the Sort menu would.",
-      inputSchema: obj({ starred: bool(), tags: strArr(), sort: sortSchema }),
-      execute: async (i) => (ui.setLibraryView(i as never), ok()),
-    },
-    {
-      name: "set_zoom",
-      description: "Zoom the preview.",
-      inputSchema: obj({ action: { type: "string", enum: ["in", "out", "fit", "actual"] } }, ["action"]),
-      execute: async ({ action }) => (ui.setZoom(action as never), ok()),
-    },
-    {
-      name: "open_settings",
-      description: "Show or hide the Settings dialog.",
-      inputSchema: obj({ open: bool() }, ["open"]),
-      execute: async ({ open }) => (ui.openSettings(!!open), ok()),
-    },
-    // Settings & data
-    {
       name: "get_settings",
-      description: "Get app settings, including the custom theme CSS.",
-      inputSchema: obj({}),
-      annotations: { readOnlyHint: true },
-      execute: async () => ok({ settings: eos.getSettings() }),
-    },
-    {
-      name: "get_theme",
       description:
-        "Get the theme in effect: mode, the resolved light/dark appearance, and the full app (--eos-*) and diagram (--pele-*) CSS including defaults. Edit this CSS and pass it to set_theme. Pele variables are documented at https://pele.run/theming.",
+        "Settings, the theme in effect (light or dark, plus the full app --eos-* and diagram --pele-* CSS including defaults; Pele's variables are documented at https://pele.run/theming) and storage used.",
       inputSchema: obj({}),
       annotations: { readOnlyHint: true },
       execute: async () => {
-        const { theme } = eos.getSettings()
-        return ok({ mode: theme.mode, ...ui.getTheme(), overridden: { app: !!theme.customCss, diagram: !!theme.diagramCss } })
+        const settings = eos.getSettings()
+        return ok({
+          settings,
+          theme: { mode: settings.theme.mode, ...ui.getTheme(), overridden: { app: !!settings.theme.customCss, diagram: !!settings.theme.diagramCss } },
+          storage: await eos.storageUsage(),
+        })
+      },
+    },
+    {
+      name: "export",
+      description:
+        "Export a diagram (id) or raw Mermaid (source). Formats: svg, png (data URL), mmd, link (a share link that opens a copy in anyone's Eos), backup (the whole library as JSON; no id needed). Invalid Mermaid returns parse_error with line and column, so this also works as a dry-run check. download: true also saves the file like the Export menu.",
+      inputSchema: obj(
+        {
+          format: enumOf(["svg", "png", "mmd", "link", "backup"]),
+          id: str(),
+          source: str("Raw Mermaid, instead of id"),
+          includeTags: bool("For link: include the diagram's tags"),
+          download: bool(),
+        },
+        ["format"],
+      ),
+      annotations: { readOnlyHint: true },
+      execute: async ({ format, id, source, includeTags, download }) => {
+        if (format === "backup") {
+          const data = await eos.exportBackup()
+          if (download) ui.download("eos-backup.json", data)
+          return ok({ data })
+        }
+        const d = typeof source === "string" ? null : await eos.getDiagram(id as string)
+        if (typeof source !== "string" && !d) return notFound(id)
+        const text = typeof source === "string" ? source : d!.source
+        const title = d?.meta.title ?? "diagram"
+        if (format === "link") {
+          const enc = await encodeShare({ title, source: text, tags: includeTags && d ? d.meta.tags : [] })
+          return ok({ url: shareUrl(ui.origin, enc) })
+        }
+        const parsed = check(text)
+        if (format === "mmd") {
+          if (download) ui.download(`${title}.mmd`, text)
+          return ok({ data: text, ...parsed })
+        }
+        if (!parsed.valid) return fail("parse_error", "The Mermaid source doesn't parse", { error: parsed.error })
+        const svg = renderSvg(text)
+        if (format === "svg") {
+          if (download) ui.download(`${title}.svg`, svg)
+          return ok({ data: svg, type: parsed.type })
+        }
+        const png = await ui.toPng(svg)
+        if (download) ui.download(`${title}.png`, png.blob)
+        return ok({ data: png.dataUrl, type: parsed.type })
+      },
+    },
+    // ── Writes ───────────────────────────────────────────────────────────────
+    {
+      name: "create_diagram",
+      description:
+        "Create a diagram from Mermaid source, or import one from an Eos share link (fromShareLink). To duplicate, read a diagram with get_diagram and create from its source. Opens it unless open is false. Returns whether the source parses.",
+      inputSchema: obj({
+        title: str(),
+        source: str("Mermaid source"),
+        tags: strArr("Use slashes for nesting, e.g. work/backend"),
+        starred: bool(),
+        fromShareLink: str(),
+        open: bool(),
+      }),
+      execute: async (i) => {
+        let id: DiagramId
+        if (typeof i.fromShareLink === "string") {
+          let encoded = ""
+          try {
+            encoded = new URL(i.fromShareLink).hash.match(/[?&]d=([^&]+)/)?.[1] ?? ""
+          } catch {
+            // Not a URL; decodeShare rejects it below.
+          }
+          const payload = await decodeShare(encoded)
+          if (!payload) return fail("invalid_input", "Not a valid Eos share link")
+          id = await eos.importShare(payload)
+        } else {
+          id = await eos.createDiagram({ title: i.title as string, source: i.source as string, tags: i.tags as string[] }, agent("create_diagram", ["created"]))
+        }
+        if (i.starred) await eos.setStarred(id, true, agent("create_diagram"))
+        if (i.open !== false) ui.openDiagram(id)
+        const d = (await eos.getDiagram(id))!
+        return ok({ id, version: await eos.version(id), ...check(d.source) })
+      },
+    },
+    {
+      name: "update_diagram",
+      description:
+        "Edit a diagram. Every field is optional and the edit lands as one change in history, credited to the agent: title, source (full Mermaid; applied as a minimal diff), starred, addTags, removeTags. revert: \"undo\" or \"redo\" steps the agent's own edits (never the person's; refused if the person has edited since), or a version id from get_diagram's history restores that version. deleted: true moves it to Deleted (asks the person; reversible), false restores it. Pass expectedVersion from get_diagram to refuse the edit if the person changed it meanwhile.",
+      inputSchema: obj(
+        {
+          id: str(),
+          title: str(),
+          source: str(),
+          starred: bool(),
+          addTags: strArr(),
+          removeTags: strArr(),
+          revert: str("\"undo\", \"redo\" or a version id"),
+          deleted: bool(),
+          expectedVersion: str(),
+        },
+        ["id"],
+      ),
+      execute: async (i) => {
+        const id = i.id as string
+        const d = await eos.getDiagram(id)
+        if (!d) return notFound(id)
+        if (has(i, "expectedVersion") && i.expectedVersion !== (await eos.version(id)))
+          return fail("stale", "The diagram changed since that version; read it again", { version: await eos.version(id) })
+        if (has(i, "revert") && has(i, "source")) return fail("invalid_input", "Use either revert or source, not both")
+
+        const changes = ["title", "source", "addTags", "removeTags"].filter((k) => has(i, k)).map((k) => (k.endsWith("Tags") ? "tags" : k))
+        if (has(i, "revert")) {
+          const r = i.revert as string
+          if (r === "undo" || r === "redo") {
+            // Undoing over the person's newer edit could overwrite it (titles and tags are last-write-wins).
+            const [latest] = await eos.history(id, 1)
+            if (latest && latest.actor.kind !== "agent")
+              return fail("person_edited", "The person has edited since the agent's last change. Restore a version id from history, or edit directly.")
+            const done = await eos[r](id, "agent", agent("update_diagram", [r]))
+            if (!done) return fail("nothing_to_revert", `No agent edit to ${r}`)
+          } else await eos.restoreVersion(id, r, agent("update_diagram", ["restored version"]))
+        }
+        if (changes.length) {
+          await eos.editDiagram(
+            id,
+            { title: i.title as string, source: i.source as string, addTags: i.addTags as string[], removeTags: i.removeTags as string[] },
+            agent("update_diagram", [...new Set(changes)]),
+          )
+        }
+        if (has(i, "starred")) await eos.setStarred(id, !!i.starred, agent("update_diagram", ["starred"]))
+        if (i.deleted === true) {
+          if (!(await confirmed(`The agent wants to move “${d.meta.title}” to Deleted.`)))
+            return fail("user_declined", "The person declined to delete it")
+          await eos.deleteDiagram(id)
+        } else if (i.deleted === false) await eos.restoreDiagram(id)
+
+        const now = (await eos.getDiagram(id))!
+        return ok({ version: await eos.version(id), ...check(now.source), agentUndo: await eos.canUndo(id, "agent") })
+      },
+    },
+    {
+      name: "update_tag",
+      description:
+        "Rename or move a tag (and everything nested under it) across every diagram, and/or set its sidebar icon. moveTo is the new full path: \"archive/backend\" nests it, \"backend\" puts it at the top level. emoji: an emoji, or null for the default #.",
+      inputSchema: obj({ path: str(), moveTo: str(), emoji: { type: ["string", "null"] } }, ["path"]),
+      execute: async ({ path, moveTo, emoji }) => {
+        let current = path as string
+        if (typeof moveTo === "string" && moveTo !== current) {
+          await eos.renameTag(current, moveTo, agent("update_tag", ["tags"]))
+          current = moveTo
+        }
+        if (emoji !== undefined) await eos.setTagEmoji(current, (emoji as string | null) ?? null, agent("update_tag"))
+        return ok({ path: current })
+      },
+    },
+    {
+      name: "set_view",
+      description:
+        "Change what the person sees. page: \"library\" (with optional filters) or \"diagram\" (with diagramId). previewVersion shows a past version of the open diagram read-only, or \"latest\" to go back. zoom changes the preview. settingsOpen shows or hides Settings.",
+      inputSchema: obj({
+        page: enumOf(["library", "diagram"]),
+        diagramId: str(),
+        filters: obj({ starred: bool(), deleted: bool(), tags: strArr(), sort: sortSchema }),
+        previewVersion: str("A version id, or \"latest\""),
+        zoom: enumOf(["in", "out", "fit", "actual"]),
+        settingsOpen: bool(),
+      }),
+      execute: async (i) => {
+        if (i.page === "library") {
+          if (i.filters) ui.setLibraryView(i.filters as never)
+          else ui.goHome()
+        }
+        const id = (i.diagramId as string | undefined) ?? undefined
+        if (i.page === "diagram" || has(i, "previewVersion")) {
+          if (!id || !(await eos.getDiagram(id))) return notFound(id)
+          ui.openDiagram(id)
+        }
+        if (has(i, "previewVersion")) {
+          if (i.previewVersion === "latest") ui.previewVersion(id!, null)
+          else {
+            const entry = (await eos.history(id!, 500)).find((e) => e.version === i.previewVersion)
+            if (!entry) return fail("not_found", "No such version")
+            ui.previewVersion(id!, entry.version, { at: entry.at, label: entry.actor.kind === "agent" ? "Agent" : entry.actor.kind === "user" ? "You" : entry.actor.kind })
+          }
+        }
+        if (has(i, "zoom")) ui.setZoom(i.zoom as never)
+        if (has(i, "settingsOpen")) ui.openSettings(!!i.settingsOpen)
+        return ok({ view: ui.getView() })
       },
     },
     {
       name: "set_theme",
       description:
-        "Change the theme: mode (light, dark or system), app CSS variables (--eos-*) and/or diagram CSS variables (--pele-*). Call get_theme first for the current CSS. Pass null to reset a CSS override to the default.",
+        "Change the theme: mode (light, dark or system), appCss (--eos-* variables) and/or diagramCss (--pele-* variables). Start from the CSS get_settings returns. null resets an override to the default.",
       inputSchema: obj({
-        mode: { type: "string", enum: ["system", "light", "dark"] },
+        mode: enumOf(["system", "light", "dark"]),
         appCss: { type: ["string", "null"] },
         diagramCss: { type: ["string", "null"] },
       }),
@@ -403,28 +329,22 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
         return ok({ theme: eos.getSettings().theme })
       },
     },
+    // ── Permanent deletes (each asks the person) ─────────────────────────────
     {
-      name: "get_storage_usage",
-      description: "How much browser storage Eos is using.",
-      inputSchema: obj({}),
-      annotations: { readOnlyHint: true },
-      execute: async () => ok(await eos.storageUsage()),
-    },
-    {
-      name: "export_backup",
-      description: "Export every diagram and setting as a backup file (JSON).",
-      inputSchema: obj({ download: bool() }),
-      annotations: { readOnlyHint: true },
-      execute: async ({ download }) => {
-        const data = await eos.exportBackup()
-        if (download) ui.download("eos-backup.json", data)
-        return ok({ data })
+      name: "delete_tag",
+      description: "Remove a tag, and tags nested under it, from every diagram. Asks the person to confirm. Diagrams themselves are kept.",
+      inputSchema: obj({ path: str() }, ["path"]),
+      annotations: { destructiveHint: true },
+      execute: async ({ path }) => {
+        if (!(await confirmed(`The agent wants to remove the tag “${String(path)}” from every diagram.`)))
+          return fail("user_declined", "The person declined")
+        return ok({ diagrams: await eos.deleteTag(path as string, agent("delete_tag", ["tags"])) })
       },
     },
     {
       name: "import_backup",
-      description: "Import a backup. merge combines it with existing diagrams; replace wipes local data first and asks to confirm.",
-      inputSchema: obj({ data: str(), mode: { type: "string", enum: ["merge", "replace"] } }, ["data", "mode"]),
+      description: "Import a backup (from export with format backup). merge adds to the library; replace wipes local data first and asks the person to confirm.",
+      inputSchema: obj({ data: str(), mode: enumOf(["merge", "replace"]) }, ["data", "mode"]),
       annotations: { destructiveHint: true },
       execute: async ({ data, mode }) => {
         if (mode === "replace" && !(await confirmed("The agent wants to replace all your diagrams with a backup.", "Replace")))
@@ -435,7 +355,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
     },
     {
       name: "delete_all_data",
-      description: "Delete every diagram and setting in this browser. Asks the person to confirm. Not undoable.",
+      description: "Delete every diagram and setting in this browser. Asks the person to confirm. Can't be undone.",
       inputSchema: obj({}),
       annotations: { destructiveHint: true },
       execute: async () => {
@@ -446,7 +366,6 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
       },
     },
   ]
-  return tools
 }
 
 interface ModelContext {

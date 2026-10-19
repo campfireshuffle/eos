@@ -1,7 +1,7 @@
 import type { Eos } from "@eos/core"
 import { createTools, registerTools, type UiBridge } from "@eos/webmcp"
 
-import { download } from "./files"
+import { download, svgMarkupToPng } from "./files"
 import { currentAppCss, DEFAULT_DIAGRAM_CSS } from "./theme"
 import { diagramHref, homeHref, navigate, parseRoute } from "./router"
 import { askConfirm, getUi, requestZoom, setUi } from "./ui-state"
@@ -13,13 +13,14 @@ export function connectWebMcp(eos: Eos): () => void {
     getView: () => ({ route: parseRoute(location.hash), zoom: getUi().zoomScale, settingsOpen: getUi().settingsOpen }),
     openDiagram: (id) => navigate(diagramHref(id)),
     goHome: () => navigate(homeHref()),
-    setLibraryView: ({ starred, tags, sort }) => navigate(homeHref({ starred, tag: tags?.[0] ?? null, sort })),
+    setLibraryView: ({ starred, deleted, tags, sort }) => navigate(homeHref({ starred, deleted, tag: tags?.[0] ?? null, sort })),
     setZoom: requestZoom,
     openSettings: (open) => setUi({ settingsOpen: open }),
     previewVersion: (id, version, meta) =>
       setUi({ preview: version ? { id, version, at: meta?.at ?? Date.now(), label: meta?.label ?? "" } : null }),
     confirm: askConfirm,
     download: (name, data) => download(name, data),
+    toPng: svgMarkupToPng,
     getTheme: () => ({
       resolvedMode: document.documentElement.classList.contains("dark") ? "dark" : "light",
       appCss: eos.getSettings().theme.customCss ?? currentAppCss(),

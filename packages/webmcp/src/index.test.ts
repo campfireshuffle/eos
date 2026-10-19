@@ -16,6 +16,7 @@ const ui = (confirm = true): UiBridge => ({
   previewVersion: vi.fn(),
   confirm: vi.fn(async () => confirm),
   download: vi.fn(),
+  toPng: vi.fn(async () => ({ dataUrl: "data:image/png;base64,AA==", blob: new Blob() })),
   getTheme: () => ({ resolvedMode: "light", appCss: ":root {}", diagramCss: ".pele {}" }),
 })
 
@@ -23,51 +24,111 @@ let n = 0
 async function setup(confirm = true) {
   const eos = await Eos.create({ dbName: `mcp-${n++}`, seed: false })
   const bridge = ui(confirm)
-  const tools = Object.fromEntries(createTools(eos, bridge).map((t) => [t.name, t]))
+  const list = createTools(eos, bridge)
+  const tools = Object.fromEntries(list.map((t) => [t.name, t]))
   const call = (name: string, input: Record<string, unknown> = {}) => tools[name].execute(input) as Promise<any>
-  return { eos, bridge, call }
+  return { eos, bridge, call, list }
 }
 
 describe("webmcp tools", () => {
-  it("lets an agent create, edit, validate and undo", async () => {
-    const { call, bridge } = await setup()
-    const { id } = await call("create_diagram", { title: "Agent", source: "flowchart TD\n  A-->B", tags: ["work"] })
-    expect(bridge.openDiagram).toHaveBeenCalledWith(id)
-    expect((await call("patch_source", { id, edits: [{ line: 2, expect: "  A-->B", text: "  A-->C" }] })).ok).toBe(true)
-    expect((await call("get_source", { id })).source).toBe("flowchart TD\n  A-->C")
-    expect((await call("patch_source", { id, edits: [{ line: 2, expect: "nope", text: "x" }] })).code).toBe("stale")
-    expect((await call("validate_source", { source: "flowchart TD\n  A --> {{x" })).code).toBe("parse_error")
-    await call("undo", { id })
-    expect((await call("get_source", { id })).source).toBe("flowchart TD\n  A-->B")
-    const versions = (await call("list_versions", { id })).versions
-    expect(versions.some((v: any) => v.actor.kind === "agent")).toBe(true)
+  it("exposes a small surface, with reads and permanent deletes annotated", async () => {
+    const { list } = await setup()
+    expect(list.map((t) => t.name)).toEqual([
+      "get_library",
+      "get_diagram",
+      "get_view",
+      "get_settings",
+      "export",
+      "create_diagram",
+      "update_diagram",
+      "update_tag",
+      "set_view",
+      "set_theme",
+      "delete_tag",
+      "import_backup",
+      "delete_all_data",
+    ])
+    const ro = list.filter((t) => t.annotations?.readOnlyHint).map((t) => t.name)
+    expect(ro).toEqual(["get_library", "get_diagram", "get_view", "get_settings", "export"])
+    const destructive = list.filter((t) => t.annotations?.destructiveHint).map((t) => t.name)
+    expect(destructive).toEqual(["delete_tag", "import_backup", "delete_all_data"])
   })
 
-  it("asks before destructive actions", async () => {
+  it("creates, edits in one change, refuses stale edits and undoes only its own work", async () => {
+    const { call, bridge, eos } = await setup()
+    const created = await call("create_diagram", { title: "Agent", source: "flowchart TD\n  A-->B", tags: ["work"] })
+    expect(created.valid).toBe(true)
+    expect(bridge.openDiagram).toHaveBeenCalledWith(created.id)
+    const id = created.id
+
+    const { version } = await call("get_diagram", { id })
+    const edit = await call("update_diagram", {
+      id,
+      title: "Renamed",
+      source: "flowchart TD\n  A-->C",
+      addTags: ["work/api"],
+      starred: true,
+      expectedVersion: version,
+    })
+    expect(edit.ok).toBe(true)
+    expect((await call("update_diagram", { id, title: "x", expectedVersion: version })).code).toBe("stale")
+
+    // The agent can undo its own edit while it's the latest change...
+    expect((await call("update_diagram", { id, revert: "undo" })).ok).toBe(true)
+    let { diagram } = await call("get_diagram", { id })
+    expect(diagram.meta.title).toBe("Agent")
+    expect(diagram.source).toBe("flowchart TD\n  A-->B")
+    await call("update_diagram", { id, revert: "redo" })
+
+    // ...but not once the person has edited since, and the person's ⌘Z skips agent edits.
+    await eos.editDiagram(id, { title: "Person's title" })
+    expect((await call("update_diagram", { id, revert: "undo" })).code).toBe("person_edited")
+    await eos.undo(id)
+    ;({ diagram } = await call("get_diagram", { id }))
+    expect(diagram.meta.title).toBe("Renamed")
+    expect(diagram.source).toBe("flowchart TD\n  A-->C")
+    const { history } = await call("get_diagram", { id, history: true })
+    expect(history.some((e: any) => e.actor.kind === "agent" && e.changes.includes("source"))).toBe(true)
+    expect(history.some((e: any) => e.actor.kind === "user")).toBe(true)
+  })
+
+  it("reports parse errors and exports every format", async () => {
+    const { call } = await setup()
+    expect((await call("export", { format: "svg", source: "flowchart TD\n  A --> {{x" })).code).toBe("parse_error")
+    const { id } = await call("create_diagram", { title: "Pie", source: 'pie\n  "a": 1', open: false })
+    expect((await call("export", { id, format: "svg" })).data).toContain("<svg")
+    expect((await call("export", { id, format: "png" })).data).toMatch(/^data:image\/png/)
+    expect((await call("export", { id, format: "mmd" })).data).toContain("pie")
+    const { url } = await call("export", { id, format: "link" })
+    expect(url).toMatch(/^https:\/\/eos\.lil\.run\/#\/import\?d=/)
+    expect(JSON.parse((await call("export", { format: "backup" })).data).diagrams).toHaveLength(1)
+    const imported = await call("create_diagram", { fromShareLink: url, open: false })
+    expect(imported.id).toBe(id) // identical diagrams aren't duplicated
+  })
+
+  it("organises tags and the library", async () => {
+    const { call } = await setup()
+    const { id } = await call("create_diagram", { title: "Tagged", source: "flowchart TD\n  A-->B", tags: ["work/backend"], open: false })
+    await call("update_tag", { path: "work/backend", moveTo: "backend", emoji: "⚙️" })
+    const lib = await call("get_library", { tags: ["backend"] })
+    expect(lib.diagrams.map((d: any) => d.id)).toEqual([id])
+    expect(lib.tags.find((t: any) => t.path === "backend").emoji).toBe("⚙️")
+    expect(lib.diagrams[0].sourceText).toBeUndefined()
+  })
+
+  it("asks before deleting, and respects a no", async () => {
     const { call, eos } = await setup(false)
     const { id } = await call("create_diagram", { title: "Keep me", open: false })
-    expect((await call("delete_diagram", { id })).code).toBe("user_declined")
+    expect((await call("update_diagram", { id, deleted: true })).code).toBe("user_declined")
+    expect((await call("delete_tag", { path: "x" })).code).toBe("user_declined")
     expect((await eos.listDiagrams()).length).toBe(1)
-  })
-
-  it("organises and shares", async () => {
-    const { call } = await setup()
-    const { id } = await call("create_diagram", { title: "Share", source: "pie\n  \"a\": 1", open: false })
-    await call("set_starred", { id, starred: true })
-    await call("add_tags", { id, tags: ["Work/Backend"] })
-    await call("set_tag_emoji", { path: "work", emoji: "💼" })
-    expect((await call("list_diagrams", { starred: true, tags: ["work"] })).diagrams).toHaveLength(1)
-    const { url } = await call("get_share_link", { id })
-    expect(url).toMatch(/^https:\/\/eos\.lil\.run\/#\/import\?d=/)
-    const imported = await call("import_share_link", { url, open: false })
-    expect((await call("get_source", { id: imported.id })).source).toContain("pie")
   })
 
   it("reads and changes the theme", async () => {
     const { call } = await setup()
-    expect((await call("get_theme")).diagramCss).toBe(".pele {}")
+    expect((await call("get_settings")).theme.diagramCss).toBe(".pele {}")
     await call("set_theme", { mode: "dark", diagramCss: ".pele { --pele-fg: red; }" })
-    const theme = await call("get_theme")
+    const { theme } = await call("get_settings")
     expect(theme.mode).toBe("dark")
     expect(theme.overridden.diagram).toBe(true)
   })

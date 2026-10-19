@@ -42,3 +42,24 @@ export async function svgToPng(svg: string, scale = 2): Promise<Blob> {
   ctx.drawImage(img, 0, 0)
   return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("PNG export failed"))), "image/png"))
 }
+
+/** Renders Pele SVG markup to a PNG in the current theme, for agents (the Export menu uses the live preview). */
+export async function svgMarkupToPng(markup: string): Promise<{ dataUrl: string; blob: Blob }> {
+  const host = Object.assign(document.createElement("div"), { className: "pele-preview" })
+  Object.assign(host.style, { position: "fixed", left: "-10000px", top: "0", visibility: "hidden" })
+  host.innerHTML = markup
+  document.body.append(host)
+  try {
+    const svg = host.querySelector("svg")
+    if (!svg) throw new Error("Not an SVG")
+    const blob = await svgToPng(standaloneSvg(svg))
+    const dataUrl = await new Promise<string>((resolve) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.readAsDataURL(blob)
+    })
+    return { dataUrl, blob }
+  } finally {
+    host.remove()
+  }
+}

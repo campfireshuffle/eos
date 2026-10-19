@@ -117,17 +117,22 @@ export function historyOf(doc: LoroDoc, limit = 50): HistoryEntry[] {
     } catch {
       // Older changes may carry free-form messages; treat them as the user's.
     }
-    const entry = { version: `${c.peer}:${c.counter + c.length - 1}`, actor, at: (c.timestamp ?? 0) * 1000 }
+    const entry: HistoryEntry = { version: `${c.peer}:${c.counter + c.length - 1}`, actor, at: (c.timestamp ?? 0) * 1000 }
+    if (actor.kind === "agent") entry.changes = actor.changes ?? []
     const prev = entries.at(-1)
     if (prev && sameActor(prev.actor, actor) && entry.at - prev.at < HISTORY_SESSION_MS) {
       prev.version = entry.version
       prev.at = entry.at
+      prev.actor = actor
+      if (entry.changes) prev.changes = [...new Set([...(prev.changes ?? []), ...entry.changes])]
     } else entries.push(entry)
   }
   return entries.reverse().slice(0, limit)
 }
 
+/** Agent edits group together whichever tool made them; they never group with the person's edits. */
 function sameActor(a: Actor, b: Actor): boolean {
+  if (a.kind === "agent" && b.kind === "agent") return true
   return JSON.stringify(a) === JSON.stringify(b)
 }
 

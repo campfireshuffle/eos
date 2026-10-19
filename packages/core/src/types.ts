@@ -4,7 +4,8 @@ export type TagPath = string
 
 export type Actor =
   | { kind: "user" }
-  | { kind: "agent"; tool: string }
+  /** `changes` lists what an agent edit touched (e.g. "source", "tags"), for the history panel. */
+  | { kind: "agent"; tool: string; changes?: string[] }
   | { kind: "import"; source: "share-link" | "backup" }
   | { kind: "system"; reason: string }
 
@@ -70,6 +71,8 @@ export interface HistoryEntry {
   version: string
   actor: Actor
   at: number
+  /** For a run of agent edits collapsed into one entry: everything those edits touched. */
+  changes?: string[]
 }
 
 export type Result<T = Record<string, never>> =
