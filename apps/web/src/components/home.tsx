@@ -52,8 +52,9 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
       </div>
 
       <Marquee className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4 md:p-6">
-        <div className="flex items-center gap-2">
-          <div className="flex flex-1 items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Filter chips take their own row on narrow screens; the view controls stay right-aligned. */}
+          <div className="flex min-w-0 flex-1 basis-full flex-wrap items-center gap-2 empty:hidden sm:basis-0">
             {route.starred && (
               <Pill removeHref={homeHref({ tag: route.tag, sort: route.sort, group: route.group })} removeLabel="Remove Starred filter">
                 Starred
@@ -65,28 +66,30 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
               </Pill>
             )}
           </div>
-          <NativeSelect
-            value={route.group}
-            onChange={(e) =>
-              navigate(homeHref({ ...route, group: e.target.value as LibraryGroup }), { replace: true })
-            }
-            className="w-[150px] md:w-[170px]"
-            aria-label="Group by"
-          >
-            <NativeSelectOption value="date">Group: Date</NativeSelectOption>
-            <NativeSelectOption value="subtag">Group: Subtag</NativeSelectOption>
-            <NativeSelectOption value="none">Group: None</NativeSelectOption>
-          </NativeSelect>
-          <NativeSelect
-            value={route.sort}
-            onChange={(e) => navigate(homeHref({ ...route, sort: e.target.value as LibrarySort }), { replace: true })}
-            className="w-[150px] md:w-[170px]"
-            aria-label="Sort"
-          >
-            <NativeSelectOption value="modified">Sort: Modified</NativeSelectOption>
-            <NativeSelectOption value="created">Sort: Created</NativeSelectOption>
-            <NativeSelectOption value="title">Sort: Title</NativeSelectOption>
-          </NativeSelect>
+          <div className="ml-auto flex gap-2 max-sm:w-full">
+            <NativeSelect
+              value={route.group}
+              onChange={(e) =>
+                navigate(homeHref({ ...route, group: e.target.value as LibraryGroup }), { replace: true })
+              }
+              className="w-[150px] shrink-0 max-sm:w-auto max-sm:flex-1"
+              aria-label="Group by"
+            >
+              <NativeSelectOption value="date">Group: Date</NativeSelectOption>
+              <NativeSelectOption value="subtag">Group: Subtag</NativeSelectOption>
+              <NativeSelectOption value="none">Group: None</NativeSelectOption>
+            </NativeSelect>
+            <NativeSelect
+              value={route.sort}
+              onChange={(e) => navigate(homeHref({ ...route, sort: e.target.value as LibrarySort }), { replace: true })}
+              className="w-[150px] shrink-0 max-sm:w-auto max-sm:flex-1"
+              aria-label="Sort"
+            >
+              <NativeSelectOption value="modified">Sort: Modified</NativeSelectOption>
+              <NativeSelectOption value="created">Sort: Created</NativeSelectOption>
+              <NativeSelectOption value="title">Sort: Title</NativeSelectOption>
+            </NativeSelect>
+          </div>
         </div>
 
         {rows && rows.length === 0 ? (

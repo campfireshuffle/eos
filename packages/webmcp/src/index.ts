@@ -20,7 +20,7 @@ export interface UiBridge {
   setZoom(action: "in" | "out" | "fit" | "actual"): void
   openSettings(open: boolean): void
   /** Resolves true when the person allows a destructive agent action. */
-  confirm(message: string): Promise<boolean>
+  confirm(message: string, action?: string): Promise<boolean>
   download(name: string, data: string | Blob): void
   origin: string
 }
@@ -48,8 +48,8 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
   const agent = (tool: string): Actor => ({ kind: "agent", tool })
   const exists = async (id: unknown) => typeof id === "string" && !!(await eos.getDiagram(id))
   const guard = async (id: unknown) => ((await exists(id)) ? null : fail("not_found", `No diagram with id ${String(id)}`))
-  const confirmed = async (message: string) =>
-    !eos.getSettings().agent.confirmDestructive || (await ui.confirm(message))
+  const confirmed = async (message: string, action?: string) =>
+    !eos.getSettings().agent.confirmDestructive || (await ui.confirm(message, action))
   const write = async (id: string, tool: string, fn: (a: Actor) => Promise<void>) => {
     const missing = await guard(id)
     if (missing) return missing
@@ -391,7 +391,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
       inputSchema: obj({ data: str(), mode: { type: "string", enum: ["merge", "replace"] } }, ["data", "mode"]),
       annotations: { destructiveHint: true },
       execute: async ({ data, mode }) => {
-        if (mode === "replace" && !(await confirmed("The agent wants to replace all your diagrams with a backup.")))
+        if (mode === "replace" && !(await confirmed("The agent wants to replace all your diagrams with a backup.", "Replace")))
           return fail("user_declined", "The person declined")
         await eos.importBackup(data as string, mode as "merge" | "replace")
         return ok()

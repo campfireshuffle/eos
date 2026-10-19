@@ -7,6 +7,8 @@ import { useEos } from "@/lib/eos"
 import { clearSelection, useSelection } from "@/lib/selection"
 import { askConfirm } from "@/lib/ui-state"
 
+import { TagMenu } from "./tag-menu"
+
 /** Floating, glassy action bar for selected cards (à la Linear / Figma). */
 export function SelectionBar() {
   const eos = useEos()
@@ -42,6 +44,7 @@ export function SelectionBar() {
         >
           <Star /> Star
         </Button>
+        <TagMenu ids={ids} />
         <Button
           variant="ghost"
           size="sm"

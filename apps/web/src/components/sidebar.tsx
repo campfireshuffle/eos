@@ -23,7 +23,10 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
     <aside className="flex h-full w-full min-w-0 flex-col gap-0.5 overflow-hidden px-1.5 pt-2.5 pb-1.5">
       <div className="flex items-center gap-2 px-2.5 pb-3">
         <a href={homeHref()} className="flex flex-1 items-center gap-2">
-          <img src="/logo.png" alt="" className="h-8 w-8 object-contain" />
+          {/* In light mode the ivory bird sits on a dark tile so it stays legible. */}
+          <span className="flex size-8 items-center justify-center rounded-lg bg-[var(--eos-primary)] dark:bg-transparent">
+            <img src="/logo.png" alt="" className="size-6 object-contain dark:size-8" />
+          </span>
           <span className="text-lg font-semibold tracking-tight">Eos</span>
         </a>
         <button

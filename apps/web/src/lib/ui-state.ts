@@ -6,7 +6,7 @@ interface UiState {
   settingsTab: "theming" | "mcp" | "storage" | "about"
   zoomRequest: { action: "in" | "out" | "fit" | "actual"; n: number } | null
   zoomScale: number
-  confirm: { message: string; resolve: (ok: boolean) => void } | null
+  confirm: { message: string; action: string; resolve: (ok: boolean) => void } | null
   sidebarCollapsed: boolean
   mobileNavOpen: boolean
 }
@@ -43,6 +43,7 @@ export function requestZoom(action: "in" | "out" | "fit" | "actual") {
   setUi({ zoomRequest: { action, n: ++zoomN } })
 }
 
-export function askConfirm(message: string): Promise<boolean> {
-  return new Promise((resolve) => setUi({ confirm: { message, resolve } }))
+/** Opens the confirm dialog. `action` labels the confirming (destructive) button. */
+export function askConfirm(message: string, action = "Delete"): Promise<boolean> {
+  return new Promise((resolve) => setUi({ confirm: { message, action, resolve } }))
 }

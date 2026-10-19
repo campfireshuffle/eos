@@ -55,28 +55,28 @@
 /* Eos palettes: light on :root, dark on .dark. Logo-sampled accents, neutral surfaces. */
 :root {
     color-scheme: light;
-    --eos-ink: #f7f6f3;
+    --eos-ink: #f1f0ec;
     --eos-panel: #ffffff;
-    --eos-raised: #efeeea;
-    --eos-line: #e6e4df;
-    --eos-line-hover: #d9d7d1;
-    --eos-line-active: #c9c6bf;
-    --eos-body: #1c1b1a;
-    --eos-muted: #6f6e69;
-    --eos-faint: #a3a19b;
+    --eos-raised: #e9e7e2;
+    --eos-line: #dddad3;
+    --eos-line-hover: #cbc7bf;
+    --eos-line-active: #aeaaa1;
+    --eos-body: #141413;
+    --eos-muted: #57564f;
+    --eos-faint: #87857e;
     --eos-ivory: #fcf4e4;
-    --eos-champagne: #9b7a3c;
-    --eos-red: #c0392b;
-    --eos-green: #66800b;
-    --eos-primary: #1c1b1a;
+    --eos-champagne: #85652a;
+    --eos-red: #b3261e;
+    --eos-green: #4f6b0a;
+    --eos-primary: #141413;
     --eos-on-primary: #fcf4e4;
-    --eos-syntax-keyword: #8a6a2c;
-    --eos-syntax-string: #5f7a1e;
-    --eos-syntax-property: #a5582b;
-    --eos-syntax-definition: #2f6a9e;
-    --eos-syntax-number: #7d4fa0;
-    --eos-syntax-comment: #9a988f;
-    --eos-selection: #d9d7d1;
+    --eos-syntax-keyword: #7a5a1c;
+    --eos-syntax-string: #4b6612;
+    --eos-syntax-property: #964b1f;
+    --eos-syntax-definition: #1f5c92;
+    --eos-syntax-number: #6d3f92;
+    --eos-syntax-comment: #8a887f;
+    --eos-selection: #cbc7bf;
 }
 
 .dark {

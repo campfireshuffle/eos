@@ -22,13 +22,13 @@ export function ConfirmDialog() {
     <AlertDialog open={!!confirm} onOpenChange={(open) => !open && answer(false)}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+          <AlertDialogTitle>Confirm action</AlertDialogTitle>
           <AlertDialogDescription>{confirm?.message}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel onClick={() => answer(false)}>Deny</AlertDialogCancel>
+          <AlertDialogCancel onClick={() => answer(false)}>Cancel</AlertDialogCancel>
           <AlertDialogAction variant="destructive" onClick={() => answer(true)}>
-            Allow
+            {confirm?.action ?? "Delete"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
