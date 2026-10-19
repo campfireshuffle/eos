@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "cf dev",
     "build": "tsc -b && vite build",
-    "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
     "preview": "vite preview",
@@ -31,25 +30,20 @@
     "lucide-react": "^1.59.0",
     "pele": "^1.6.0",
     "react": "^19.3.0",
+    "react-aria": "3.53.1",
     "react-aria-components": "1.22.1",
     "react-dom": "^19.3.0",
     "react-resizable-panels": "^4.14.5"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^2.0.0-beta.v.1",
-    "@eslint/js": "^10",
     "@tailwindcss/vite": "^4",
     "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6",
     "cf": "1.0.0-beta.18",
-    "eslint": "^10",
-    "eslint-plugin-react-hooks": "^7.1.1",
-    "eslint-plugin-react-refresh": "^0.5.7",
-    "globals": "^17",
     "typescript": "~6.0.2",
-    "typescript-eslint": "^8",
     "vite": "^8",
     "vite-plugin-wasm": "^3.6.0"
   }

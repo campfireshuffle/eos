@@ -1,5 +1,6 @@
 import { Check, Star } from "lucide-react"
 import { memo, useEffect, useRef, useState } from "react"
+import { useLongPress } from "react-aria"
 
 import { renderSvg, type DiagramIndexRow } from "@eos/core"
 
@@ -16,14 +17,19 @@ const coarsePointer = typeof matchMedia === "function" && matchMedia("(pointer: 
 
 export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramIndexRow }) {
   const selected = useSelection().has(row.id)
-  const press = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null)
   const longPressed = useRef(false)
   const lastPointer = useRef<string>("mouse")
-
-  const cancelPress = () => {
-    if (press.current) clearTimeout(press.current.timer)
-    press.current = null
-  }
+  // Touch only: on desktop the card drags natively and ⌘/⇧-click selects.
+  const { longPressProps } = useLongPress({
+    isDisabled: !coarsePointer,
+    threshold: LONG_PRESS_MS,
+    onLongPress: (e) => {
+      if (e.pointerType !== "touch") return
+      longPressed.current = true
+      toggleSelected(row.id)
+      navigator.vibrate?.(10)
+    },
+  })
 
   return (
     <a
@@ -32,28 +38,12 @@ export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramInde
       // On touch, a long press selects instead of starting a native drag.
       draggable={!coarsePointer}
       onDragStart={(e) => startCardDrag(e, row.id)}
-      onPointerDown={(e) => {
+      {...longPressProps}
+      // Runs before React Aria's handler (capture), so a long press always starts fresh.
+      onPointerDownCapture={(e) => {
         lastPointer.current = e.pointerType
         longPressed.current = false
-        if (e.pointerType !== "touch") return
-        cancelPress()
-        press.current = {
-          x: e.clientX,
-          y: e.clientY,
-          timer: setTimeout(() => {
-            press.current = null
-            longPressed.current = true
-            toggleSelected(row.id)
-            navigator.vibrate?.(10)
-          }, LONG_PRESS_MS),
-        }
       }}
-      onPointerMove={(e) => {
-        // Moving the finger means scrolling, not a long press.
-        if (press.current && Math.hypot(e.clientX - press.current.x, e.clientY - press.current.y) > 10) cancelPress()
-      }}
-      onPointerUp={cancelPress}
-      onPointerCancel={cancelPress}
       onContextMenu={(e) => lastPointer.current === "touch" && e.preventDefault()}
       onClick={(e) => {
         if (longPressed.current) {

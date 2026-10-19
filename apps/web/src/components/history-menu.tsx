@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import type { Actor, HistoryEntry } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@workspace/ui/components/popover"
+import { ToggleGroup, ToggleGroupItem } from "@workspace/ui/components/toggle-group"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@workspace/ui/components/tooltip"
 import { cn } from "@workspace/ui/lib/utils"
 
@@ -50,23 +51,25 @@ export function HistoryMenu({ id }: { id: string }) {
         <div className="flex items-center gap-2 px-2 pt-1 pb-2">
           <span className="flex-1 text-caption font-medium text-muted-foreground">Version history</span>
           {hasAgent && (
-            <div role="radiogroup" aria-label="Show" className="flex rounded-md bg-muted p-0.5 text-caption">
+            // Arrow keys move between the options; picking the current one again keeps it on.
+            <ToggleGroup
+              type="single"
+              value={filter}
+              onValueChange={(f) => f && setFilter(f as typeof filter)}
+              aria-label="Show"
+              spacing={0}
+              className="rounded-md bg-muted p-0.5"
+            >
               {(["all", "user", "agent"] as const).map((f) => (
-                <button
+                <ToggleGroupItem
                   key={f}
-                  type="button"
-                  role="radio"
-                  aria-checked={filter === f}
-                  onClick={() => setFilter(f)}
-                  className={cn(
-                    "rounded px-2 py-0.5 text-muted-foreground",
-                    filter === f && "bg-background font-medium text-foreground shadow-xs",
-                  )}
+                  value={f}
+                  className="h-auto min-w-0 rounded! px-2 py-0.5 text-caption font-normal text-muted-foreground hover:bg-transparent data-[state=on]:bg-background data-[state=on]:font-medium data-[state=on]:text-foreground data-[state=on]:shadow-xs"
                 >
                   {f === "all" ? "All" : f === "user" ? "You" : "Agent"}
-                </button>
+                </ToggleGroupItem>
               ))}
-            </div>
+            </ToggleGroup>
           )}
         </div>
         <div className="flex max-h-96 flex-col overflow-y-auto">
