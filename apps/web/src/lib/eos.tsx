@@ -20,7 +20,13 @@ function useLive<T>(topics: Parameters<Eos["subscribe"]>[0][], load: (eos: Eos) 
   const [value, setValue] = useState<T>()
   useEffect(() => {
     let alive = true
-    const run = () => load(eos).then((v) => alive && setValue(v), console.error)
+    // Only the newest load may set the value: events come in bursts (e.g. a wipe, then an
+    // import), and an older, slower load finishing last would show stale data.
+    let latest = 0
+    const run = () => {
+      const n = ++latest
+      load(eos).then((v) => alive && n === latest && setValue(v), console.error)
+    }
     run()
     const offs = topics.map((t) => eos.subscribe(t, run))
     return () => {

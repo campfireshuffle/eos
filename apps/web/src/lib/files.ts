@@ -30,41 +30,53 @@ export function standaloneSvg(svgEl: SVGSVGElement): string {
   return new XMLSerializer().serializeToString(clone)
 }
 
-let fontCss: Promise<string> | null = null
+/** Font files as data URLs, by URL. A failed download isn't kept, so the next export retries it. */
+const fontFiles = new Map<string, Promise<string>>()
+
+function fontFile(url: string): Promise<string> {
+  let file = fontFiles.get(url)
+  if (!file) {
+    file = fetch(url)
+      .then((r) => r.blob())
+      .then(blobToDataUrl)
+    file.catch(() => fontFiles.delete(url))
+    fontFiles.set(url, file)
+  }
+  return file
+}
 
 /**
- * The page's loaded web fonts as @font-face rules with the font files inlined.
- * An SVG drawn as an image can't fetch anything, so without this a PNG export
- * falls back from Inter to a system font.
+ * The page's currently loaded web fonts as @font-face rules with the font files inlined.
+ * An SVG drawn as an image can't fetch anything, so without this a PNG export falls back
+ * from Inter to a system font. Worked out per export, since more subsets (e.g. Greek or
+ * Cyrillic) load as diagrams need them.
  */
-function embeddedFontCss(): Promise<string> {
-  fontCss ??= (async () => {
-    const plain = (v: string) => v.replace(/["'\s]/g, "").toUpperCase()
-    const loaded = new Set([...document.fonts].filter((f) => f.status === "loaded").map((f) => plain(f.family) + plain(f.unicodeRange)))
-    const rules = [...document.styleSheets].flatMap((sheet) => {
-      try {
-        return [...sheet.cssRules].filter((r) => r instanceof CSSFontFaceRule).map((rule) => ({ rule, base: sheet.href ?? location.href }))
-      } catch {
-        return []
-      }
-    })
-    const faces = await Promise.all(
-      rules
-        .filter(({ rule }) =>
-          loaded.has(
-            plain(rule.style.getPropertyValue("font-family")) + plain(rule.style.getPropertyValue("unicode-range") || "U+0-10FFFF")
-          )
-        )
-        .map(async ({ rule, base }) => {
-          const src = rule.style.getPropertyValue("src").match(/url\(["']?([^"')]+)["']?\)/)?.[1]
-          if (!src) return ""
-          const data = await blobToDataUrl(await (await fetch(new URL(src, base))).blob())
-          return rule.cssText.replace(/src:[^;]+;/, `src: url("${data}");`)
-        })
-    )
-    return faces.join("\n")
-  })().catch(() => "")
-  return fontCss
+async function embeddedFontCss(): Promise<string> {
+  const plain = (v: string) => v.replace(/["'\s]/g, "").toUpperCase()
+  const loaded = new Set([...document.fonts].filter((f) => f.status === "loaded").map((f) => plain(f.family) + plain(f.unicodeRange)))
+  const rules = [...document.styleSheets].flatMap((sheet) => {
+    try {
+      return [...sheet.cssRules].filter((r) => r instanceof CSSFontFaceRule).map((rule) => ({ rule, base: sheet.href ?? location.href }))
+    } catch {
+      return [] // Another origin's stylesheet.
+    }
+  })
+  const faces = await Promise.all(
+    rules
+      .filter(({ rule }) =>
+        loaded.has(plain(rule.style.getPropertyValue("font-family")) + plain(rule.style.getPropertyValue("unicode-range") || "U+0-10FFFF"))
+      )
+      .map(async ({ rule, base }) => {
+        const src = rule.style.getPropertyValue("src").match(/url\(["']?([^"')]+)["']?\)/)?.[1]
+        if (!src) return ""
+        try {
+          return rule.cssText.replace(/src:[^;]+;/, `src: url("${await fontFile(new URL(src, base).href)}");`)
+        } catch {
+          return "" // This face falls back to a system font; the rest still embed.
+        }
+      })
+  )
+  return faces.join("\n")
 }
 
 function blobToDataUrl(blob: Blob): Promise<string> {

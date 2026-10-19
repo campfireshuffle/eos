@@ -49,22 +49,34 @@ export function Editor({ id }: { id: string }) {
   const svgRef = useRef<SVGSVGElement | null>(null)
   const editorRef = useRef<CodeEditorHandle | null>(null)
 
-  // The editor syncs with Loro edit by edit; `source` follows it for the preview and checks.
-  const [binding, setBinding] = useState<SourceBinding | null>(null)
+  // The editor syncs with Loro edit by edit. Bind whenever there's no live binding and the
+  // diagram exists: on open, and again after a backup replaces it.
+  // `key` counts bindings, so each new one remounts the editor.
+  const [{ binding, key }, setBound] = useState<{ binding: SourceBinding | null; key: number }>({ binding: null, key: 0 })
   useEffect(() => {
+    // Retried on each update to the diagram, which covers it reappearing after a backup import.
+    if (binding || !diagram) return
     let alive = true
     eos.bindSource(id).then(
-      (b) => {
-        if (!alive) return
-        setBinding(b)
-        setSource(b.text())
-      },
-      () => {} // Gone (deleted, or replaced by a backup); the page shows that.
+      (b) => alive && setBound((prev) => ({ binding: b, key: prev.key + 1 })),
+      () => {} // Not there (yet): bind when it reappears.
     )
     return () => {
       alive = false
     }
-  }, [eos, id])
+  }, [eos, id, binding, diagram])
+  // `source` follows the binding for the preview, checks and export, even while a past
+  // version is shown and the live editor is hidden.
+  useEffect(() => {
+    if (!binding) return
+    setSource(binding.text())
+    const offChange = binding.onChange(() => setSource(binding.text()))
+    const offClose = binding.onClose(() => setBound((prev) => ({ ...prev, binding: null })))
+    return () => {
+      offChange()
+      offClose()
+    }
+  }, [binding])
 
   // Undo/redo only appear once this tab has something to undo or redo.
   const [history, setHistory] = useState({ canUndo: false, canRedo: false })
@@ -102,6 +114,7 @@ export function Editor({ id }: { id: string }) {
   const lastValid = useRef<string>("")
   if (result?.ok && shown !== null) lastValid.current = shown
 
+  const errorLine = result && !result.ok ? result.error.line || null : null
   const undo = () => void eos.undo(id).catch(() => {})
   const redo = () => void eos.redo(id).catch(() => {})
 
@@ -197,17 +210,17 @@ export function Editor({ id }: { id: string }) {
                 key={`preview:${previewing.version}`}
                 value={previewSource ?? ""}
                 readOnly
-                errorAt={result && !result.ok ? result.error.line || null : null}
+                errorAt={errorLine}
                 handleRef={editorRef}
               />
             ) : binding ? (
               <CodeEditor
-                key="live"
+                key={key}
                 binding={binding}
                 onChange={setSource}
                 onUndo={undo}
                 onRedo={redo}
-                errorAt={result && !result.ok ? result.error.line || null : null}
+                errorAt={errorLine}
                 handleRef={editorRef}
               />
             ) : (
