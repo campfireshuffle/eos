@@ -44,6 +44,10 @@ export function TagTree({
   const [dropTarget, setDropTarget] = useState<TagPath | null>(null)
   const host = useRef<HTMLDivElement | null>(null)
   const [picker, setPicker] = useState<{ tag: TagPath; x: number; y: number } | null>(null)
+  // The last picker stays put while the popover animates out, so it doesn't jump to the corner.
+  const lastPicker = useRef(picker)
+  if (picker) lastPicker.current = picker
+  const shownPicker = picker ?? lastPicker.current
   useLeafStyles(host, leaves)
 
   const { model } = useFileTree({
@@ -149,7 +153,7 @@ export function TagTree({
     e.preventDefault()
   }
 
-  const currentEmoji = picker ? findEmoji(tags, picker.tag) : null
+  const currentEmoji = shownPicker ? findEmoji(tags, shownPicker.tag) : null
 
   return (
     <div
@@ -227,14 +231,14 @@ export function TagTree({
       />
       <Popover open={!!picker} onOpenChange={(open) => !open && setPicker(null)}>
         <PopoverAnchor asChild>
-          <span className="pointer-events-none fixed size-px" style={{ left: picker?.x ?? 0, top: picker?.y ?? 0 }} />
+          <span className="pointer-events-none fixed size-px" style={{ left: shownPicker?.x ?? 0, top: shownPicker?.y ?? 0 }} />
         </PopoverAnchor>
         <PopoverContent align="start" className="w-[272px] p-3">
-          {picker && (
+          {shownPicker && (
             <EmojiGrid
               current={currentEmoji}
               onChoose={(emoji) => {
-                void eos.setTagEmoji(picker.tag, emoji)
+                void eos.setTagEmoji(shownPicker.tag, emoji)
                 setPicker(null)
               }}
             />
