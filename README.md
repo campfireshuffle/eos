@@ -18,7 +18,7 @@
 </p>
 
 Write Mermaid and the preview updates as you type, rendered by [Pele](https://pele.run), a fast Mermaid
-renderer. Every diagram stays in your browser, so you don't need an account. Tag and star diagrams, fuzzy-search them, roll back to any version, and share a
+renderer. Every diagram stays in your browser, so you don't need an account. Organise diagrams with nested tags and stars, fuzzy-search them, roll back to any version, and share a
 diagram as a link.
 
 An agent in your browser can do anything you can in the app: create, edit, organise, theme and export
@@ -28,7 +28,7 @@ a proposed browser standard that lets a page offer tools to AI agents. It asks b
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/home-dark.png">
-    <img src="assets/home-light.png" width="860" alt="The Eos library: a grid of rendered diagrams grouped by date, with tags and stars">
+    <img src="assets/home-light.png" width="860" alt="The Eos library: a grid of rendered diagrams grouped by date, with nested emoji tags in the sidebar">
   </picture>
 </p>
 
