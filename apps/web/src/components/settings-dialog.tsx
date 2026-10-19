@@ -340,14 +340,15 @@ function About() {
   return (
     <div className="flex flex-col gap-5">
       <p className="-mt-3 text-body text-muted-foreground">Eos is a local-first Mermaid editor.</p>
-      <div className="flex items-center gap-2">
-        <span className="flex-1 text-body font-medium">Enjoying Eos?</span>
-        <Button variant="outline" size="sm" asChild>
+      {/* On phones the question takes its own line and the two buttons share the next. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="basis-full text-body font-medium sm:flex-1 sm:basis-0">Enjoying Eos?</span>
+        <Button variant="outline" size="sm" className="max-sm:flex-1" asChild>
           <a href="https://github.com/campfireshuffle/eos" target="_blank" rel="noreferrer">
             <Star /> Star on GitHub
           </a>
         </Button>
-        <Button size="sm" asChild>
+        <Button size="sm" className="max-sm:flex-1" asChild>
           <a href="https://github.com/sponsors/campfireshuffle" target="_blank" rel="noreferrer">
             <Heart /> Donate
           </a>
