@@ -11,7 +11,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@eos/core": "workspace:*"
+    "@eos/core": "workspace:*",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "fake-indexeddb": "^6.2.6",

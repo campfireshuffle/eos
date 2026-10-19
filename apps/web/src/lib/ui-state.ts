@@ -46,7 +46,23 @@ export function requestZoom(action: "in" | "out" | "fit" | "actual") {
   setUi({ zoomRequest: { action, n: ++zoomN } })
 }
 
-/** Opens the confirm dialog. `action` labels the confirming (destructive) button. */
-export function askConfirm(message: string, action = "Delete"): Promise<boolean> {
-  return new Promise((resolve) => setUi({ confirm: { message, action, resolve } }))
+/**
+ * Opens the confirm dialog. `action` labels the confirming (destructive) button.
+ * If `signal` aborts (an agent cancelled its call), the dialog closes as a no.
+ */
+export function askConfirm(message: string, action = "Delete", signal?: AbortSignal): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve(false)
+    const confirm = { message, action, resolve }
+    signal?.addEventListener(
+      "abort",
+      () => {
+        if (state.confirm !== confirm) return
+        setUi({ confirm: null })
+        resolve(false)
+      },
+      { once: true },
+    )
+    setUi({ confirm })
+  })
 }

@@ -10,6 +10,7 @@ import {
   type LibrarySort,
   type TagPath,
 } from "@eos/core"
+import * as z from "zod/mini"
 
 /** What the page exposes so agents can drive the UI the way a person would. */
 export interface UiBridge {
@@ -21,8 +22,8 @@ export interface UiBridge {
   openSettings(open: boolean): void
   /** Shows a past version read-only in the editor, or returns to the latest. */
   previewVersion(id: DiagramId, version: string | null, meta?: { at: number; label: string }): void
-  /** Resolves true when the person allows a destructive agent action. */
-  confirm(message: string, action?: string): Promise<boolean>
+  /** Resolves true when the person allows a destructive agent action; false if they decline or `signal` aborts. */
+  confirm(message: string, action?: string, signal?: AbortSignal): Promise<boolean>
   download(name: string, data: string | Blob): void
   /** Rasterises an SVG to a PNG data URL (2×), as the Export menu does. */
   toPng(svg: string): Promise<{ dataUrl: string; blob: Blob }>
@@ -33,80 +34,78 @@ export interface UiBridge {
   origin: string
 }
 
-type JSONSchema = Record<string, unknown>
+/** What the browser passes as execute's second argument. Aborts when the agent cancels the call. */
+export interface ToolClient {
+  signal?: AbortSignal
+}
 
+/** A tool in the shape WebMCP's registerTool takes. */
 export interface Tool {
   name: string
   description: string
-  inputSchema: JSONSchema
+  inputSchema: Record<string, unknown>
   /**
    * Chrome reads readOnlyHint, untrustedContentHint and consequentialHint;
    * destructiveHint is MCP's name for the same idea as consequentialHint.
    */
   annotations?: { readOnlyHint?: boolean; untrustedContentHint?: boolean; consequentialHint?: boolean; destructiveHint?: boolean }
-  execute(input: Record<string, unknown>): Promise<unknown>
+  execute(input: Record<string, unknown>, client?: ToolClient): Promise<unknown>
 }
-
-const str = (description?: string) => ({ type: "string", ...(description ? { description } : {}) })
-const bool = (description?: string) => ({ type: "boolean", ...(description ? { description } : {}) })
-const strArr = (description?: string) => ({ type: "array", items: { type: "string" }, ...(description ? { description } : {}) })
-const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, required, additionalProperties: false })
-const enumOf = (values: string[], description?: string) => ({ type: "string", enum: values, ...(description ? { description } : {}) })
-const sortSchema = enumOf(["modified", "created", "title"])
 
 const ok = (extra: object = {}) => ({ ok: true, ...extra })
 const fail = (code: string, message: string, extra: object = {}) => ({ ok: false, code, message, ...extra })
 
-type Input = Record<string, unknown>
-const has = (i: Input, key: string) => i[key] !== undefined && i[key] !== null
-
-/**
- * Checks input against the subset of JSON Schema these tools use. Browsers pass
- * input through unchecked, so a wrong field name or type would otherwise be
- * silently ignored or throw deep inside Eos. Returns a message, or null if valid.
- */
-export function checkInput(schema: JSONSchema, value: unknown, at = "input"): string | null {
-  const types = ([] as string[]).concat((schema.type as string | string[] | undefined) ?? [])
-  const actual = value === null ? "null" : Array.isArray(value) ? "array" : typeof value
-  if (types.length && !types.includes(actual)) return `${at} must be ${types.join(" or ")}, not ${actual}`
-  if (schema.enum && !(schema.enum as unknown[]).includes(value))
-    return `${at} must be one of ${(schema.enum as string[]).map((v) => JSON.stringify(v)).join(", ")}`
-  if (actual === "array" && schema.items) {
-    for (const [n, item] of (value as unknown[]).entries()) {
-      const problem = checkInput(schema.items as JSONSchema, item, `${at}[${n}]`)
-      if (problem) return problem
+/** Turns a Zod issue into one sentence an agent can act on. `fields` lists the tool's top-level fields. */
+function describeIssue(issue: z.core.$ZodIssue, input: unknown, fields: string[]): string {
+  const at = ["input", ...issue.path.map(String)].join(".")
+  const value = issue.path.reduce<unknown>((v, key) => (v as Record<PropertyKey, unknown> | undefined)?.[key], input)
+  const kind = (v: unknown) => (v === null ? "null" : Array.isArray(v) ? "array" : typeof v)
+  switch (issue.code) {
+    case "invalid_type":
+      return value === undefined ? `${at} is required` : `${at} must be ${issue.expected}, not ${kind(value)}`
+    case "invalid_value":
+      return `${at} must be one of ${issue.values.map((v) => JSON.stringify(v)).join(", ")}`
+    case "unrecognized_keys": {
+      const known = issue.path.length === 0 ? `. Fields: ${fields.join(", ") || "none"}` : ""
+      return `${issue.keys.map((k) => `${at}.${k}`).join(", ")} isn't a field${known}`
     }
+    default:
+      return `${at}: ${issue.message}`
   }
-  if (actual === "object" && schema.properties) {
-    const props = schema.properties as Record<string, JSONSchema>
-    const input = value as Input
-    for (const key of (schema.required as string[] | undefined) ?? [])
-      if (input[key] === undefined) return `${at}.${key} is required`
-    for (const [key, v] of Object.entries(input)) {
-      if (!(key in props)) return `${at}.${key} isn't a field. Fields: ${Object.keys(props).join(", ") || "none"}`
-      if (v === undefined) continue
-      const problem = checkInput(props[key], v, `${at}.${key}`)
-      if (problem) return problem
-    }
-  }
-  return null
 }
 
-/** Validates input and turns anything thrown into an error result, so agents never see a raw exception. */
-function guarded(tool: Tool): Tool {
+/**
+ * Defines a tool from a Zod schema. Browsers pass input through unchecked, so the
+ * schema both describes the input to agents (as JSON Schema) and validates it; and
+ * anything thrown comes back as an error result, so agents never see a raw exception.
+ */
+function tool<Shape extends z.core.$ZodShape>(def: {
+  name: string
+  description: string
+  input: Shape
+  annotations?: Tool["annotations"]
+  execute(input: z.infer<z.ZodMiniObject<Shape, z.core.$strict>>, signal: AbortSignal | undefined): Promise<unknown>
+}): Tool {
+  const schema = z.strictObject(def.input)
+  const { $schema: _, ...inputSchema } = z.toJSONSchema(schema)
   return {
-    ...tool,
-    execute: async (input) => {
-      const problem = checkInput(tool.inputSchema, input ?? {})
-      if (problem) return fail("invalid_input", problem)
+    name: def.name,
+    description: def.description,
+    inputSchema,
+    ...(def.annotations ? { annotations: def.annotations } : {}),
+    execute: async (raw, client) => {
+      const parsed = schema.safeParse(raw ?? {})
+      if (!parsed.success) return fail("invalid_input", describeIssue(parsed.error.issues[0], raw, Object.keys(def.input)))
       try {
-        return await tool.execute(input ?? {})
+        return await def.execute(parsed.data, client?.signal)
       } catch (error) {
         return fail("error", error instanceof Error ? error.message : String(error))
       }
     },
   }
 }
+
+const sort = z.enum(["modified", "created", "title"])
 
 /** Parse result for Mermaid source, in the shape every tool returns it. */
 function check(source: string) {
@@ -121,9 +120,13 @@ function check(source: string) {
  */
 export function createTools(eos: Eos, ui: UiBridge): Tool[] {
   const agent = (tool: string, changes?: string[]): Actor => ({ kind: "agent", tool, ...(changes ? { changes } : {}) })
-  const confirmed = async (message: string, action?: string) =>
-    !eos.getSettings().agent.confirmDestructive || (await ui.confirm(message, action))
   const notFound = (id: unknown) => fail("not_found", `No diagram with id ${String(id)}`)
+  /** Asks the person, unless they turned confirmations off. Returns a failure result to send back, or null to go ahead. */
+  const ask = async (signal: AbortSignal | undefined, message: string, declined: string, action?: string) => {
+    if (signal?.aborted) return fail("cancelled", "The call was cancelled")
+    if (!eos.getSettings().agent.confirmDestructive || (await ui.confirm(message, action, signal))) return null
+    return signal?.aborted ? fail("cancelled", "The call was cancelled") : fail("user_declined", declined)
+  }
   const view = async () => {
     await ui.settled?.()
     return ui.getView()
@@ -134,61 +137,71 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
     if (route?.name === "diagram" && !(route.id && (await eos.getDiagram(route.id)))) ui.goHome()
   }
 
-  const tools: Tool[] = [
+  return [
     // ── Reads ────────────────────────────────────────────────────────────────
-    {
+    tool({
       name: "get_library",
       description:
         "The library: diagrams (id, title, tags, starred, dates), the tag tree with emoji and counts, and totals. Filters work like the sidebar: query (fuzzy title and contents), starred, tags (include nested tags), deleted (only diagrams in Deleted), sort.",
-      inputSchema: obj({ query: str(), starred: bool(), tags: strArr(), deleted: bool(), sort: sortSchema }),
+      input: {
+        query: z.optional(z.string()),
+        starred: z.optional(z.boolean()),
+        tags: z.optional(z.array(z.string())),
+        deleted: z.optional(z.boolean()),
+        sort: z.optional(sort),
+      },
       // Titles and sources are written by people (or imported), so they can carry text aimed at the agent.
       annotations: { readOnlyHint: true, untrustedContentHint: true },
       execute: async (i) =>
         ok({
-          diagrams: (await eos.listDiagrams(i as never)).map(({ sourceText: _s, tagPrefixes: _p, titleKey: _k, ...row }) => ({
+          diagrams: (await eos.listDiagrams(i)).map(({ sourceText: _s, tagPrefixes: _p, titleKey: _k, ...row }) => ({
             ...row,
             starred: !!row.starred,
           })),
           tags: await eos.listTags(),
           counts: await eos.counts(),
         }),
-    },
-    {
+    }),
+    tool({
       name: "get_diagram",
       description:
         "One diagram: title, tags, starred, Mermaid source and current version id (pass it back as expectedVersion when editing). version reads the source at a past version; history: true adds the version list, where agent edits are listed separately from the person's.",
-      inputSchema: obj({ id: str(), version: str("A version id from history"), history: bool() }, ["id"]),
+      input: { id: z.string(), version: z.optional(z.string().check(z.describe("A version id from history"))), history: z.optional(z.boolean()) },
       annotations: { readOnlyHint: true, untrustedContentHint: true },
       execute: async ({ id, version, history }) => {
-        const d = await eos.getDiagram(id as string)
+        const d = await eos.getDiagram(id)
         if (!d) return notFound(id)
         const entries = version || history ? await eos.history(d.id, 500) : []
-        if (version && !entries.some((e) => e.version === version)) return fail("not_found", `No version ${String(version)} in this diagram's history`)
-        const source = version ? await eos.getSource(d.id, version as string) : d.source
+        if (version && !entries.some((e) => e.version === version)) return fail("not_found", `No version ${version} in this diagram's history`)
+        const source = version ? await eos.getSource(d.id, version) : d.source
         return ok({
           diagram: { ...d, source },
           version: await eos.version(d.id),
           ...check(source),
           // Each entry lists everything that changed in it once, under changes.
-          ...(history ? { history: entries.slice(0, 200).map(({ actor, ...e }) => {
+          ...(history
+            ? {
+                history: entries.slice(0, 200).map(({ actor, ...e }) => {
                   const { changes: _c, ...who } = actor as Actor & { changes?: string[] }
                   return { ...e, actor: who }
-                }) } : {}),
+                }),
+              }
+            : {}),
         })
       },
-    },
-    {
+    }),
+    tool({
       name: "get_view",
       description: "What the person is looking at: page, open diagram, library filters, preview zoom, whether Settings is open.",
-      inputSchema: obj({}),
+      input: {},
       annotations: { readOnlyHint: true },
       execute: async () => ok({ view: await view() }),
-    },
-    {
+    }),
+    tool({
       name: "get_settings",
       description:
         "Settings, the theme in effect (light or dark, plus the full app --eos-* and diagram --pele-* CSS including defaults; Pele's variables are documented at https://pele.run/theming) and storage used.",
-      inputSchema: obj({}),
+      input: {},
       annotations: { readOnlyHint: true },
       execute: async () => {
         const settings = eos.getSettings()
@@ -198,21 +211,18 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
           storage: await eos.storageUsage(),
         })
       },
-    },
-    {
+    }),
+    tool({
       name: "export",
       description:
         "Export a diagram (id) or raw Mermaid (source). Formats: svg, png (data URL), mmd, link (a share link that opens a copy in anyone's Eos), backup (the whole library as JSON; no id needed). Invalid Mermaid returns parse_error with line and column, so this also works as a dry-run check. download: true also saves the file like the Export menu.",
-      inputSchema: obj(
-        {
-          format: enumOf(["svg", "png", "mmd", "link", "backup"]),
-          id: str(),
-          source: str("Raw Mermaid, instead of id"),
-          includeTags: bool("For link: include the diagram's tags"),
-          download: bool(),
-        },
-        ["format"],
-      ),
+      input: {
+        format: z.enum(["svg", "png", "mmd", "link", "backup"]),
+        id: z.optional(z.string()),
+        source: z.optional(z.string().check(z.describe("Raw Mermaid, instead of id"))),
+        includeTags: z.optional(z.boolean().check(z.describe("For link: include the diagram's tags"))),
+        download: z.optional(z.boolean()),
+      },
       annotations: { readOnlyHint: true },
       execute: async ({ format, id, source, includeTags, download }) => {
         if (format === "backup") {
@@ -220,10 +230,10 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
           if (download) ui.download("eos-backup.json", data)
           return ok({ data })
         }
-        if (typeof source !== "string" && typeof id !== "string") return fail("invalid_input", "Pass id or source (only backup needs neither)")
-        const d = typeof source === "string" ? null : await eos.getDiagram(id as string)
-        if (typeof source !== "string" && !d) return notFound(id)
-        const text = typeof source === "string" ? source : d!.source
+        if (source === undefined && id === undefined) return fail("invalid_input", "Pass id or source (only backup needs neither)")
+        const d = source === undefined ? await eos.getDiagram(id!) : null
+        if (source === undefined && !d) return notFound(id)
+        const text = source ?? d!.source
         const title = d?.meta.title ?? "diagram"
         if (format === "link") {
           const enc = await encodeShare({ title, source: text, tags: includeTags && d ? d.meta.tags : [] })
@@ -244,23 +254,23 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
         if (download) ui.download(`${title}.png`, png.blob)
         return ok({ data: png.dataUrl, type: parsed.type })
       },
-    },
+    }),
     // ── Writes ───────────────────────────────────────────────────────────────
-    {
+    tool({
       name: "create_diagram",
       description:
         "Create a diagram from Mermaid source, or import one from an Eos share link (fromShareLink). To duplicate, read a diagram with get_diagram and create from its source. Opens it unless open is false. Returns whether the source parses.",
-      inputSchema: obj({
-        title: str(),
-        source: str("Mermaid source"),
-        tags: strArr("Use slashes for nesting, e.g. work/backend"),
-        starred: bool(),
-        fromShareLink: str(),
-        open: bool(),
-      }),
+      input: {
+        title: z.optional(z.string()),
+        source: z.optional(z.string().check(z.describe("Mermaid source"))),
+        tags: z.optional(z.array(z.string()).check(z.describe("Use slashes for nesting, e.g. work/backend"))),
+        starred: z.optional(z.boolean()),
+        fromShareLink: z.optional(z.string()),
+        open: z.optional(z.boolean()),
+      },
       execute: async (i) => {
         let id: DiagramId
-        if (typeof i.fromShareLink === "string") {
+        if (i.fromShareLink !== undefined) {
           let encoded = ""
           try {
             encoded = new URL(i.fromShareLink).hash.match(/[?&]d=([^&]+)/)?.[1] ?? ""
@@ -271,43 +281,42 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
           if (!payload) return fail("invalid_input", "Not a valid Eos share link")
           id = await eos.importShare(payload)
         } else {
-          id = await eos.createDiagram({ title: i.title as string, source: i.source as string, tags: i.tags as string[] }, agent("create_diagram", ["created"]))
+          id = await eos.createDiagram({ title: i.title, source: i.source, tags: i.tags }, agent("create_diagram", ["created"]))
         }
         if (i.starred) await eos.setStarred(id, true, agent("create_diagram"))
         if (i.open !== false) ui.openDiagram(id)
         const d = (await eos.getDiagram(id))!
         return ok({ id, version: await eos.version(id), ...check(d.source) })
       },
-    },
-    {
+    }),
+    tool({
       name: "update_diagram",
       description:
         "Edit a diagram. Every field is optional and the edit lands as one change in history, credited to the agent: title, source (full Mermaid; applied as a minimal diff), starred, addTags, removeTags. revert: \"undo\" or \"redo\" steps the agent's own edits (never the person's; refused if the person has edited since), or a version id from get_diagram's history restores that version. deleted: true moves it to Deleted (asks the person; reversible), false restores it. Pass expectedVersion from get_diagram to refuse the edit if the person changed it meanwhile.",
-      inputSchema: obj(
-        {
-          id: str(),
-          title: str(),
-          source: str(),
-          starred: bool(),
-          addTags: strArr(),
-          removeTags: strArr(),
-          revert: str("\"undo\", \"redo\" or a version id"),
-          deleted: bool(),
-          expectedVersion: str(),
-        },
-        ["id"],
-      ),
-      execute: async (i) => {
-        const id = i.id as string
+      input: {
+        id: z.string(),
+        title: z.optional(z.string()),
+        source: z.optional(z.string()),
+        starred: z.optional(z.boolean()),
+        addTags: z.optional(z.array(z.string())),
+        removeTags: z.optional(z.array(z.string())),
+        revert: z.optional(z.string().check(z.describe('"undo", "redo" or a version id'))),
+        deleted: z.optional(z.boolean()),
+        expectedVersion: z.optional(z.string()),
+      },
+      execute: async (i, signal) => {
+        const { id } = i
         const d = await eos.getDiagram(id)
         if (!d) return notFound(id)
-        if (has(i, "expectedVersion") && i.expectedVersion !== (await eos.version(id)))
+        if (i.expectedVersion !== undefined && i.expectedVersion !== (await eos.version(id)))
           return fail("stale", "The diagram changed since that version; read it again", { version: await eos.version(id) })
-        if (has(i, "revert") && has(i, "source")) return fail("invalid_input", "Use either revert or source, not both")
+        if (i.revert !== undefined && i.source !== undefined) return fail("invalid_input", "Use either revert or source, not both")
 
-        const changes = ["title", "source", "addTags", "removeTags"].filter((k) => has(i, k)).map((k) => (k.endsWith("Tags") ? "tags" : k))
-        if (has(i, "revert")) {
-          const r = i.revert as string
+        const changes = (["title", "source", "addTags", "removeTags"] as const)
+          .filter((k) => i[k] !== undefined)
+          .map((k) => (k.endsWith("Tags") ? "tags" : k))
+        if (i.revert !== undefined) {
+          const r = i.revert
           if (r === "undo" || r === "redo") {
             // Undoing over the person's newer edit could overwrite it (titles and tags are last-write-wins).
             const [latest] = await eos.history(id, 1)
@@ -324,138 +333,143 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
         if (changes.length) {
           await eos.editDiagram(
             id,
-            { title: i.title as string, source: i.source as string, addTags: i.addTags as string[], removeTags: i.removeTags as string[] },
+            { title: i.title, source: i.source, addTags: i.addTags, removeTags: i.removeTags },
             agent("update_diagram", [...new Set(changes)]),
           )
         }
-        if (has(i, "starred")) await eos.setStarred(id, !!i.starred, agent("update_diagram", ["starred"]))
+        if (i.starred !== undefined) await eos.setStarred(id, i.starred, agent("update_diagram", ["starred"]))
         if (i.deleted === true) {
-          if (!(await confirmed(`The agent wants to move “${d.meta.title}” to Deleted.`)))
-            return fail("user_declined", "The person declined to delete it")
+          const refused = await ask(signal, `The agent wants to move “${d.meta.title}” to Deleted.`, "The person declined to delete it")
+          if (refused) return refused
           await eos.deleteDiagram(id)
         } else if (i.deleted === false) await eos.restoreDiagram(id)
 
         const now = (await eos.getDiagram(id))!
         return ok({ version: await eos.version(id), ...check(now.source), agentUndo: await eos.canUndo(id, "agent") })
       },
-    },
-    {
+    }),
+    tool({
       name: "update_tag",
       description:
         "Rename or move a tag (and everything nested under it) across every diagram, and/or set its sidebar icon. moveTo is the new full path: \"archive/backend\" nests it, \"backend\" puts it at the top level. emoji: an emoji, or null for the default #.",
-      inputSchema: obj({ path: str(), moveTo: str(), emoji: { type: ["string", "null"] } }, ["path"]),
+      input: { path: z.string(), moveTo: z.optional(z.string()), emoji: z.optional(z.nullable(z.string())) },
       execute: async ({ path, moveTo, emoji }) => {
-        let current = path as string
-        if (typeof moveTo === "string" && moveTo !== current) {
+        let current = path
+        if (moveTo !== undefined && moveTo !== current) {
           await eos.renameTag(current, moveTo, agent("update_tag", ["tags"]))
           current = moveTo
         }
-        if (emoji !== undefined) await eos.setTagEmoji(current, (emoji as string | null) ?? null, agent("update_tag"))
+        if (emoji !== undefined) await eos.setTagEmoji(current, emoji, agent("update_tag"))
         return ok({ path: current })
       },
-    },
-    {
+    }),
+    tool({
       name: "set_view",
       description:
         "Change what the person sees. page: \"library\" (with optional filters) or \"diagram\" (with diagramId). previewVersion shows a past version of the open diagram read-only, or \"latest\" to go back. zoom changes the preview. settingsOpen shows or hides Settings.",
-      inputSchema: obj({
-        page: enumOf(["library", "diagram"]),
-        diagramId: str(),
-        filters: obj({ starred: bool(), deleted: bool(), tags: strArr(), sort: sortSchema }),
-        previewVersion: str("A version id, or \"latest\""),
-        zoom: enumOf(["in", "out", "fit", "actual"]),
-        settingsOpen: bool(),
-      }),
+      input: {
+        page: z.optional(z.enum(["library", "diagram"])),
+        diagramId: z.optional(z.string()),
+        filters: z.optional(
+          z.strictObject({ starred: z.optional(z.boolean()), deleted: z.optional(z.boolean()), tags: z.optional(z.array(z.string())), sort: z.optional(sort) }),
+        ),
+        previewVersion: z.optional(z.string().check(z.describe('A version id, or "latest"'))),
+        zoom: z.optional(z.enum(["in", "out", "fit", "actual"])),
+        settingsOpen: z.optional(z.boolean()),
+      },
       execute: async (i) => {
         if (i.page === "library") {
-          if (i.filters) ui.setLibraryView(i.filters as never)
+          if (i.filters) ui.setLibraryView(i.filters)
           else ui.goHome()
         }
-        const id = (i.diagramId as string | undefined) ?? undefined
-        if (i.page === "diagram" || has(i, "previewVersion")) {
+        const id = i.diagramId
+        if (i.page === "diagram" || i.previewVersion !== undefined) {
           if (!id || !(await eos.getDiagram(id))) return notFound(id)
           ui.openDiagram(id)
         }
-        if (has(i, "previewVersion")) {
-          if (i.previewVersion === "latest") ui.previewVersion(id!, null)
+        if (id && i.previewVersion !== undefined) {
+          if (i.previewVersion === "latest") ui.previewVersion(id, null)
           else {
-            const entry = (await eos.history(id!, 500)).find((e) => e.version === i.previewVersion)
+            const entry = (await eos.history(id, 500)).find((e) => e.version === i.previewVersion)
             if (!entry) return fail("not_found", "No such version")
-            ui.previewVersion(id!, entry.version, { at: entry.at, label: entry.actor.kind === "agent" ? "Agent" : entry.actor.kind === "user" ? "You" : entry.actor.kind })
+            ui.previewVersion(id, entry.version, { at: entry.at, label: entry.actor.kind === "agent" ? "Agent" : entry.actor.kind === "user" ? "You" : entry.actor.kind })
           }
         }
-        if (has(i, "zoom")) ui.setZoom(i.zoom as never)
-        if (has(i, "settingsOpen")) ui.openSettings(!!i.settingsOpen)
+        if (i.zoom !== undefined) ui.setZoom(i.zoom)
+        if (i.settingsOpen !== undefined) ui.openSettings(i.settingsOpen)
         return ok({ view: await view() })
       },
-    },
-    {
+    }),
+    tool({
       name: "set_theme",
       description:
         "Change the theme: mode (light, dark or system), appCss (--eos-* variables) and/or diagramCss (--pele-* variables). Start from the CSS get_settings returns. null resets an override to the default.",
-      inputSchema: obj({
-        mode: enumOf(["system", "light", "dark"]),
-        appCss: { type: ["string", "null"] },
-        diagramCss: { type: ["string", "null"] },
-      }),
+      input: {
+        mode: z.optional(z.enum(["system", "light", "dark"])),
+        appCss: z.optional(z.nullable(z.string())),
+        diagramCss: z.optional(z.nullable(z.string())),
+      },
       execute: async ({ mode, appCss, diagramCss }) => {
-        const theme: Record<string, unknown> = {}
-        if (mode !== undefined) theme.mode = mode
-        if (appCss !== undefined) theme.customCss = appCss
-        if (diagramCss !== undefined) theme.diagramCss = diagramCss
-        await eos.updateSettings({ theme: theme as never })
+        await eos.updateSettings({
+          theme: {
+            ...(mode !== undefined ? { mode } : {}),
+            ...(appCss !== undefined ? { customCss: appCss } : {}),
+            ...(diagramCss !== undefined ? { diagramCss } : {}),
+          } as never,
+        })
         return ok({ theme: eos.getSettings().theme })
       },
-    },
+    }),
     // ── Permanent deletes (each asks the person) ─────────────────────────────
-    {
+    tool({
       name: "delete_tag",
       description: "Remove a tag, and tags nested under it, from every diagram. Asks the person to confirm. Diagrams themselves are kept.",
-      inputSchema: obj({ path: str() }, ["path"]),
+      input: { path: z.string() },
       annotations: { consequentialHint: true, destructiveHint: true },
-      execute: async ({ path }) => {
-        if (!(await confirmed(`The agent wants to remove the tag “${String(path)}” from every diagram.`)))
-          return fail("user_declined", "The person declined")
-        return ok({ diagrams: await eos.deleteTag(path as string, agent("delete_tag", ["tags"])) })
+      execute: async ({ path }, signal) => {
+        const refused = await ask(signal, `The agent wants to remove the tag “${path}” from every diagram.`, "The person declined")
+        if (refused) return refused
+        return ok({ diagrams: await eos.deleteTag(path, agent("delete_tag", ["tags"])) })
       },
-    },
-    {
+    }),
+    tool({
       name: "import_backup",
       description: "Import a backup (from export with format backup). merge adds to the library; replace wipes local data first and asks the person to confirm.",
-      inputSchema: obj({ data: str(), mode: enumOf(["merge", "replace"]) }, ["data", "mode"]),
+      input: { data: z.string(), mode: z.enum(["merge", "replace"]) },
       annotations: { consequentialHint: true, destructiveHint: true },
-      execute: async ({ data, mode }) => {
+      execute: async ({ data, mode }, signal) => {
         // Check the file before asking, so the person is never asked to replace their library with junk.
         let parsed: unknown
         try {
-          parsed = JSON.parse(data as string)
+          parsed = JSON.parse(data)
         } catch {
           return fail("invalid_input", "data isn't JSON; pass what export returns with format backup")
         }
         if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as { diagrams?: unknown }).diagrams))
           return fail("invalid_input", "data isn't an Eos backup; pass what export returns with format backup")
-        if (mode === "replace" && !(await confirmed("The agent wants to replace all your diagrams with a backup.", "Replace")))
-          return fail("user_declined", "The person declined")
-        await eos.importBackup(data as string, mode as "merge" | "replace")
+        if (mode === "replace") {
+          const refused = await ask(signal, "The agent wants to replace all your diagrams with a backup.", "The person declined", "Replace")
+          if (refused) return refused
+        }
+        await eos.importBackup(data, mode)
         await leaveMissingDiagram()
         return ok({ counts: await eos.counts() })
       },
-    },
-    {
+    }),
+    tool({
       name: "delete_all_data",
       description: "Delete every diagram and setting in this browser. Asks the person to confirm. Can't be undone.",
-      inputSchema: obj({}),
+      input: {},
       annotations: { consequentialHint: true, destructiveHint: true },
-      execute: async () => {
-        if (!(await confirmed("The agent wants to delete all your diagrams. This can’t be undone.")))
-          return fail("user_declined", "The person declined")
+      execute: async (_, signal) => {
+        const refused = await ask(signal, "The agent wants to delete all your diagrams. This can’t be undone.", "The person declined")
+        if (refused) return refused
         await eos.deleteAll()
         await leaveMissingDiagram()
         return ok()
       },
-    },
+    }),
   ]
-  return tools.map(guarded)
 }
 
 interface ModelContext {

@@ -158,6 +158,33 @@ describe("webmcp tools", () => {
     expect(bridge.goHome).toHaveBeenCalled()
   })
 
+  it("describes input as strict JSON Schema", async () => {
+    const { list } = await setup()
+    const schema = list.find((t) => t.name === "update_diagram")!.inputSchema as any
+    expect(schema.$schema).toBeUndefined()
+    expect(schema).toMatchObject({ type: "object", required: ["id"], additionalProperties: false })
+    expect(schema.properties.revert).toMatchObject({ type: "string", description: '"undo", "redo" or a version id' })
+    const tag = list.find((t) => t.name === "update_tag")!.inputSchema as any
+    expect(tag.properties.emoji.anyOf ?? tag.properties.emoji.type).toBeTruthy()
+  })
+
+  it("closes the confirm and reports cancelled when the agent cancels the call", async () => {
+    const { list, bridge, eos } = await setup()
+    // A confirm that stays open until the call's signal aborts, like the in-page dialog.
+    bridge.confirm = vi.fn((_m: string, _a?: string, signal?: AbortSignal) => new Promise<boolean>((resolve) => signal?.addEventListener("abort", () => resolve(false))))
+    const tools = Object.fromEntries(list.map((t) => [t.name, t]))
+    const { id } = (await tools.create_diagram.execute({ title: "Keep", open: false })) as any
+    const controller = new AbortController()
+    const pending = tools.update_diagram.execute({ id, deleted: true }, { signal: controller.signal })
+    await new Promise((r) => setTimeout(r, 10))
+    controller.abort()
+    expect(await pending).toMatchObject({ ok: false, code: "cancelled" })
+    expect((await eos.listDiagrams()).length).toBe(1)
+    // Already cancelled: nothing is asked.
+    expect(await tools.delete_all_data.execute({}, { signal: AbortSignal.abort() })).toMatchObject({ code: "cancelled" })
+    expect(bridge.confirm).toHaveBeenCalledTimes(1)
+  })
+
   it("reads and changes the theme", async () => {
     const { call } = await setup()
     expect((await call("get_settings")).theme.diagramCss).toBe(".pele {}")
