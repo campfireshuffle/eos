@@ -11,10 +11,7 @@
 </p>
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/editor-dark.png">
-    <img src="assets/editor-light.png" width="860" alt="The Eos editor: Mermaid source on the left, a live Pele-rendered flowchart on the right, and a tag sidebar">
-  </picture>
+  <img src="assets/preview.webp" width="860" alt="The Eos library: a grid of rendered Mermaid diagrams with tags, in a browser window over a dithered desert">
 </p>
 
 Write Mermaid and the preview updates as you type, rendered by [Pele](https://pele.run), a fast Mermaid
