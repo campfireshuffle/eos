@@ -122,7 +122,7 @@ export function Editor({ id }: { id: string }) {
 
   if (diagram === null) {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl bg-card text-sm text-muted-foreground md:rounded-none md:rounded-tl-xl">
+      <main className="flex flex-1 flex-col items-center justify-center gap-3 bg-card text-sm text-muted-foreground md:rounded-tl-xl">
         This diagram doesn’t exist.
         <Button variant="outline" asChild>
           <a href={homeHref()}>Back to diagrams</a>
@@ -131,7 +131,7 @@ export function Editor({ id }: { id: string }) {
     )
   }
   if (!diagram || source === null)
-    return <main className="flex-1 rounded-xl bg-card md:rounded-none md:rounded-tl-xl" />
+    return <main className="flex-1 bg-card md:rounded-tl-xl" />
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -177,7 +177,7 @@ export function Editor({ id }: { id: string }) {
       {!previewing && diagram.deletedAt && (
         <Banner>
           <Trash2 className="size-4 text-muted-foreground" />
-          <span className="flex-1">This diagram is in Recently deleted.</span>
+          <span className="flex-1">This diagram is deleted.</span>
           <Button size="xs" onClick={() => eos.restoreDiagram(id)}>
             <RotateCcw /> Restore
           </Button>
@@ -195,7 +195,7 @@ export function Editor({ id }: { id: string }) {
           minSize={mobile ? "120px" : "280px"}
           className="flex"
         >
-          <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-card md:rounded-b-none">
+          <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card md:rounded-t-xl">
             <PanelHeader title="Source">
               {(history.canUndo || history.canRedo) && (
                 <>
@@ -258,13 +258,14 @@ export function Editor({ id }: { id: string }) {
             ) : null}
           </section>
         </ResizablePanel>
-        <ResizeHandle />
+        {/* Stacked on small screens: a hairline instead of a gap, so both panes stay flush. */}
+        <ResizeHandle className={mobile ? "h-px! bg-border before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-['']" : undefined} />
         <ResizablePanel
           id="preview"
           minSize={mobile ? "160px" : "320px"}
           className="flex"
         >
-          <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-card md:rounded-none md:rounded-tl-xl">
+          <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-card md:rounded-tl-xl">
             <PanelHeader title="Preview">
               <ZoomMenu />
               <ExportMenu actions={actions} />

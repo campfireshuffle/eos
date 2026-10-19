@@ -49,7 +49,7 @@ function Shell({ route, children }: { route: Route; children: ReactNode }) {
   if (mobile) {
     return (
       <>
-        <div className="flex h-svh flex-col p-2">{children}</div>
+        <div className="flex h-svh flex-col">{children}</div>
         <Sheet open={mobileNavOpen} onOpenChange={(open) => setUi({ mobileNavOpen: open })}>
           <SheetContent side="left" showCloseButton={false} className="w-72 max-w-[85vw] bg-background p-0">
             <SheetTitle className="sr-only">Navigation</SheetTitle>

@@ -79,7 +79,7 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
               size="sm"
               className="rounded-full text-destructive hover:text-destructive"
               onClick={async () => {
-                if (!(await askConfirm(`Move ${count === 1 ? "this diagram" : `${count} diagrams`} to Recently deleted?`))) return
+                if (!(await askConfirm(`Move ${count === 1 ? "this diagram" : `${count} diagrams`} to Deleted?`))) return
                 await Promise.all(ids.map((id) => eos.deleteDiagram(id)))
                 clearSelection()
               }}

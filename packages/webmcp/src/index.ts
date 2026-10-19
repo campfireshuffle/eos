@@ -113,7 +113,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
     },
     {
       name: "delete_diagram",
-      description: "Move a diagram to Recently deleted. Asks the person to confirm.",
+      description: "Move a diagram to Deleted. Asks the person to confirm.",
       inputSchema: obj({ id: str() }, ["id"]),
       annotations: { destructiveHint: true },
       execute: async ({ id }) => {
@@ -126,7 +126,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
     },
     {
       name: "restore_diagram",
-      description: "Restore a diagram from Recently deleted.",
+      description: "Restore a diagram from Deleted.",
       inputSchema: obj({ id: str() }, ["id"]),
       execute: async ({ id }) => (await guard(id)) ?? (await eos.restoreDiagram(id as string), ok()),
     },

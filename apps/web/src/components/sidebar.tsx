@@ -52,7 +52,7 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
         <NavItem
           href={homeHref({ deleted: true, sort: home?.sort, group: home?.group })}
           icon={<Trash2 />}
-          label="Recently deleted"
+          label="Deleted"
           count={counts.deleted}
           active={!!home?.deleted}
         />

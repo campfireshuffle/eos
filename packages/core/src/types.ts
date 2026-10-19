@@ -45,7 +45,7 @@ export interface LibraryFilter {
   tags?: TagPath[]
   sort?: LibrarySort
   includeDeleted?: boolean
-  /** Only diagrams in Recently deleted. */
+  /** Only diagrams in Deleted. */
   deleted?: boolean
 }
 

@@ -176,7 +176,7 @@ interface DiagramIndexRow {
   titleKey: string;       // title folded for sorting (lowercased, NFKD, diacritics stripped)
   starred: 0 | 1;         // mirrored from workspace.starred; number because IDB can't index booleans
   sourcePreview: string;  // first ~200 chars, for search
-  deletedAt?: number;     // soft delete → "Recently deleted"
+  deletedAt?: number;     // soft delete → "Deleted"
 }
 
 interface ThumbnailRow {
@@ -504,7 +504,7 @@ Key for the tables below: **R** reads only. **W** writes data. **V** changes onl
 | `create_diagram` | `{ title?: string; source?: string; tags?: TagPath[]; open?: boolean }` | W | Creates a new doc. `open` defaults to true. Returns `id`. |
 | `rename_diagram` | `{ id: Id; title: string }` | W | Sets `meta.title`. |
 | `duplicate_diagram` | `{ id: Id; title?: string }` | W | New doc with the same source and tags, starting with fresh history. |
-| `delete_diagram` | `{ id: Id }` | W ⚠ | Soft delete, moved to "Recently deleted". |
+| `delete_diagram` | `{ id: Id }` | W ⚠ | Soft delete, moved to "Deleted". |
 | `restore_diagram` | `{ id: Id }` | W | Undoes a soft delete. |
 
 ### Source
