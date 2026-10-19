@@ -7,7 +7,6 @@ import { openEosDB, WORKSPACE_ID, type Database, type OpenHooks } from "./db"
 import {
   actorOrigin,
   commit,
-  compact,
   decodeVersion,
   DETAILS,
   deleteDocData,
@@ -76,7 +75,8 @@ interface Workspace {
 }
 
 interface SyncMessage {
-  type: "update" | "index" | "settings"
+  /** "close": a diagram was purged, or with no id every diagram was deleted. */
+  type: "update" | "index" | "settings" | "close"
   id?: DiagramId
   bytes?: Uint8Array
 }
@@ -367,7 +367,7 @@ export class Eos {
   async renameTag(from: string, to: string, actor: Actor = USER) {
     const src = normalizeTag(from)
     const dst = normalizeTag(to)
-    if (!src || !dst) return
+    if (!src || !dst || src === dst) return
     const rows = await this.db.getAllFromIndex("diagrams", "byTag", src)
     for (const row of rows) {
       await this.mutate(
@@ -377,6 +377,14 @@ export class Eos {
         { details: true }
       )
     }
+    // The tags' emoji move with them; a tag merged into one that has its own emoji keeps that one.
+    const emoji = this.workspace.tagEmoji
+    const moved = emoji.keys().filter((key) => tagMatches(key, src))
+    const values = moved.map((key) => [dst + key.slice(src.length), emoji.get(key)] as const)
+    for (const key of moved) emoji.delete(key)
+    for (const [key, value] of values) if (emoji.get(key) === undefined) emoji.set(key, value)
+    commit(this.workspace.doc, actor)
+    this.emit("library")
   }
 
   /** Removes a tag (and any tags nested under it) from every diagram. */
@@ -480,16 +488,20 @@ export class Eos {
   }
 
   async deleteAll({ reseed = false } = {}) {
-    for (const [id, p] of this.open) {
-      ;(await p).dispose()
-      this.open.delete(id)
-    }
     const tx = this.db.transaction(["snapshots", "updates", "diagrams"], "readwrite")
-    await Promise.all([tx.objectStore("snapshots").clear(), tx.objectStore("updates").clear(), tx.objectStore("diagrams").clear()])
-    await tx.done
+    const cleared = Promise.all([
+      tx.objectStore("snapshots").clear(),
+      tx.objectStore("updates").clear(),
+      tx.objectStore("diagrams").clear(),
+      tx.done,
+    ])
+    // Closed after the wipe is queued (see close).
+    await Promise.all([...this.open.keys()].map((id) => this.close(id)))
+    await cleared
     for (const key of this.workspace.starred.keys()) this.workspace.starred.delete(key)
     for (const key of this.workspace.tagEmoji.keys()) this.workspace.tagEmoji.delete(key)
     commit(this.workspace.doc, { kind: "system", reason: "delete-all" })
+    this.broadcast({ type: "close" })
     if (reseed) for (const s of SAMPLES) await this.createDiagram(s, { kind: "system", reason: "seed" })
     this.emit("library")
   }
@@ -503,18 +515,23 @@ export class Eos {
 
   private async findIdentical(title: string, source: string): Promise<DiagramId | null> {
     const candidates = (await this.db.getAll("diagrams")).filter(
-      (r) => !r.deletedAt && r.title === (title.trim() || "Untitled") && source.startsWith(r.sourcePreview)
+      (r) => !r.deletedAt && r.title === (title.trim() || "Untitled") && r.sourceText === source
     )
+    // The index can trail an edit by a moment, so check the diagram itself before reusing it.
     for (const row of candidates) if ((await this.getSource(row.id)) === source) return row.id
     return null
   }
 
   /** Permanently removes soft-deleted diagrams. */
   async purge(id: DiagramId) {
-    this.open.get(id)?.then((d) => d.dispose())
-    this.open.delete(id)
-    await deleteDocData(this.db, id)
+    const deleted = deleteDocData(this.db, id)
+    // Closed after the delete is queued (see close).
+    await this.close(id)
+    await deleted
+    this.workspace.starred.delete(id)
+    commit(this.workspace.doc, USER)
     this.emit("library")
+    this.broadcast({ type: "close", id })
   }
 
   // ── Internals ──────────────────────────────────────────────────────────────
@@ -559,13 +576,12 @@ export class Eos {
           undo,
           agentUndo,
           burst,
-          // Only deletes close a diagram, so a pending index refresh is dropped, not run
-          // (running it could write the index row back after the delete).
+          // Only deletes close a diagram, so a pending index refresh is dropped, not run, and
+          // nothing is compacted (either could write the diagram back after the delete).
           dispose: () => {
             clearTimeout(this.indexTimers.get(id)?.timer)
             this.indexTimers.delete(id)
             stop()
-            void compact(this.db, id, doc)
             this.closed.get(id)?.forEach((listener) => listener())
             this.closed.delete(id)
           },
@@ -593,6 +609,17 @@ export class Eos {
       stack.groupEnd()
     }
     await this.afterChange(id, d)
+  }
+
+  /**
+   * Closes an open diagram whose data is being deleted. Call it once the delete's transaction
+   * exists: an editor told of the close binds again straight away, and its read must queue
+   * behind the delete, or it would reopen the old data. An open that failed left nothing to close.
+   */
+  private async close(id: DiagramId) {
+    const opened = this.open.get(id)
+    this.open.delete(id)
+    ;(await opened?.catch(() => undefined))?.dispose()
   }
 
   private onClosed(id: DiagramId, listener: () => void): () => void {
@@ -684,6 +711,11 @@ export class Eos {
         this.emit("library", `diagram:${data.id}`)
       } else if (data.type === "index") {
         this.emit("library", `diagram:${data.id}`)
+      } else if (data.type === "close") {
+        // Its data is gone from disk already; an open copy here would keep saving edits to it.
+        const ids = data.id ? [data.id] : [...this.open.keys()]
+        await Promise.all(ids.map((id) => this.close(id)))
+        this.emit("library", ...ids.map((id) => `diagram:${id}` as const))
       }
     }
   }

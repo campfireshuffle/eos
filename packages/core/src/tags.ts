@@ -46,3 +46,12 @@ export function buildTagTree(rows: DiagramIndexRow[], emoji: Record<TagPath, str
   }
   return roots
 }
+
+/** The emoji of the tag at `path` in a tag tree, or null if it has none or isn't there. */
+export function findEmoji(tree: TagRecord[], path: TagPath): string | null {
+  for (const t of tree) {
+    if (t.path === path) return t.emoji
+    if (tagMatches(path, t.path)) return findEmoji(t.children, path)
+  }
+  return null
+}

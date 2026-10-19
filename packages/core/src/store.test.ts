@@ -1,5 +1,6 @@
 import "fake-indexeddb/auto"
 
+import { LoroDoc } from "loro-crdt"
 import { describe, expect, it } from "vitest"
 
 import { fromBase64, toBase64 } from "./base64"
@@ -66,6 +67,60 @@ describe("Eos store", () => {
     expect((await eos.getDiagram(a))?.meta.tags).toEqual(["ideas"])
     expect((await eos.getDiagram(b))?.meta.tags).toEqual([])
     expect((await eos.listTags()).map((t) => t.path)).toEqual(["ideas"])
+  })
+
+  it("moves a tag's emoji, and its nested tags' emoji, with the tag", async () => {
+    const eos = await fresh()
+    await eos.createDiagram({ title: "a", tags: ["work/backend"] })
+    await eos.createDiagram({ title: "b", tags: ["eng"] })
+    await eos.setTagEmoji("work", "💼")
+    await eos.setTagEmoji("work/backend", "⚙️")
+    await eos.setTagEmoji("eng", "🛠️")
+    await eos.renameTag("work", "eng")
+    const [eng] = await eos.listTags()
+    // Merged into a tag with its own emoji, which it keeps.
+    expect(eng.emoji).toBe("🛠️")
+    expect(eng.children.map((c) => [c.path, c.emoji])).toEqual([["eng/backend", "⚙️"]])
+    // Nothing is left behind under the old path to resurface if it's used again.
+    await eos.createDiagram({ title: "c", tags: ["work"] })
+    expect((await eos.listTags()).find((t) => t.path === "work")?.emoji).toBeNull()
+  })
+
+  it("purges for good, even a diagram that was open, and closes it in other tabs", async () => {
+    const name = `purge-${n++}`
+    const eos = await Eos.create({ dbName: name, seed: false })
+    const other = await Eos.create({ dbName: name, seed: false })
+    const id = await eos.createDiagram({ title: "gone", source: "secret" })
+    await eos.setStarred(id, true)
+    await eos.getSource(id)
+    const binding = await other.bindSource(id)
+    const closed = new Promise<void>((resolve) => binding.onClose(resolve))
+    await eos.deleteDiagram(id)
+    await eos.purge(id)
+    await closed
+    // The other tab's editor can't write the diagram back.
+    binding.edit([{ from: 0, to: 0, insert: "x" }])
+    const later = await Eos.create({ dbName: name, seed: false })
+    await expect(later.getSource(id)).rejects.toThrow("not found")
+    // Nor is its star kept, to come back with it from a backup.
+    const workspace = new LoroDoc()
+    workspace.import(fromBase64(JSON.parse(await later.exportBackup()).workspace))
+    expect(workspace.getMap("starred").get(id)).toBeUndefined()
+  })
+
+  it("closes every open diagram in other tabs when everything is deleted", async () => {
+    const name = `wipe-${n++}`
+    const eos = await Eos.create({ dbName: name, seed: false })
+    const other = await Eos.create({ dbName: name, seed: false })
+    const id = await eos.createDiagram({ title: "gone" })
+    const binding = await other.bindSource(id)
+    const closed = new Promise<void>((resolve) => binding.onClose(resolve))
+    await eos.deleteAll()
+    await closed
+    binding.edit([{ from: 0, to: 0, insert: "x" }])
+    const later = await Eos.create({ dbName: name, seed: false })
+    expect(await later.listDiagrams({ includeDeleted: true })).toEqual([])
+    await expect(later.getSource(id)).rejects.toThrow("not found")
   })
 
   it("soft-deletes, lists, restores and purges", async () => {
