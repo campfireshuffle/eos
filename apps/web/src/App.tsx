@@ -60,7 +60,8 @@ function Shell({ route, children }: { route: Route; children: ReactNode }) {
   }
 
   return (
-    <div className="h-svh p-2">
+    // No right/bottom gutter: the content pane runs to the window edges; the top gap stays.
+    <div className="h-svh pt-2 pl-2">
       <ResizablePanelGroup orientation="horizontal" {...layout}>
         <ResizablePanel
           id="sidebar"

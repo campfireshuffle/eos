@@ -39,7 +39,8 @@ export function TagTree({
     paths,
     initialExpansion: "open",
     icons: { set: "none" },
-    density: "compact",
+    density: "default",
+    itemHeight: 32,
     flattenEmptyDirectories: false,
     renderRowDecoration: ({ row }) => {
       const count = handlers.current.counts.get(
@@ -71,13 +72,8 @@ export function TagTree({
         }
       },
     },
-    composition: {
-      contextMenu: {
-        enabled: true,
-        triggerMode: "both",
-        buttonVisibility: "when-needed",
-      },
-    },
+    // Right-click only, so no action lane pushes the counts out of line with the nav items.
+    composition: { contextMenu: { enabled: true, triggerMode: "right-click" } },
   })
 
   // Keep the tree in sync with the store, preserving which folders are open.
@@ -171,22 +167,30 @@ export function TagTree({
   )
 }
 
+// Match the sidebar nav items: 32px rows, 10px padding and gap, 8px radius, 13px text.
 const TREE_STYLE = {
   "--trees-bg-override": "transparent",
   "--trees-fg-override": "var(--eos-muted)",
   "--trees-fg-muted-override": "var(--eos-faint)",
   "--trees-selected-bg-override": "var(--eos-raised)",
   "--trees-selected-fg-override": "var(--eos-body)",
-  "--trees-theme-list-hover-bg":
-    "color-mix(in srgb, var(--eos-raised) 60%, transparent)",
+  "--trees-selected-focused-border-color-override": "transparent",
+  "--trees-theme-list-hover-bg": "color-mix(in srgb, var(--eos-raised) 60%, transparent)",
   "--trees-accent-override": "var(--eos-champagne)",
   "--trees-focus-ring-color-override": "var(--eos-line-active)",
-  "--trees-border-radius-override": "6px",
+  "--trees-focus-ring-width-override": "1px",
+  "--trees-border-radius-override": "calc(var(--radius) * 0.8)",
   "--trees-font-family-override": "var(--font-sans)",
   "--trees-font-size-override": "13px",
+  "--trees-font-weight-semibold-override": "500",
+  "--trees-item-padding-x-override": "10px",
   "--trees-item-margin-x-override": "0px",
+  "--trees-item-row-gap-override": "10px",
   "--trees-padding-inline-override": "0px",
+  "--trees-level-gap-override": "1px", // yields an 18px indent per level, as in the Figma
+  "--trees-scrollbar-gutter-override": "0px",
   "--trees-indent-guide-bg-override": "transparent",
+  "--trees-icon-width-override": "16px",
 } as CSSProperties
 
 /** Marks the row under a dragged card. Rows live in the tree's shadow root. */
@@ -218,9 +222,13 @@ function useLeafStyles(wrapper: React.RefObject<HTMLDivElement | null>, leaves: 
         style.setAttribute("data-eos-leaves", "")
         root.append(style)
       }
-      style.textContent = leaves
-        .map((p) => `[data-item-path="${CSS.escape(p)}"] [data-item-section="icon"] { visibility: hidden; }`)
-        .join("\n")
+      style.textContent = [
+        // Context menu opens on right-click; don't reserve the button lane.
+        `[data-item-section="action"] { display: none; }`,
+        // Only show the focused-row ring while the tree itself has keyboard focus.
+        `:host(:not(:focus-within)) [data-item-focused], :host(:not(:focus-within)) [data-item-focused]::before, :host(:not(:focus-within)) [data-item-focused]::after { outline: none !important; box-shadow: none !important; border-color: transparent !important; }`,
+        ...leaves.map((p) => `[data-item-path="${CSS.escape(p)}"] [data-item-section="icon"] { visibility: hidden; }`),
+      ].join("\n")
     }
     apply()
     return () => cancelAnimationFrame(raf)

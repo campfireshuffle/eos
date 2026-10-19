@@ -1,4 +1,4 @@
-import { Plus, Search } from "lucide-react"
+import { Plus, Search, X } from "lucide-react"
 import { useEffect, useState } from "react"
 
 import type { LibrarySort } from "@eos/core"
@@ -32,7 +32,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   }
 
   return (
-    <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-card">
+    <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-card md:rounded-none md:rounded-tl-xl">
       <header className="flex items-center gap-2 border-b border-border py-3.5 pr-4 pl-4 md:pl-6">
         <SidebarToggle />
         <HistoryNav />
@@ -64,12 +64,11 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
               </Pill>
             )}
             {selection.size > 0 && (
-              <span className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
                 <Pill>{selection.size} selected</Pill>
-                <span className="max-md:hidden">Drag onto a tag or Starred</span>
-                <button type="button" onClick={clearSelection} className="hover:text-foreground">
-                  Clear
-                </button>
+                <Button variant="ghost" size="xs" onClick={clearSelection} className="text-muted-foreground">
+                  Clear <X />
+                </Button>
               </span>
             )}
           </div>

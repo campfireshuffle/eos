@@ -95,7 +95,7 @@ export function Editor({ id }: { id: string }) {
 
   if (diagram === null) {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl bg-card text-sm text-muted-foreground">
+      <main className="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl bg-card text-sm text-muted-foreground md:rounded-none md:rounded-tl-xl">
         This diagram doesn’t exist.
         <Button variant="outline" asChild>
           <a href={homeHref()}>Back to diagrams</a>
@@ -104,11 +104,11 @@ export function Editor({ id }: { id: string }) {
     )
   }
   if (!diagram || source === null)
-    return <main className="flex-1 rounded-xl bg-card" />
+    return <main className="flex-1 rounded-xl bg-card md:rounded-none md:rounded-tl-xl" />
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-2">
-      <div className="flex items-center gap-1.5 pt-1.5 pr-1 pl-1.5">
+      <div className="flex items-center gap-1.5 pt-1.5 pr-2 pl-1.5">
         <SidebarToggle />
         <HistoryNav />
         <TitleInput value={title} onCommit={(t) => eos.renameDiagram(id, t)} />
@@ -139,7 +139,7 @@ export function Editor({ id }: { id: string }) {
           minSize={mobile ? "120px" : "280px"}
           className="flex"
         >
-          <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-card">
+          <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-card md:rounded-b-none">
             <PanelHeader title="Source">
               <IconButton label="Undo" shortcut="⌘Z" onClick={undo}>
                 <Undo2 />
@@ -201,7 +201,7 @@ export function Editor({ id }: { id: string }) {
           minSize={mobile ? "160px" : "320px"}
           className="flex"
         >
-          <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-card">
+          <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-card md:rounded-none md:rounded-tl-xl">
             <PanelHeader title="Preview">
               <ZoomMenu />
               <ExportMenu actions={actions} />
