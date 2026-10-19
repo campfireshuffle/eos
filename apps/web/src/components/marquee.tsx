@@ -21,7 +21,10 @@ export function Marquee({
   const [box, setBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && clearSelection()
+    const onKey = (e: KeyboardEvent) => {
+      // Esc in a dialog or menu closes that, and leaves the selection alone.
+      if (e.key === "Escape" && !(e.target as Element).closest?.("[role=dialog], [role=alertdialog], [role=menu]")) clearSelection()
+    }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [])

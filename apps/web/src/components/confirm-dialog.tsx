@@ -11,7 +11,7 @@ import {
 
 import { setUi, useUi } from "@/lib/ui-state"
 
-/** In-page confirmation for destructive actions, including ones an agent requests. */
+/** In-page confirmation for destructive actions, including ones an agent requests, and alerts. */
 export function ConfirmDialog() {
   const confirm = useUi((s) => s.confirm)
   const answer = (ok: boolean) => {
@@ -22,14 +22,16 @@ export function ConfirmDialog() {
     <AlertDialog open={!!confirm} onOpenChange={(open) => !open && answer(false)}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Confirm action</AlertDialogTitle>
+          <AlertDialogTitle>{confirm?.title}</AlertDialogTitle>
           <AlertDialogDescription>{confirm?.message}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel onClick={() => answer(false)}>Cancel</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" onClick={() => answer(true)}>
-            {confirm?.action ?? "Delete"}
-          </AlertDialogAction>
+          <AlertDialogCancel onClick={() => answer(false)}>{confirm?.action ? "Cancel" : "OK"}</AlertDialogCancel>
+          {confirm?.action && (
+            <AlertDialogAction variant="destructive" onClick={() => answer(true)}>
+              {confirm.action}
+            </AlertDialogAction>
+          )}
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

@@ -7,7 +7,7 @@ import { ToggleGroup, ToggleGroupItem } from "@workspace/ui/components/toggle-gr
 import { Dialog, DialogContent, DialogTitle } from "@workspace/ui/components/dialog"
 import { cn } from "@workspace/ui/lib/utils"
 
-import { useEos, useSettings } from "@/lib/eos"
+import { useEos, useSettings, useStorageUsage } from "@/lib/eos"
 import { useCopy } from "@/lib/use-copy"
 import { download } from "@/lib/files"
 import { currentAppCss, DEFAULT_DIAGRAM_CSS } from "@/lib/theme"
@@ -295,14 +295,12 @@ function CodeBlock({ label, code, language }: { label: string; code: string; lan
 
 function Storage() {
   const eos = useEos()
-  const [usage, setUsage] = useState<number | null>(null)
+  const usage = useStorageUsage()
+  const [importError, setImportError] = useState<string | null>(null)
   const file = useRef<HTMLInputElement>(null)
-  useEffect(() => {
-    void eos.storageUsage().then((u) => setUsage(u.usage))
-  }, [eos])
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-body">{usage === null ? "…" : `${formatBytes(usage)} used`}</p>
+      <p className="text-body">{usage === undefined ? "…" : `${formatBytes(usage)} used`}</p>
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" onClick={async () => download("eos-backup.json", await eos.exportBackup(), "application/json")}>
           <Download /> Export backup
@@ -326,11 +324,22 @@ function Storage() {
           hidden
           onChange={async (e) => {
             const f = e.target.files?.[0]
-            if (f) await eos.importBackup(await f.text(), "merge")
             e.target.value = ""
+            setImportError(null)
+            if (!f) return
+            try {
+              await eos.importBackup(await f.text(), "merge")
+            } catch (error) {
+              setImportError((error as Error).message)
+            }
           }}
         />
       </div>
+      {importError && (
+        <p role="alert" className="-mt-2 text-caption text-destructive">
+          {importError}
+        </p>
+      )}
     </div>
   )
 }

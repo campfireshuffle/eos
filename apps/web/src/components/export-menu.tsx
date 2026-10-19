@@ -13,31 +13,36 @@ import {
 } from "@workspace/ui/components/dropdown-menu"
 
 import { download, standaloneSvg, svgToPng } from "@/lib/files"
-
-export interface ExportActions {
-  copyShareLink(): Promise<void>
-  copySvg(): Promise<void>
-}
+import { showAlert } from "@/lib/ui-state"
 
 export function useExportActions(title: string, source: string, getSvg: () => SVGSVGElement | null) {
   const svg = () => {
     const el = getSvg()
-    if (!el) throw new Error("Nothing to export yet")
+    if (!el) throw new Error("Nothing to export yet.")
     return standaloneSvg(el)
   }
+  // Say why when one fails (too big for a link, nothing rendered yet), rather than seeming to work.
+  const guard = (run: () => unknown) => async () => {
+    try {
+      await run()
+    } catch (e) {
+      showAlert("Couldn’t export", e instanceof Error ? e.message : String(e))
+    }
+  }
   return {
-    copyShareLink: async () => {
+    copyShareLink: guard(async () => {
       const url = shareUrl(location.origin, await encodeShare({ title, source }))
       await navigator.clipboard.writeText(url)
-    },
-    copySvg: () => navigator.clipboard.writeText(svg()),
-    copyEmbed: () =>
+    }),
+    copySvg: guard(() => navigator.clipboard.writeText(svg())),
+    copyEmbed: guard(() =>
       navigator.clipboard.writeText(
         `<img alt="${title.replace(/"/g, "&quot;")}" src="data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg())))}">`
-      ),
-    downloadSvg: () => download(`${title}.svg`, svg(), "image/svg+xml"),
-    downloadPng: async () => download(`${title}.png`, await svgToPng(svg())),
-    downloadMmd: () => download(`${title}.mmd`, source),
+      )
+    ),
+    downloadSvg: guard(() => download(`${title}.svg`, svg(), "image/svg+xml")),
+    downloadPng: guard(async () => download(`${title}.png`, await svgToPng(svg()))),
+    downloadMmd: guard(() => download(`${title}.mmd`, source)),
   }
 }
 

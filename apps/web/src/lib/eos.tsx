@@ -54,6 +54,11 @@ export function useDiagram(id: DiagramId): DiagramSnapshot | null | undefined {
   return useLive(["library", `diagram:${id}`], (eos) => eos.getDiagram(id), [id])
 }
 
+/** Bytes this site stores, refreshed as the library changes (imports, deletes). */
+export function useStorageUsage(): number | undefined {
+  return useLive(["library"], async (eos) => (await eos.storageUsage()).usage, [])
+}
+
 export function useSettings(): AppSettings {
   const eos = useEos()
   const [settings, setSettings] = useState(eos.getSettings())

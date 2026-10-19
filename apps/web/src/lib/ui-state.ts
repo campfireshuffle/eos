@@ -6,7 +6,8 @@ interface UiState {
   settingsTab: "theming" | "mcp" | "storage" | "about"
   zoomRequest: { action: "in" | "out" | "fit" | "actual"; n: number } | null
   zoomScale: number
-  confirm: { message: string; action: string; resolve: (ok: boolean) => void } | null
+  /** The in-page dialog: a confirm, or with no `action`, a message to dismiss. */
+  confirm: { title: string; message: string; action: string | null; resolve: (ok: boolean) => void } | null
   sidebarCollapsed: boolean
   mobileNavOpen: boolean
   /** A past version being previewed read-only in the editor. */
@@ -53,7 +54,7 @@ export function requestZoom(action: "in" | "out" | "fit" | "actual") {
 export function askConfirm(message: string, action = "Delete", signal?: AbortSignal): Promise<boolean> {
   return new Promise((resolve) => {
     if (signal?.aborted) return resolve(false)
-    const confirm = { message, action, resolve }
+    const confirm = { title: "Confirm action", message, action, resolve }
     signal?.addEventListener(
       "abort",
       () => {
@@ -63,6 +64,17 @@ export function askConfirm(message: string, action = "Delete", signal?: AbortSig
       },
       { once: true }
     )
-    setUi({ confirm })
+    showDialog(confirm)
   })
+}
+
+/** Tells the person why something they asked for couldn't be done. */
+export function showAlert(title: string, message: string) {
+  showDialog({ title, message, action: null, resolve: () => {} })
+}
+
+function showDialog(confirm: NonNullable<UiState["confirm"]>) {
+  // One dialog at a time, and never swapped under the person's cursor: while one is open, another is answered no.
+  if (state.confirm) return confirm.resolve(false)
+  setUi({ confirm })
 }
