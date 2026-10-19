@@ -172,9 +172,17 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
       execute: async ({ id, version, history }) => {
         const d = await eos.getDiagram(id)
         if (!d) return notFound(id)
-        const entries = version || history ? await eos.history(d.id, 500) : []
-        if (version && !entries.some((e) => e.version === version)) return fail("not_found", `No version ${version} in this diagram's history`)
-        const source = version ? await eos.getSource(d.id, version) : d.source
+        // Any version the diagram has is readable, including ones from earlier tool results
+        // that history has since folded into a later entry.
+        let source = d.source
+        if (version) {
+          try {
+            source = await eos.getSource(d.id, version)
+          } catch {
+            return fail("not_found", `This diagram has no version ${version}`)
+          }
+        }
+        const entries = history ? await eos.history(d.id, 500) : []
         return ok({
           diagram: { ...d, source },
           version: await eos.version(d.id),
@@ -326,8 +334,11 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
             const done = await eos[r](id, "agent", agent("update_diagram", [r]))
             if (!done) return fail("nothing_to_revert", `No agent edit to ${r}`)
           } else {
-            if (!(await eos.history(id, 500)).some((e) => e.version === r))
-              return fail("not_found", `revert must be "undo", "redo" or a version id from history; no version ${r}`)
+            try {
+              await eos.getSource(id, r)
+            } catch {
+              return fail("not_found", `revert must be "undo", "redo" or a version id; this diagram has no version ${r}`)
+            }
             await eos.restoreVersion(id, r, agent("update_diagram", ["restored version"]))
           }
         }
@@ -374,7 +385,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
         filters: z.optional(
           z.strictObject({ starred: z.optional(z.boolean()), deleted: z.optional(z.boolean()), tags: z.optional(z.array(z.string())), sort: z.optional(sort) }),
         ),
-        previewVersion: z.optional(z.string().check(z.describe('A version id, or "latest"'))),
+        previewVersion: z.optional(z.string().check(z.describe('A version id from get_diagram\'s history, or "latest"'))),
         zoom: z.optional(z.enum(["in", "out", "fit", "actual"])),
         settingsOpen: z.optional(z.boolean()),
       },
@@ -392,7 +403,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
           if (i.previewVersion === "latest") ui.previewVersion(id, null)
           else {
             const entry = (await eos.history(id, 500)).find((e) => e.version === i.previewVersion)
-            if (!entry) return fail("not_found", "No such version")
+            if (!entry) return fail("not_found", "previewVersion must be a version id from get_diagram's history (it shows who made it and when), or \"latest\"")
             ui.previewVersion(id, entry.version, { at: entry.at, label: entry.actor.kind === "agent" ? "Agent" : entry.actor.kind === "user" ? "You" : entry.actor.kind })
           }
         }

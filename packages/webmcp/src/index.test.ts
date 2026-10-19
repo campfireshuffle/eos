@@ -141,6 +141,19 @@ describe("webmcp tools", () => {
     expect((await call("update_tag", { path: "x", emoji: null })).ok).toBe(true)
   })
 
+  it("reads and restores a version history has folded into a later entry", async () => {
+    const { call } = await setup()
+    const { id } = await call("create_diagram", { title: "V", source: "flowchart LR\n  A-->B", open: false })
+    const { version: v1 } = await call("update_diagram", { id, source: "flowchart LR\n  A-->C" })
+    await call("update_diagram", { id, source: "flowchart LR\n  A-->D" })
+    // The agent's edits are one history entry now, but v1 is still a real version.
+    const { history } = await call("get_diagram", { id, history: true })
+    expect(history.some((e: any) => e.version === v1)).toBe(false)
+    expect((await call("get_diagram", { id, version: v1 })).diagram.source).toContain("A-->C")
+    expect((await call("update_diagram", { id, revert: v1 })).ok).toBe(true)
+    expect((await call("get_diagram", { id })).diagram.source).toContain("A-->C")
+  })
+
   it("returns starred as a boolean and one change list per history entry", async () => {
     const { call } = await setup()
     const { id } = await call("create_diagram", { title: "S", starred: true, open: false })
