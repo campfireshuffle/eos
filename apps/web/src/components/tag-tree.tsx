@@ -29,15 +29,17 @@ export function TagTree({
   tags,
   selected,
   sort,
+  group,
 }: {
   tags: TagRecord[]
   selected: TagPath | null
   sort?: string
+  group?: string
 }) {
   const eos = useEos()
   const { paths, toTag, toTree, counts, leaves } = useMemo(() => flatten(tags), [tags])
-  const handlers = useRef({ toTag, counts, selected, sort })
-  handlers.current = { toTag, counts, selected, sort }
+  const handlers = useRef({ toTag, counts, selected, sort, group })
+  handlers.current = { toTag, counts, selected, sort, group }
   const syncing = useRef(false)
   const [dropTarget, setDropTarget] = useState<TagPath | null>(null)
   const host = useRef<HTMLDivElement | null>(null)
@@ -63,7 +65,7 @@ export function TagTree({
         ? handlers.current.toTag.get(selection[0])
         : undefined
       if (tag && tag !== handlers.current.selected)
-        navigate(homeHref({ tag, sort: handlers.current.sort as never }))
+        navigate(homeHref({ tag, sort: handlers.current.sort as never, group: handlers.current.group as never }))
     },
     dragAndDrop: {
       canDrop: ({ target }) => target.kind === "root" || !!target.directoryPath,

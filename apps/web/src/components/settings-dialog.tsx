@@ -1,13 +1,15 @@
-import { Bot, Copy, Database, Download, Heart, Star, Info, Palette, RotateCcw } from "lucide-react"
+import { Bot, Copy, Database, Download, Heart, Info, Monitor, Moon, Palette, RotateCcw, Star, Sun } from "lucide-react"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 
+import type { AppSettings, ThemeMode } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
+import { ToggleGroup, ToggleGroupItem } from "@workspace/ui/components/toggle-group"
 import { Dialog, DialogContent, DialogTitle } from "@workspace/ui/components/dialog"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { useEos, useSettings } from "@/lib/eos"
 import { download } from "@/lib/files"
-import { DEFAULT_THEME_CSS } from "@/lib/theme"
+import { currentAppCss, DEFAULT_DIAGRAM_CSS } from "@/lib/theme"
 import type { CodeLanguage } from "@/lib/mermaid-language"
 import { askConfirm, setUi, useUi } from "@/lib/ui-state"
 
@@ -56,30 +58,95 @@ export function SettingsDialog() {
 
 function Theming() {
   const eos = useEos()
-  const settings = useSettings()
-  const [css, setCss] = useState(settings.theme.customCss ?? DEFAULT_THEME_CSS)
+  const { theme } = useSettings()
+  const [appCss, setAppCss] = useState(() => theme.customCss ?? currentAppCss())
+  // Until the user edits it, the app CSS shows the active mode's values.
+  const appDefault = useRef(theme.customCss ? null : appCss)
+  useEffect(() => {
+    if (theme.customCss || appDefault.current === null || appCss !== appDefault.current) return
+    // Wait a tick so the new mode's class is on <html> before reading the variables.
+    const t = setTimeout(() => {
+      const next = currentAppCss()
+      appDefault.current = next
+      setAppCss(next)
+    })
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theme.mode])
+  const [diagramCss, setDiagramCss] = useState(theme.diagramCss ?? DEFAULT_DIAGRAM_CSS)
+  const save = (patch: Partial<AppSettings["theme"]>) => eos.updateSettings({ theme: { ...theme, ...patch } })
+
   return (
-    <>
-      <div className="flex min-h-0 flex-1 overflow-hidden rounded-lg border border-input bg-background/40 focus-within:border-ring">
-        <CodeEditor value={css} onChange={setCss} language="css" label="Theme CSS" />
-      </div>
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
+      <section className="flex min-h-0 flex-1 flex-col gap-3">
+        <div className="flex items-center gap-3">
+          <h3 className="flex-1 text-sm font-medium">App theme</h3>
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            value={theme.mode}
+            onValueChange={(mode) => mode && void save({ mode: mode as ThemeMode })}
+            aria-label="Color mode"
+          >
+            <ToggleGroupItem value="light" aria-label="Light">
+              <Sun /> Light
+            </ToggleGroupItem>
+            <ToggleGroupItem value="dark" aria-label="Dark">
+              <Moon /> Dark
+            </ToggleGroupItem>
+            <ToggleGroupItem value="system" aria-label="System">
+              <Monitor /> System
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </div>
+        <CssBox value={appCss} onChange={setAppCss} label="App theme CSS" />
+      </section>
+
+      <section className="flex min-h-0 flex-1 flex-col gap-3">
+        <h3 className="text-sm font-medium">Diagram theme</h3>
+        <CssBox value={diagramCss} onChange={setDiagramCss} label="Diagram theme CSS" />
+      </section>
+
       <div className="flex items-center gap-2">
         <Button
           variant="ghost"
           size="sm"
           onClick={() => {
-            setCss(DEFAULT_THEME_CSS)
-            void eos.updateSettings({ theme: { customCss: null } })
+            setDiagramCss(DEFAULT_DIAGRAM_CSS)
+            void save({ customCss: null, diagramCss: null }).then(() =>
+              setTimeout(() => {
+                const next = currentAppCss()
+                appDefault.current = next
+                setAppCss(next)
+              }),
+            )
           }}
         >
           <RotateCcw /> Reset to default
         </Button>
         <div className="flex-1" />
-        <Button size="sm" onClick={() => eos.updateSettings({ theme: { customCss: css } })}>
+        <Button
+          size="sm"
+          onClick={() =>
+            save({
+              customCss: appCss === appDefault.current ? null : appCss,
+              diagramCss: diagramCss === DEFAULT_DIAGRAM_CSS ? null : diagramCss,
+            })
+          }
+        >
           Save
         </Button>
       </div>
-    </>
+    </div>
+  )
+}
+
+function CssBox({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
+  return (
+    <div className="flex min-h-[140px] flex-1 overflow-hidden rounded-lg border border-input bg-background/40 focus-within:border-ring">
+      <CodeEditor value={value} onChange={onChange} language="css" label={label} />
+    </div>
   )
 }
 

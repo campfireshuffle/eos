@@ -26,14 +26,14 @@ export function SelectionBar() {
         role="toolbar"
         aria-label="Selection"
         className={cn(
-          "flex items-center gap-1 rounded-full border border-white/10 py-1.5 pr-1.5 pl-4 text-[13px]",
+          "flex items-center gap-1 rounded-full border border-[var(--eos-line-hover)] py-1.5 pr-1.5 pl-4 text-[13px]",
           "bg-[color-mix(in_srgb,var(--eos-raised)_62%,transparent)] backdrop-blur-xl backdrop-saturate-150",
-          "shadow-[0_12px_40px_-8px_rgb(0_0_0/0.6),inset_0_1px_0_rgb(255_255_255/0.06)]",
+          "shadow-[0_12px_40px_-8px_rgb(0_0_0/0.35),inset_0_1px_0_color-mix(in_srgb,var(--eos-body)_6%,transparent)]",
           count && "pointer-events-auto",
         )}
       >
         <span className="pr-2 tabular-nums">{count} selected</span>
-        <div className="mx-1 h-4 w-px bg-white/10" />
+        <div className="mx-1 h-4 w-px bg-[var(--eos-line-hover)]" />
         <Button
           variant="ghost"
           size="sm"
@@ -54,7 +54,7 @@ export function SelectionBar() {
         >
           <Trash2 /> Delete
         </Button>
-        <div className="mx-1 h-4 w-px bg-white/10" />
+        <div className="mx-1 h-4 w-px bg-[var(--eos-line-hover)]" />
         <Button variant="ghost" size="icon-sm" className="rounded-full text-muted-foreground" aria-label="Clear selection" onClick={clearSelection}>
           <X />
         </Button>

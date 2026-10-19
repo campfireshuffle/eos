@@ -45,8 +45,11 @@ export interface LibraryFilter {
   includeDeleted?: boolean
 }
 
+export type ThemeMode = "system" | "light" | "dark"
+
 export interface AppSettings {
-  theme: { customCss: string | null }
+  /** customCss overrides app variables (--eos-*); diagramCss overrides diagram variables (--pele-*). */
+  theme: { mode: ThemeMode; customCss: string | null; diagramCss: string | null }
   agent: { webmcpEnabled: boolean; confirmDestructive: boolean }
 }
 

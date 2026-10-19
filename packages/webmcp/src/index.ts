@@ -350,10 +350,22 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
       execute: async () => ok({ settings: eos.getSettings() }),
     },
     {
-      name: "set_theme_css",
-      description: "Set custom theme CSS (CSS variables under :root). Pass null to reset to the default theme.",
-      inputSchema: obj({ css: { type: ["string", "null"] } }, ["css"]),
-      execute: async ({ css }) => (await eos.updateSettings({ theme: { customCss: (css as string) ?? null } }), ok()),
+      name: "set_theme",
+      description:
+        "Change the theme: mode (light, dark or system), app CSS variables (--eos-*) and/or diagram CSS variables (--pele-*). Pass null to reset a CSS override.",
+      inputSchema: obj({
+        mode: { type: "string", enum: ["system", "light", "dark"] },
+        appCss: { type: ["string", "null"] },
+        diagramCss: { type: ["string", "null"] },
+      }),
+      execute: async ({ mode, appCss, diagramCss }) => {
+        const theme: Record<string, unknown> = {}
+        if (mode !== undefined) theme.mode = mode
+        if (appCss !== undefined) theme.customCss = appCss
+        if (diagramCss !== undefined) theme.diagramCss = diagramCss
+        await eos.updateSettings({ theme: theme as never })
+        return ok({ theme: eos.getSettings().theme })
+      },
     },
     {
       name: "get_storage_usage",

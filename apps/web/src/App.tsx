@@ -15,13 +15,13 @@ import { Sidebar } from "@/components/sidebar"
 import { useDiagram, useEos, useSettings } from "@/lib/eos"
 import { sidebarPanel, useIsMobile } from "@/lib/layout"
 import { diagramHref, homeHref, navigate, useRoute, type Route } from "@/lib/router"
-import { applyThemeCss } from "@/lib/theme"
+import { applyTheme } from "@/lib/theme"
 import { setUi, useUi } from "@/lib/ui-state"
 
 export function App() {
   const route = useRoute()
   const settings = useSettings()
-  useEffect(() => applyThemeCss(settings.theme.customCss), [settings.theme.customCss])
+  useEffect(() => applyTheme(settings.theme), [settings.theme])
   useShareImport(route.name === "import" ? route.data : null)
 
   return (

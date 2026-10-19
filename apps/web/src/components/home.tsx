@@ -7,7 +7,8 @@ import { Input } from "@workspace/ui/components/input"
 import { NativeSelect, NativeSelectOption } from "@workspace/ui/components/native-select"
 
 import { useEos, useLibrary, useTags } from "@/lib/eos"
-import { diagramHref, homeHref, navigate, type Route } from "@/lib/router"
+import { groupRows } from "@/lib/grouping"
+import { diagramHref, homeHref, navigate, type LibraryGroup, type Route } from "@/lib/router"
 import { clearSelection } from "@/lib/selection"
 
 import { DiagramCard } from "./diagram-card"
@@ -36,7 +37,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
       <header className="flex items-center gap-2 border-b border-border py-3.5 pr-4 pl-4 md:pl-6">
         <SidebarToggle />
         <HistoryNav />
-        <h1 className="flex-1 text-xl font-light">Diagrams</h1>
+        <h1 className="flex-1 text-[15px] font-medium">Diagrams</h1>
         <div className="relative w-[280px] max-md:hidden">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search diagrams" className="pl-8" />
@@ -54,19 +55,31 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
         <div className="flex items-center gap-2">
           <div className="flex flex-1 items-center gap-2">
             {route.starred && (
-              <Pill removeHref={homeHref({ tag: route.tag, sort: route.sort })} removeLabel="Remove Starred filter">
+              <Pill removeHref={homeHref({ tag: route.tag, sort: route.sort, group: route.group })} removeLabel="Remove Starred filter">
                 Starred
               </Pill>
             )}
             {route.tag && (
-              <Pill icon={emoji} removeHref={homeHref({ starred: route.starred, sort: route.sort })} removeLabel={`Remove ${route.tag} filter`}>
+              <Pill icon={emoji} removeHref={homeHref({ starred: route.starred, sort: route.sort, group: route.group })} removeLabel={`Remove ${route.tag} filter`}>
                 {route.tag}
               </Pill>
             )}
           </div>
           <NativeSelect
+            value={route.group}
+            onChange={(e) =>
+              navigate(homeHref({ ...route, group: e.target.value as LibraryGroup }), { replace: true })
+            }
+            className="w-[150px] md:w-[170px]"
+            aria-label="Group by"
+          >
+            <NativeSelectOption value="date">Group: Date</NativeSelectOption>
+            <NativeSelectOption value="subtag">Group: Subtag</NativeSelectOption>
+            <NativeSelectOption value="none">Group: None</NativeSelectOption>
+          </NativeSelect>
+          <NativeSelect
             value={route.sort}
-            onChange={(e) => navigate(homeHref({ starred: route.starred, tag: route.tag, sort: e.target.value as LibrarySort }), { replace: true })}
+            onChange={(e) => navigate(homeHref({ ...route, sort: e.target.value as LibrarySort }), { replace: true })}
             className="w-[150px] md:w-[170px]"
             aria-label="Sort"
           >
@@ -84,8 +97,22 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
             </Button>
           </div>
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
-            {rows?.map((row) => <DiagramCard key={row.id} row={row} />)}
+          <div className="flex flex-col gap-7">
+            {groupRows(rows ?? [], route.group, route.sort, route.tag).map((g) => (
+              <section key={g.key} className="flex flex-col gap-3">
+                {g.label && (
+                  <h2 className="flex items-baseline gap-2 text-xs font-medium text-muted-foreground">
+                    {g.label}
+                    <span className="text-[var(--eos-faint)] tabular-nums">{g.rows.length}</span>
+                  </h2>
+                )}
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
+                  {g.rows.map((row) => (
+                    <DiagramCard key={`${g.key}:${row.id}`} row={row} />
+                  ))}
+                </div>
+              </section>
+            ))}
           </div>
         )}
       </Marquee>

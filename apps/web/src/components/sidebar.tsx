@@ -37,14 +37,14 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
       </div>
 
       <NavItem
-        href={homeHref({ sort: home?.sort })}
+        href={homeHref({ sort: home?.sort, group: home?.group })}
         icon={<LayoutGrid />}
         label="All diagrams"
         count={counts?.all}
         active={!!home && !home.starred && !home.tag}
       />
       <NavItem
-        href={homeHref({ starred: true, sort: home?.sort })}
+        href={homeHref({ starred: true, sort: home?.sort, group: home?.group })}
         icon={<Star />}
         label="Starred"
         count={counts?.starred}
@@ -53,7 +53,7 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
       />
 
       {!!tags?.length && <div className="px-2.5 pt-4 pb-1 text-xs font-medium text-[var(--eos-faint)]">Tags</div>}
-      {!!tags?.length && <TagTree tags={tags} selected={selectedTag} sort={home?.sort} />}
+      {!!tags?.length && <TagTree tags={tags} selected={selectedTag} sort={home?.sort} group={home?.group} />}
 
       {!tags?.length && <div className="flex-1" />}
       <button

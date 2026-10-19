@@ -33,7 +33,7 @@ import type {
 const USER: Actor = { kind: "user" }
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  theme: { customCss: null },
+  theme: { mode: "system", customCss: null, diagramCss: null },
   agent: { webmcpEnabled: true, confirmDestructive: true },
 }
 
@@ -76,7 +76,7 @@ export class Eos {
     const workspace = { doc, starred: doc.getMap("starred"), tagEmoji: doc.getMap("tagEmoji") }
     const eos = new Eos(db, workspace)
     persistDoc(db, WORKSPACE_ID, doc, (bytes) => eos.broadcast({ type: "update", id: WORKSPACE_ID, bytes }))
-    eos.settingsCache = { ...DEFAULT_SETTINGS, ...((await db.get("settings", "app")) ?? {}) }
+    eos.settingsCache = withDefaults(await db.get("settings", "app"))
     eos.listenToOtherTabs()
     if (options.seed !== false && (await db.count("diagrams")) === 0) {
       for (const s of SAMPLES) await eos.createDiagram(s, { kind: "system", reason: "seed" })
@@ -474,7 +474,7 @@ export class Eos {
     this.channel = new BroadcastChannel("eos")
     this.channel.onmessage = async ({ data }: MessageEvent<SyncMessage>) => {
       if (data.type === "settings") {
-        this.settingsCache = { ...DEFAULT_SETTINGS, ...((await this.db.get("settings", "app")) ?? {}) }
+        this.settingsCache = withDefaults(await this.db.get("settings", "app"))
         this.emit("settings")
       } else if (data.type === "update" && data.id && data.bytes) {
         if (data.id === WORKSPACE_ID) this.workspace.doc.import(data.bytes)
@@ -484,6 +484,14 @@ export class Eos {
         this.emit("library", `diagram:${data.id}`)
       }
     }
+  }
+}
+
+/** Fills in settings added after a record was first saved. */
+function withDefaults(saved: Partial<AppSettings> | undefined): AppSettings {
+  return {
+    theme: { ...DEFAULT_SETTINGS.theme, ...saved?.theme },
+    agent: { ...DEFAULT_SETTINGS.agent, ...saved?.agent },
   }
 }
 

@@ -30,13 +30,13 @@ const mermaid = StreamLanguage.define<{ depth: number }>({
 
 /** One palette for every code surface in Eos. */
 const style = HighlightStyle.define([
-  { tag: [t.keyword, t.modifier, t.controlKeyword, t.definitionKeyword], color: "var(--eos-champagne)" },
-  { tag: [t.string, t.special(t.string), t.regexp], color: "#b9c59a" },
-  { tag: [t.variableName, t.propertyName, t.attributeName, t.labelName], color: "#d9a684" },
-  { tag: [t.definition(t.variableName), t.function(t.variableName), t.className, t.tagName], color: "#9fb6d9" },
-  { tag: [t.number, t.bool, t.null, t.atom, t.color, t.unit], color: "#c7a6d9" },
+  { tag: [t.keyword, t.modifier, t.controlKeyword, t.definitionKeyword], color: "var(--eos-syntax-keyword)" },
+  { tag: [t.string, t.special(t.string), t.regexp], color: "var(--eos-syntax-string)" },
+  { tag: [t.variableName, t.propertyName, t.attributeName, t.labelName], color: "var(--eos-syntax-property)" },
+  { tag: [t.definition(t.variableName), t.function(t.variableName), t.className, t.tagName], color: "var(--eos-syntax-definition)" },
+  { tag: [t.number, t.bool, t.null, t.atom, t.color, t.unit], color: "var(--eos-syntax-number)" },
   { tag: [t.operator, t.punctuation, t.bracket, t.separator], color: "var(--eos-muted)" },
-  { tag: [t.comment, t.lineComment, t.blockComment], color: "#6b6b69", fontStyle: "italic" },
+  { tag: [t.comment, t.lineComment, t.blockComment], color: "var(--eos-syntax-comment)", fontStyle: "italic" },
 ])
 
 const highlight = syntaxHighlighting(style)

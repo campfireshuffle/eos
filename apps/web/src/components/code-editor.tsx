@@ -32,7 +32,7 @@ const theme = EditorView.theme(
     ".cm-lineNumbers .cm-gutterElement": { minWidth: "22px", paddingRight: "14px" },
     ".cm-activeLine": { backgroundColor: "transparent" },
     "&.cm-focused": { outline: "none" },
-    ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: "#3d3d3d !important" },
+    ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: "var(--eos-selection) !important" },
     ".cm-cursor": { borderLeftColor: "var(--eos-body)" },
     ".cm-error-line": { backgroundColor: "color-mix(in srgb, var(--eos-red) 12%, transparent)" },
   },

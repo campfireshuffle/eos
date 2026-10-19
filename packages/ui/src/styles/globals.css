@@ -52,10 +52,35 @@
     --font-mono: ui-monospace, SFMono-Regular, 'Cascadia Code', 'IBM Plex Mono', 'Roboto Mono', 'DejaVu Sans Mono', 'Liberation Mono', Menlo, Monaco, Consolas, 'Source Code Pro', monospace;
 }
 
-:root,
+/* Eos palettes: light on :root, dark on .dark. Logo-sampled accents, neutral surfaces. */
+:root {
+    color-scheme: light;
+    --eos-ink: #f7f6f3;
+    --eos-panel: #ffffff;
+    --eos-raised: #efeeea;
+    --eos-line: #e6e4df;
+    --eos-line-hover: #d9d7d1;
+    --eos-line-active: #c9c6bf;
+    --eos-body: #1c1b1a;
+    --eos-muted: #6f6e69;
+    --eos-faint: #a3a19b;
+    --eos-ivory: #fcf4e4;
+    --eos-champagne: #9b7a3c;
+    --eos-red: #c0392b;
+    --eos-green: #66800b;
+    --eos-primary: #1c1b1a;
+    --eos-on-primary: #fcf4e4;
+    --eos-syntax-keyword: #8a6a2c;
+    --eos-syntax-string: #5f7a1e;
+    --eos-syntax-property: #a5582b;
+    --eos-syntax-definition: #2f6a9e;
+    --eos-syntax-number: #7d4fa0;
+    --eos-syntax-comment: #9a988f;
+    --eos-selection: #d9d7d1;
+}
+
 .dark {
     color-scheme: dark;
-    /* Eos palette (sampled from the logo, neutral surfaces) */
     --eos-ink: #0e0e0e;
     --eos-panel: #191919;
     --eos-raised: #242424;
@@ -69,6 +94,19 @@
     --eos-champagne: #e6cc9c;
     --eos-red: #d14d41;
     --eos-green: #879a39;
+    --eos-primary: #fcf4e4;
+    --eos-on-primary: #0e0e0e;
+    --eos-syntax-keyword: #e6cc9c;
+    --eos-syntax-string: #b9c59a;
+    --eos-syntax-property: #d9a684;
+    --eos-syntax-definition: #9fb6d9;
+    --eos-syntax-number: #c7a6d9;
+    --eos-syntax-comment: #6b6b69;
+    --eos-selection: #3d3d3d;
+}
+
+:root,
+.dark {
 
     --background: var(--eos-ink);
     --foreground: var(--eos-body);
@@ -76,8 +114,8 @@
     --card-foreground: var(--eos-body);
     --popover: var(--eos-panel);
     --popover-foreground: var(--eos-body);
-    --primary: var(--eos-ivory);
-    --primary-foreground: var(--eos-ink);
+    --primary: var(--eos-primary);
+    --primary-foreground: var(--eos-on-primary);
     --secondary: var(--eos-raised);
     --secondary-foreground: var(--eos-body);
     --muted: var(--eos-raised);
@@ -96,8 +134,8 @@
     --radius: 0.625rem;
     --sidebar: var(--eos-ink);
     --sidebar-foreground: var(--eos-body);
-    --sidebar-primary: var(--eos-ivory);
-    --sidebar-primary-foreground: var(--eos-ink);
+    --sidebar-primary: var(--eos-primary);
+    --sidebar-primary-foreground: var(--eos-on-primary);
     --sidebar-accent: var(--eos-raised);
     --sidebar-accent-foreground: var(--eos-body);
     --sidebar-border: var(--eos-line);
@@ -109,7 +147,7 @@
     --pele-muted: var(--eos-muted);
     --pele-line: var(--eos-muted);
     --pele-surface: var(--eos-raised);
-    --pele-surface-alt: #2c2c2c;
+    --pele-surface-alt: var(--eos-line-hover);
     --pele-border: var(--eos-line-active);
     --pele-accent: var(--eos-champagne);
     --pele-font: var(--font-sans);

@@ -2,8 +2,10 @@ import { useSyncExternalStore } from "react"
 
 import type { LibrarySort, TagPath } from "@eos/core"
 
+export type LibraryGroup = "date" | "subtag" | "none"
+
 export type Route =
-  | { name: "home"; starred: boolean; tag: TagPath | null; sort: LibrarySort }
+  | { name: "home"; starred: boolean; tag: TagPath | null; sort: LibrarySort; group: LibraryGroup }
   | { name: "diagram"; id: string }
   | { name: "import"; data: string }
 
@@ -14,19 +16,24 @@ export function parseRoute(hash: string): Route {
   if (diagram) return { name: "diagram", id: diagram[1] }
   if (path === "/import") return { name: "import", data: params.get("d") ?? "" }
   const sort = params.get("sort")
+  const group = params.get("group")
   return {
     name: "home",
     starred: params.get("starred") === "1",
     tag: params.get("tag"),
     sort: sort === "created" || sort === "title" ? sort : "modified",
+    group: group === "subtag" || group === "none" ? group : "date",
   }
 }
 
-export function homeHref(view: { starred?: boolean; tag?: TagPath | null; sort?: LibrarySort } = {}): string {
+export function homeHref(
+  view: { starred?: boolean; tag?: TagPath | null; sort?: LibrarySort; group?: LibraryGroup } = {},
+): string {
   const params = new URLSearchParams()
   if (view.starred) params.set("starred", "1")
   if (view.tag) params.set("tag", view.tag)
   if (view.sort && view.sort !== "modified") params.set("sort", view.sort)
+  if (view.group && view.group !== "date") params.set("group", view.group)
   const q = params.toString()
   return `#/${q ? `?${q}` : ""}`
 }

@@ -1,13 +1,24 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0e0e0e" />
+    <meta name="theme-color" content="#f7f6f3" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0e0e0e" media="(prefers-color-scheme: dark)" />
     <meta name="description" content="Eos is a local-first Mermaid editor." />
     <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png" />
     <link rel="apple-touch-icon" href="/icon-180.png" />
     <title>Eos</title>
+    <script>
+      // Apply the saved light/dark mode before first paint.
+      try {
+        var m = localStorage.getItem("eos-theme-mode") || "system"
+        if (m === "dark" || (m === "system" && matchMedia("(prefers-color-scheme: dark)").matches))
+          document.documentElement.classList.add("dark")
+      } catch (e) {
+        document.documentElement.classList.add("dark")
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
