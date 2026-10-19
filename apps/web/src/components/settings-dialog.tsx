@@ -1,5 +1,5 @@
 import { ArrowUpRight, Bot, Check, Copy, Database, Download, Heart, Info, Monitor, Moon, Palette, RotateCcw, Star, Sun } from "lucide-react"
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react"
 
 import type { AppSettings, ThemeMode } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
@@ -30,28 +30,31 @@ export function SettingsDialog() {
     <Dialog open={open} onOpenChange={(o) => setUi({ settingsOpen: o })}>
       {/* Sized to the window at every width; below 768px the section list becomes a row of tabs on top. */}
       <DialogContent className="flex h-[min(640px,calc(100dvh-2rem))] w-[min(1040px,calc(100vw-2rem))] max-w-none gap-0 overflow-hidden p-0 max-md:flex-col sm:max-w-none">
-        <nav className="flex shrink-0 gap-0.5 border-border bg-background/55 max-md:items-center max-md:overflow-x-auto max-md:border-b max-md:py-2 max-md:pr-12 max-md:pl-2 md:w-[232px] md:flex-col md:border-r md:px-2.5 md:pt-[18px]">
+        {/* On phones the close button sits at the right of this row, so the tabs scroll in the space to its left. */}
+        <nav className="flex shrink-0 border-border bg-background/55 max-md:border-b max-md:py-2 max-md:pr-11 max-md:pl-2 md:w-[232px] md:flex-col md:border-r md:px-2.5 md:pt-[18px]">
           <DialogTitle className="px-2.5 pb-3 text-title font-semibold max-md:sr-only">Settings</DialogTitle>
-          {TABS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setUi({ settingsTab: id })}
-              className={cn(
-                "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-body text-muted-foreground outline-none hover:bg-accent/30 hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--eos-line-active)] max-md:h-9",
-                tab === id && "bg-accent font-medium text-foreground",
-              )}
-            >
-              <Icon className="size-4 max-md:hidden" />
-              {/* The hidden medium-weight copy reserves the selected width, so selecting a tab never shifts the others. */}
-              <span className="grid">
-                <span className="col-start-1 row-start-1">{label}</span>
-                <span aria-hidden className="invisible col-start-1 row-start-1 font-medium">
-                  {label}
+          <div className="flex min-w-0 gap-0.5 [scrollbar-width:none] max-md:items-center max-md:overflow-x-auto max-md:[mask-image:linear-gradient(to_right,black_calc(100%-16px),transparent)] md:flex-col">
+            {TABS.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setUi({ settingsTab: id })}
+                className={cn(
+                  "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-body text-muted-foreground outline-none hover:bg-accent/30 hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--eos-line-active)] max-md:h-9 max-md:px-2",
+                  tab === id && "bg-accent font-medium text-foreground",
+                )}
+              >
+                <Icon className="size-4 max-md:hidden" />
+                {/* The hidden medium-weight copy reserves the selected width, so selecting a tab never shifts the others. */}
+                <span className="grid">
+                  <span className="col-start-1 row-start-1">{label}</span>
+                  <span aria-hidden className="invisible col-start-1 row-start-1 font-medium">
+                    {label}
+                  </span>
                 </span>
-              </span>
-            </button>
-          ))}
+              </button>
+            ))}
+          </div>
         </nav>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto px-7 pt-[22px] pb-5 max-md:px-4 max-md:pt-4">
           <h2 className="text-heading font-light">{TABS.find((t) => t.id === tab)?.label}</h2>
@@ -199,16 +202,20 @@ function Mcp() {
         . Eos asks you before an agent deletes anything.
       </p>
       <Step title="1. Turn on WebMCP">
-        <p className="text-body text-muted-foreground">
-          In Chrome 150+, enable <ChromeUrl url="chrome://flags/#enable-webmcp-testing" /> and relaunch.
-        </p>
+        <p className="text-body text-muted-foreground">In Chrome 150+, enable this flag and relaunch:</p>
+        <ChromeUrl url="chrome://flags/#enable-webmcp-testing" />
         <p className={cn("text-caption", available ? "text-[var(--eos-green)]" : "text-[var(--eos-faint)]")}>
           {available ? "On in this browser" : "Not on in this browser yet"}
         </p>
       </Step>
       <Step title="2. Connect your agent">
         <p className="text-body text-muted-foreground">
-          Enable <ChromeUrl url="chrome://inspect/#remote-debugging" />, then add{" "}
+          Agents built into the browser can use Eos once WebMCP is on. For an agent on your computer, like Claude Code or
+          Cursor, turn on remote debugging:
+        </p>
+        <ChromeUrl url="chrome://inspect/#remote-debugging" />
+        <p className="text-body text-muted-foreground">
+          Then add{" "}
           <a className={link} href="https://github.com/ChromeDevTools/chrome-devtools-mcp" target="_blank" rel="noreferrer">
             Chrome DevTools MCP
           </a>{" "}
@@ -238,9 +245,17 @@ function ChromeUrl({ url }: { url: string }) {
       type="button"
       title="Copy, then paste into the address bar"
       onClick={() => copy(url)}
-      className="inline-flex max-w-full items-center gap-1 rounded bg-background px-1.5 align-baseline font-mono text-caption break-all text-foreground hover:bg-accent [&_svg]:size-3 [&_svg]:shrink-0"
+      className="flex w-full items-center justify-between gap-2 rounded-md bg-background px-2.5 py-1.5 text-left font-mono text-caption text-foreground hover:bg-accent [&_svg]:size-3.5 [&_svg]:shrink-0"
     >
-      {url}
+      {/* Wrap only after a / or #, so a narrow screen never splits a word. */}
+      <span className="[overflow-wrap:anywhere]">
+        {url.split(/(?<=[/#])/).map((part, i) => (
+          <Fragment key={i}>
+            {part}
+            <wbr />
+          </Fragment>
+        ))}
+      </span>
       {copied ? <Check className="text-[var(--eos-green)]" /> : <Copy className="text-muted-foreground" />}
     </button>
   )
