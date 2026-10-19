@@ -86,6 +86,11 @@ export interface SourceBinding {
   edit(changes: TextChange[]): void
   /** Calls `listener` with each change made by anything other than edit(), in the coordinates of the text before it. */
   onChange(listener: (changes: TextChange[]) => void): () => void
+  /**
+   * Calls `listener` when the diagram is closed underneath the binding (deleted, or
+   * replaced by a backup). edit() then does nothing; bind again to keep editing.
+   */
+  onClose(listener: () => void): () => void
 }
 
 export interface HistoryEntry {

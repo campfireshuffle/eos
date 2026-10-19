@@ -324,7 +324,8 @@ const agentUndo = new UndoManager(doc, { mergeInterval: 0, maxUndoSteps: 200, ex
 ```
 
 - **⌘Z never undoes an agent.** Your stack skips agent commits; Loro rebases your steps over them, so undoing your line leaves the agent's lines in place. An agent's edit is reversed from history (restore an earlier version) or by the agent itself.
-- **Agents undo only their own work.** `update_diagram({ revert: "undo" })` uses `agentUndo`. It refuses with `person_edited` if you have edited since the agent's last change, because titles and tags are last-write-wins and an undo would overwrite your newer value.
+- **You and agents are equals.** Each has an undo stack of their own edits: your ⌘Z skips the agent's, and `update_diagram({ revert: "undo" })` (which uses `agentUndo`) skips yours, whoever edited last. Loro applies an undo on top of everyone's later edits, so neither overwrites the other. One ⌘Z undoes a whole burst of typing, even when another tab's edits arrived mid-burst.
+- **Edits merge from what each side saw.** The editor sends each keystroke to Loro as an insert or delete, and an agent's new source is applied as the changes it made to the version it last read, so concurrent edits from you, other tabs and agents all survive.
 - **Undo commits are labelled too.** Before stepping, the store calls `doc.setNextCommitOptions({ origin, message })` with the actor doing the undo, so the commit an undo makes stays off the other stack and history credits the right person.
 - **One write, one step.** Each store write wraps its change in `groupStart()`/`groupEnd()` on the actor's stack; `editDiagram` changes title, source and tags in one commit.
 - Undo stacks live in memory only and do not survive reloads.
@@ -468,7 +469,7 @@ Overrides are sanitised before use. Only `--*` keys are accepted. `customCss` is
 **Principle:** an agent can do anything a person can do, through a small set of deep tools: one per kind of job, with optional fields rather than extra tools. Agents with tool search and code mode chain calls themselves, so fewer, clearer tools mean fewer wrong picks. Reads, ordinary writes and permanent deletes are separate tools because harnesses approve by annotations, which apply to a whole tool. Reads set `readOnlyHint` (and `untrustedContentHint` when they return people's text); permanent deletes set `consequentialHint`, which Chrome reads, and `destructiveHint`, MCP's name for it. Each tool's input is a Zod (`zod/mini`) schema: it becomes the JSON Schema agents see and checks every call, since browsers pass input through unchecked, so bad input returns `invalid_input` rather than throwing. The browser passes `execute` a `signal` that aborts when the agent cancels the call; a pending confirm then closes as a no.
 
 - **Writes are attributed to the agent** (`{ kind: "agent", tool, changes }`), shown apart from yours in the History panel, and kept off your undo stack (§4).
-- **Results are typed.** `{ ok: true, … }` or `{ ok: false, code, message }` with codes like `not_found`, `invalid_input`, `parse_error`, `stale`, `person_edited`, `user_declined`.
+- **Results are typed.** `{ ok: true, … }` or `{ ok: false, code, message }` with codes like `not_found`, `invalid_input`, `parse_error`, `stale`, `user_declined`.
 - **Mermaid is always checked.** Tools that take or return source report `valid` and, on failure, the error's line and column.
 - **Confirmation is in the page.** Deletes open Eos's own dialog and wait; a model can't get past it. Agents can read but not change agent settings, so they can't turn confirmation off.
 - **Off switch.** With `settings.agent.webmcpEnabled` false, no tools are registered.

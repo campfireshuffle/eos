@@ -27,8 +27,12 @@ export function metaOf(d: { meta: LoroMap }): DiagramMeta {
   }
 }
 
-export function commit(doc: LoroDoc, actor: Actor) {
-  doc.commit({ origin: actorOrigin(actor), message: JSON.stringify(actor) })
+/** Origin prefix for title and tag changes, which neither undo stack records (see Eos.mutate). */
+export const DETAILS = "details:"
+
+/** Commits pending changes, labelled with who made them. Details go on nobody's undo stack. */
+export function commit(doc: LoroDoc, actor: Actor, { details = false } = {}) {
+  doc.commit({ origin: (details ? DETAILS : "") + actorOrigin(actor), message: JSON.stringify(actor) })
 }
 
 export function actorOrigin(actor: Actor): string {

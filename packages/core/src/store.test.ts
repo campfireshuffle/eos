@@ -138,6 +138,38 @@ describe("editor binding", () => {
     expect(await one.getSource(id)).toBe(a.state.text)
   })
 
+  it("undoes a whole burst of typing even when another tab's keystrokes landed mid-burst", async () => {
+    const name = `burst-${n++}`
+    const one = await Eos.create({ dbName: name, seed: false })
+    const id = await one.createDiagram({ source: "one\nthree" })
+    const two = await Eos.create({ dbName: name, seed: false })
+    const a = await editor(one, id)
+    const b = await editor(two, id)
+    for (const ch of "aaaa") {
+      a.type(3, ch)
+      await settle()
+      b.type(b.state.text.length, "b")
+      await settle()
+    }
+    expect(a.state.text).toBe("oneaaaa\nthreebbbb")
+    expect(await one.undo(id)).toBe(true)
+    await settle()
+    expect(a.state.text).toBe("one\nthreebbbb")
+    expect(b.state.text).toBe(a.state.text)
+  })
+
+  it("tells a binding when its diagram is closed, and stops editing it", async () => {
+    const eos = await fresh()
+    const id = await eos.createDiagram({ source: "keep" })
+    const ed = await editor(eos, id)
+    let closed = false
+    ed.binding.onClose(() => (closed = true))
+    await eos.deleteAll()
+    expect(closed).toBe(true)
+    ed.binding.edit([{ from: 0, to: 0, insert: "lost? " }]) // a no-op, not a write to a dead doc
+    expect(await eos.getDiagram(id)).toBeNull()
+  })
+
   it("shows agent edits, undo and redo in the editor without echoing its own keystrokes", async () => {
     const eos = await fresh()
     const id = await eos.createDiagram({ source: "flowchart TD\n  A --> B" })
