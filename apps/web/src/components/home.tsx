@@ -51,7 +51,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
           <h1 className="flex-1 text-title font-medium">{route.deleted ? "Deleted" : "Diagrams"}</h1>
           <div className="relative w-[280px] max-md:hidden">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search diagrams" className="pl-8" />
+            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search" className="pl-8" />
           </div>
           <Button onClick={create} aria-label="New diagram">
             <Plus /> <span className="max-sm:hidden">New diagram</span>
@@ -59,7 +59,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
         </header>
         <div className="relative border-b border-border px-4 py-2.5 md:hidden">
           <Search className="pointer-events-none absolute top-1/2 left-6.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search diagrams" className="pl-8" />
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search" className="pl-8" />
         </div>
       </div>
 
