@@ -1,6 +1,7 @@
 import {
   decodeShare,
   encodeShare,
+  readBackup,
   renderSvg,
   shareUrl,
   validate,
@@ -439,14 +440,11 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
       annotations: { consequentialHint: true, destructiveHint: true },
       execute: async ({ data, mode }, signal) => {
         // Check the file before asking, so the person is never asked to replace their library with junk.
-        let parsed: unknown
         try {
-          parsed = JSON.parse(data)
-        } catch {
-          return fail("invalid_input", "data isn't JSON; pass what export returns with format backup")
+          readBackup(data)
+        } catch (error) {
+          return fail("invalid_input", `${(error as Error).message}. Pass what export returns with format backup.`)
         }
-        if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as { diagrams?: unknown }).diagrams))
-          return fail("invalid_input", "data isn't an Eos backup; pass what export returns with format backup")
         if (mode === "replace") {
           const refused = await ask(signal, "The agent wants to replace all your diagrams with a backup.", "The person declined", "Replace")
           if (refused) return refused

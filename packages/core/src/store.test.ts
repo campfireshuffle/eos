@@ -2,6 +2,7 @@ import "fake-indexeddb/auto"
 
 import { describe, expect, it } from "vitest"
 
+import { fromBase64, toBase64 } from "./base64"
 import { decodeShare, encodeShare } from "./share"
 import { Eos } from "./store"
 
@@ -97,6 +98,37 @@ describe("Eos store", () => {
     const b = await fresh()
     await b.importBackup(backup, "merge")
     expect(await b.getSource(id)).toBe("z")
+  })
+})
+
+describe("backup import", () => {
+  it("rejects a file that isn't a backup without touching the library", async () => {
+    const eos = await fresh()
+    await eos.createDiagram({ title: "Keep me" })
+    await expect(eos.importBackup("not json", "replace")).rejects.toThrow(/isn't an Eos backup/)
+    await expect(eos.importBackup(JSON.stringify({ v: 1, diagrams: [{ id: 1 }] }), "replace")).rejects.toThrow(/isn't an Eos backup/)
+    await expect(eos.importBackup(JSON.stringify({ v: 2, diagrams: [] }), "replace")).rejects.toThrow(/isn't an Eos backup/)
+    const damaged = JSON.stringify({ v: 1, diagrams: [{ id: "x", snapshot: "%%% not base64 %%%" }] })
+    await expect(eos.importBackup(damaged, "replace")).rejects.toThrow(/damaged/)
+    expect((await eos.listDiagrams()).map((d) => d.title)).toEqual(["Keep me"])
+  })
+})
+
+describe("base64", () => {
+  // What Eos wrote before switching to the shared helper; old links and backups must still decode.
+  const legacyUrl = (bytes: Uint8Array) =>
+    btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+
+  it("matches the old encoding byte for byte", () => {
+    const bytes = Uint8Array.from({ length: 300 }, (_, i) => (i * 37) % 256)
+    expect(toBase64(bytes, "base64url")).toBe(legacyUrl(bytes))
+    expect(toBase64(bytes)).toBe(btoa(String.fromCharCode(...bytes)))
+    expect(fromBase64(legacyUrl(bytes), "base64url")).toEqual(bytes)
+  })
+
+  it("round-trips snapshots larger than one chunk", () => {
+    const bytes = Uint8Array.from({ length: 200_000 }, (_, i) => i % 251)
+    expect(fromBase64(toBase64(bytes))).toEqual(bytes)
   })
 })
 

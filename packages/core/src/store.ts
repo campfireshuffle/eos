@@ -1,5 +1,7 @@
 import { LoroDoc, type LoroMap, UndoManager } from "loro-crdt"
+import * as z from "zod/mini"
 
+import { fromBase64, toBase64 } from "./base64"
 import { openEosDB, WORKSPACE_ID, type Database, type OpenHooks } from "./db"
 import {
   actorOrigin,
@@ -343,28 +345,22 @@ export class Eos {
     const diagrams = []
     for (const row of rows) {
       const d = await this.openDiagram(row.id)
-      diagrams.push({ id: row.id, deletedAt: row.deletedAt, snapshot: bytesToBase64(d.doc.export({ mode: "snapshot" })) })
+      diagrams.push({ id: row.id, deletedAt: row.deletedAt, snapshot: toBase64(d.doc.export({ mode: "snapshot" })) })
     }
     return JSON.stringify({
       v: 1,
       settings: this.settingsCache,
-      workspace: bytesToBase64(this.workspace.doc.export({ mode: "snapshot" })),
+      workspace: toBase64(this.workspace.doc.export({ mode: "snapshot" })),
       diagrams,
     })
   }
 
+  /** Throws, before touching the library, if `data` isn't a readable Eos backup. */
   async importBackup(data: string, mode: "merge" | "replace") {
-    const backup = JSON.parse(data) as {
-      v: number
-      settings?: AppSettings
-      workspace?: string
-      diagrams: { id: string; deletedAt?: number; snapshot: string }[]
-    }
-    if (backup.v !== 1) throw new Error("Unsupported backup version")
+    const { settings, workspace, diagrams } = readBackup(data)
     if (mode === "replace") await this.deleteAll({ reseed: false })
-    if (backup.workspace) this.workspace.doc.import(base64ToBytes(backup.workspace))
-    for (const item of backup.diagrams) {
-      const bytes = base64ToBytes(item.snapshot)
+    if (workspace) this.workspace.doc.import(workspace)
+    for (const { bytes, ...item } of diagrams) {
       if (this.open.has(item.id)) {
         const d = await this.openDiagram(item.id)
         d.doc.import(bytes)
@@ -373,15 +369,18 @@ export class Eos {
         const existing = await loadDoc(this.db, item.id)
         existing.import(bytes)
         await this.db.put("snapshots", { id: item.id, bytes: existing.export({ mode: "snapshot" }), savedAt: Date.now() })
-        await this.writeIndex(item.id, existing, item.deletedAt)
+        await this.writeIndex(item.id, existing, item.deletedAt ?? undefined)
       }
     }
-    if (backup.settings) await this.updateSettings(backup.settings)
+    if (settings) await this.updateSettings(settings as Partial<AppSettings>)
     this.emit("library")
   }
 
   async deleteAll({ reseed = false } = {}) {
-    for (const [id, p] of this.open) (await p).dispose(), this.open.delete(id)
+    for (const [id, p] of this.open) {
+      ;(await p).dispose()
+      this.open.delete(id)
+    }
     const tx = this.db.transaction(["snapshots", "updates", "diagrams"], "readwrite")
     await Promise.all([
       tx.objectStore("snapshots").clear(),
@@ -542,12 +541,47 @@ function withDefaults(saved: Partial<AppSettings> | undefined): AppSettings {
   }
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  let s = ""
-  for (const b of bytes) s += String.fromCharCode(b)
-  return btoa(s)
+/**
+ * Parses and decodes a backup file, throwing a readable error if it isn't one.
+ * Every snapshot is decoded up front, so a damaged file fails before an import
+ * that replaces the library deletes anything.
+ */
+export function readBackup(data: string) {
+  let json: unknown
+  try {
+    json = JSON.parse(data)
+  } catch {
+    throw new Error("This file isn't an Eos backup (it isn't JSON)")
+  }
+  const parsed = BackupSchema.safeParse(json)
+  if (!parsed.success) throw new Error(`This file isn't an Eos backup: ${z.prettifyError(parsed.error)}`)
+  const { settings, workspace, diagrams } = parsed.data
+  try {
+    return {
+      settings,
+      workspace: workspace ? fromBase64(workspace) : null,
+      diagrams: diagrams.map(({ snapshot, ...item }) => ({ ...item, bytes: fromBase64(snapshot) })),
+    }
+  } catch {
+    throw new Error("This backup is damaged: a diagram's data can't be read")
+  }
 }
 
-function base64ToBytes(s: string): Uint8Array {
-  return Uint8Array.from(atob(s), (c) => c.charCodeAt(0))
-}
+/** The backup file format (v1), as exportBackup writes it. Settings are partial; missing ones keep their current values. */
+const BackupSchema = z.object({
+  v: z.literal(1),
+  settings: z.optional(
+    z.object({
+      theme: z.optional(
+        z.object({
+          mode: z.optional(z.enum(["system", "light", "dark"])),
+          customCss: z.optional(z.nullable(z.string())),
+          diagramCss: z.optional(z.nullable(z.string())),
+        }),
+      ),
+      agent: z.optional(z.object({ webmcpEnabled: z.optional(z.boolean()), confirmDestructive: z.optional(z.boolean()) })),
+    }),
+  ),
+  workspace: z.optional(z.string()),
+  diagrams: z.array(z.object({ id: z.string(), deletedAt: z.optional(z.nullable(z.number())), snapshot: z.string() })),
+})

@@ -61,11 +61,16 @@ export function persistDoc(
   let pending = Promise.resolve()
   const unsubscribe = doc.subscribeLocalUpdates((bytes) => {
     onLocalUpdate?.(bytes)
-    pending = pending.then(async () => {
-      await db.add("updates", { id, bytes, at: Date.now() })
-      const count = await db.countFromIndex("updates", "byDiagram", id)
-      if (count > COMPACT_AFTER) await compact(db, id, doc)
-    })
+    // Each write waits for the previous one; a failed write is logged and the
+    // queue carries on, so one bad write (quota, a closed connection) can't
+    // silently stop every later change from saving.
+    pending = pending
+      .then(async () => {
+        await db.add("updates", { id, bytes, at: Date.now() })
+        const count = await db.countFromIndex("updates", "byDiagram", id)
+        if (count > COMPACT_AFTER) await compact(db, id, doc)
+      })
+      .catch((error) => console.error(`Couldn't save a change to diagram ${id}`, error))
   })
   return unsubscribe
 }
