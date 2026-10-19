@@ -59,16 +59,43 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
     })
   }
 
+  /**
+   * Pele lays some diagrams out to fit a width (e.g. a mindmap stacks vertically when
+   * narrow). Give it the pane's width, so layout follows the pane and zoom only scales.
+   * Without this, Pele would measure the zoomed element and re-lay out on every zoom.
+   */
+  const layoutWidth = () => {
+    const w = scroller.current?.clientWidth ?? 0
+    return Math.max(240, Math.round((w - 48) / 16) * 16)
+  }
+  const renderOptions = (maxWidth: number) => ({ zoom: false, responsive: false, maxWidth, onRender: measure })
+  const laidOutFor = useRef(0)
+
   useEffect(() => {
     if (!valid) return
     sourceRef.current = source
-    if (!mounted.current) mounted.current = mount(host.current!, source, { zoom: false, responsive: false, onRender: measure })
-    else mounted.current.update(source)
+    if (!mounted.current) {
+      laidOutFor.current = layoutWidth()
+      mounted.current = mount(host.current!, source, renderOptions(laidOutFor.current))
+    } else mounted.current.update(source)
     measure()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, valid])
 
   useEffect(() => () => mounted.current?.destroy(), [])
+
+  // Re-lay out when the pane's width settles on a new value (not on zoom).
+  useEffect(() => {
+    if (!box.w || !valid) return
+    const t = setTimeout(() => {
+      const w = layoutWidth()
+      if (!mounted.current || w === laidOutFor.current) return
+      laidOutFor.current = w
+      mounted.current.update(sourceRef.current, renderOptions(w))
+    }, 150)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [box.w, valid])
 
   useEffect(() => {
     const el = scroller.current!
