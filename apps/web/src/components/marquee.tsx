@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react"
 
 import { clearSelection, getSelection, setSelection } from "@/lib/selection"
 
@@ -6,8 +6,18 @@ import { clearSelection, getSelection, setSelection } from "@/lib/selection"
  * Drag on empty space to rubber-band select cards ([data-card-id]).
  * Hold ⇧ or ⌘ to add to the current selection. Esc clears it.
  */
-export function Marquee({ children, className }: { children: ReactNode; className?: string }) {
-  const root = useRef<HTMLDivElement>(null)
+export function Marquee({
+  children,
+  className,
+  scrollerRef,
+}: {
+  children: ReactNode
+  className?: string
+  /** Receives the element, which is also the scroll container on desktop. */
+  scrollerRef?: RefObject<HTMLDivElement | null>
+}) {
+  const own = useRef<HTMLDivElement>(null)
+  const root = scrollerRef ?? own
   const [box, setBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
 
   useEffect(() => {

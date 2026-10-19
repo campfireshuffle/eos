@@ -12,3 +12,10 @@
   height: calc(100% - 2rem) !important;
   max-width: none !important;
 }
+
+/* Eos restores scroll positions itself (see scroll-restore.ts); the browser's scroll
+   anchoring would shift them while the library re-renders after back/forward. */
+html,
+.eos-library-scroller {
+  overflow-anchor: none;
+}

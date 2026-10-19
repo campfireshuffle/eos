@@ -9,11 +9,16 @@ let index = 0
 let max = 0
 const listeners = new Set<() => void>()
 
+/** How we reached the current entry: a new navigation, or back/forward (and reloads). */
+let arrival: "push" | "traverse" = "traverse"
+
 function stamp() {
   const state = history.state as { eosIndex?: number } | null
   if (typeof state?.eosIndex === "number") {
     index = state.eosIndex
+    arrival = "traverse"
   } else {
+    arrival = "push"
     // A new entry: it becomes the newest, dropping any forward entries.
     index = sessionIndex() === null ? 0 : index + 1
     max = index
@@ -52,4 +57,15 @@ function read() {
 
 export function useHistoryNav() {
   return useSyncExternalStore((cb) => (listeners.add(cb), () => listeners.delete(cb)), read)
+}
+
+/** The current entry's position in this tab's history, and how we got there. */
+export function currentEntry(): { index: number; arrival: "push" | "traverse" } {
+  return { index, arrival }
+}
+
+/** Calls back after each navigation, once the entry has been stamped. */
+export function onNavigate(cb: () => void): () => void {
+  listeners.add(cb)
+  return () => listeners.delete(cb)
 }

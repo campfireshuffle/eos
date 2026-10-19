@@ -1,5 +1,5 @@
 import { Plus, Search } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import type { LibrarySort } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
@@ -9,6 +9,8 @@ import { NativeSelect, NativeSelectOption } from "@workspace/ui/components/nativ
 import { useEos, useLibrary, useTags } from "@/lib/eos"
 import { groupRows } from "@/lib/grouping"
 import { diagramHref, homeHref, navigate, type LibraryGroup, type Route } from "@/lib/router"
+import { useIsMobile } from "@/lib/layout"
+import { useScrollRestoration } from "@/lib/scroll-restore"
 import { clearSelection } from "@/lib/selection"
 
 import { DiagramCard } from "./diagram-card"
@@ -23,6 +25,10 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   const [query, setQuery] = useState("")
   const rows = useLibrary({ query, starred: route.starred, deleted: route.deleted, tags: route.tag ? [route.tag] : [], sort: route.sort })
   const tags = useTags()
+  // Back/forward returns to where you were. Phones scroll the page; desktop scrolls this pane.
+  const mobile = useIsMobile()
+  const scroller = useRef<HTMLDivElement>(null)
+  useScrollRestoration(mobile ? null : scroller, rows !== undefined, [location.hash, mobile])
   const emoji = route.tag ? findEmoji(tags ?? [], route.tag) : null
   useEffect(() => clearSelection(), [route.tag, route.starred, route.deleted])
 
@@ -54,7 +60,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
         </div>
       </div>
 
-      <Marquee className="flex flex-1 flex-col gap-5 p-4 md:min-h-0 md:overflow-y-auto md:p-6">
+      <Marquee scrollerRef={scroller} className="eos-library-scroller flex flex-1 flex-col gap-5 p-4 md:min-h-0 md:overflow-y-auto md:p-6">
         <div className="flex flex-wrap items-center gap-2">
           {/* Filter chips take their own row on narrow screens; the view controls stay right-aligned. */}
           <div className="flex min-w-0 flex-1 basis-full flex-wrap items-center gap-2 empty:hidden sm:basis-0">

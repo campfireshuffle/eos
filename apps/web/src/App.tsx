@@ -23,6 +23,11 @@ export function App() {
   const settings = useSettings()
   useEffect(() => applyTheme(settings.theme), [settings.theme])
   useShareImport(route.name === "import" ? route.data : null)
+  // On phones the library scrolls the page; the editor fills the screen, so start it at the top.
+  const editorId = route.name === "diagram" ? route.id : null
+  useEffect(() => {
+    if (editorId) window.scrollTo({ top: 0 })
+  }, [editorId])
 
   return (
     <TooltipProvider delayDuration={400}>
