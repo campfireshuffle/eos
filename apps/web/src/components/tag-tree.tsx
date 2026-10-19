@@ -248,7 +248,8 @@ function AnchoredPopover({
       <PopoverAnchor asChild>
         <span className="pointer-events-none fixed size-px" style={{ left: shown?.x ?? 0, top: shown?.y ?? 0 }} />
       </PopoverAnchor>
-      <PopoverContent align="start" className={className}>
+      {/* Never taller than the space around the anchor (e.g. a phone in landscape); scroll inside instead. */}
+      <PopoverContent align="start" className={cn("max-h-[var(--radix-popover-content-available-height)] overflow-y-auto", className)}>
         {at ? children : lastChildren.current}
       </PopoverContent>
     </Popover>

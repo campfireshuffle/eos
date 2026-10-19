@@ -56,6 +56,7 @@ export function CodeEditor({
   label = "Mermaid source",
   readOnly = false,
   gutter = true,
+  wrap = false,
 }: {
   value: string
   onChange?: (value: string) => void
@@ -68,6 +69,8 @@ export function CodeEditor({
   label?: string
   readOnly?: boolean
   gutter?: boolean
+  /** Wrap long lines instead of scrolling sideways (for short read-only snippets). */
+  wrap?: boolean
 }) {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
@@ -86,7 +89,7 @@ export function CodeEditor({
           EditorState.readOnly.of(readOnly),
           EditorView.editable.of(!readOnly),
           onUndo
-            ? // Undo goes through Loro so agent and user edits share one history.
+            ? // Undo goes through Loro: the person's own stack, which skips agent edits.
               keymap.of([
                 { key: "Mod-z", run: () => (callbacks.current.onUndo?.(), true), preventDefault: true },
                 { key: "Mod-Shift-z", run: () => (callbacks.current.onRedo?.(), true), preventDefault: true },
@@ -99,6 +102,7 @@ export function CodeEditor({
           errorLine,
           theme,
           gutter ? [] : noGutterTheme,
+          wrap ? EditorView.lineWrapping : [],
           EditorView.contentAttributes.of({ "aria-label": label, spellcheck: "false", autocapitalize: "off" }),
           EditorView.updateListener.of((u) => {
             if (u.docChanged && !u.transactions.some((t) => t.annotation(external))) {

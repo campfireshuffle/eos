@@ -27,24 +27,25 @@ export function SettingsDialog() {
   const tab = useUi((s) => s.settingsTab)
   return (
     <Dialog open={open} onOpenChange={(o) => setUi({ settingsOpen: o })}>
-      <DialogContent className="flex h-[min(640px,90vh)] w-[1040px] max-w-[calc(100%-2rem)] gap-0 overflow-hidden p-0 sm:max-w-[1040px]">
-        <nav className="flex w-[232px] shrink-0 flex-col gap-0.5 border-r border-border bg-background/55 px-2.5 pt-[18px]">
-          <DialogTitle className="px-2.5 pb-3 text-title font-semibold">Settings</DialogTitle>
+      {/* Sized to the window at every width; below 768px the section list becomes a row of tabs on top. */}
+      <DialogContent className="flex h-[min(640px,calc(100dvh-2rem))] w-[min(1040px,calc(100vw-2rem))] max-w-none gap-0 overflow-hidden p-0 max-md:flex-col sm:max-w-none">
+        <nav className="flex shrink-0 gap-0.5 border-border bg-background/55 max-md:items-center max-md:overflow-x-auto max-md:border-b max-md:py-2 max-md:pr-12 max-md:pl-2 md:w-[232px] md:flex-col md:border-r md:px-2.5 md:pt-[18px]">
+          <DialogTitle className="px-2.5 pb-3 text-title font-semibold max-md:sr-only">Settings</DialogTitle>
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               type="button"
               onClick={() => setUi({ settingsTab: id })}
               className={cn(
-                "flex h-8 items-center gap-2.5 rounded-md px-2.5 text-body text-muted-foreground hover:bg-accent/30 hover:text-foreground",
+                "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-body text-muted-foreground hover:bg-accent/30 hover:text-foreground max-md:h-9",
                 tab === id && "bg-accent font-medium text-foreground",
               )}
             >
-              <Icon className="size-4" /> {label}
+              <Icon className="size-4 max-md:hidden" /> {label}
             </button>
           ))}
         </nav>
-        <div className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto px-7 pt-[22px] pb-5">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto px-7 pt-[22px] pb-5 max-md:px-4 max-md:pt-4">
           <h2 className="text-heading font-light">{TABS.find((t) => t.id === tab)?.label}</h2>
           {tab === "theming" && <Theming />}
           {tab === "mcp" && <Mcp />}
@@ -79,8 +80,8 @@ function Theming() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
       <section className="flex min-h-0 flex-1 flex-col gap-3">
-        <div className="flex items-center gap-3">
-          <h3 className="flex-1 text-body font-medium">App theme</h3>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <h3 className="flex-1 text-body font-medium whitespace-nowrap">App theme</h3>
           <ToggleGroup
             type="single"
             variant="outline"
@@ -155,37 +156,66 @@ function Theming() {
 function CssBox({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
   return (
     <div className="flex min-h-[140px] flex-1 overflow-hidden rounded-lg border border-input bg-background/40 focus-within:border-ring">
-      <CodeEditor value={value} onChange={onChange} language="css" label={label} />
+      <CodeEditor value={value} onChange={onChange} language="css" label={label} wrap />
     </div>
   )
 }
 
+const MCP_ARGS = ["-y", "chrome-devtools-mcp@latest", "--autoConnect", "--categoryExperimentalWebmcp=true"]
+const link = "text-[var(--eos-champagne)] underline underline-offset-2"
+
+/** Whether this browser exposes the WebMCP API (Chrome with the flag or origin trial). */
+function webMcpAvailable() {
+  return !!((document as { modelContext?: unknown }).modelContext ?? (navigator as { modelContext?: unknown }).modelContext)
+}
+
 function Mcp() {
+  const available = webMcpAvailable()
   return (
     <div className="flex flex-col gap-6">
-      <Step title="1. Turn on WebMCP">
+      <p className="text-body text-muted-foreground">
+        Eos offers its actions to AI agents through{" "}
+        <a className={link} href="https://developer.chrome.com/docs/ai/webmcp" target="_blank" rel="noreferrer">
+          WebMCP
+        </a>
+        , a proposed browser standard. Any agent that speaks MCP can use them: create, edit, organise, theme and export
+        diagrams. Eos asks you before an agent deletes anything.
+      </p>
+      <Step title="1. Turn on WebMCP in Chrome">
         <p className="text-body text-muted-foreground">
-          Use Chrome 149+ with the{" "}
-          <a className="text-[var(--eos-champagne)] underline underline-offset-2" href="https://developer.chrome.com/origintrials/" target="_blank" rel="noreferrer">
-            WebMCP origin trial
+          In Chrome 150 or newer, open <code className="font-mono text-caption">chrome://flags/#enable-webmcp-testing</code>, set
+          it to Enabled and relaunch.
+        </p>
+        <p className={cn("text-body", available ? "text-[var(--eos-green)]" : "text-muted-foreground")}>
+          {available ? "WebMCP is on in this browser." : "WebMCP isn't on in this browser yet."}
+        </p>
+      </Step>
+      <Step title="2. Connect your agent">
+        <p className="text-body text-muted-foreground">
+          Add{" "}
+          <a className={link} href="https://github.com/ChromeDevTools/chrome-devtools-mcp" target="_blank" rel="noreferrer">
+            Chrome DevTools MCP
+          </a>{" "}
+          to your agent's MCP servers. It connects to the Chrome you have open, so first turn on remote debugging at{" "}
+          <code className="font-mono text-caption">chrome://inspect/#remote-debugging</code>.
+        </p>
+        <CodeBlock
+          label="MCP config"
+          language="json"
+          code={JSON.stringify({ mcpServers: { eos: { command: "npx", args: MCP_ARGS } } }, null, 2)}
+        />
+        <p className="text-body text-muted-foreground">Or, for agents that take a command:</p>
+        <CodeBlock label="Command" language="shell" code={`npx ${MCP_ARGS.join(" ")}`} />
+      </Step>
+      <Step title="3. Ask your agent">
+        <p className="text-body text-muted-foreground">
+          With Eos open, try “List the WebMCP tools on eos.lil.run”, then “Make a flowchart of our deploy process”. To use
+          Chrome's built-in model instead, try the{" "}
+          <a className={link} href="https://github.com/GoogleChromeLabs/webmcp-extension" target="_blank" rel="noreferrer">
+            example WebMCP extension
           </a>
           .
         </p>
-      </Step>
-      <Step title="2. Add Eos to your agent">
-        <p className="text-body text-muted-foreground">
-          Install the{" "}
-          <a className="text-[var(--eos-champagne)] underline underline-offset-2" href="https://www.npmjs.com/package/webmcp-server" target="_blank" rel="noreferrer">
-            WebMCP bridge
-          </a>
-          , then add it to your agent:
-        </p>
-        <CodeBlock label="Claude Code" language="shell" code="claude mcp add webmcp -- npx webmcp-server" />
-        <CodeBlock
-          label="mcp.json"
-          language="json"
-          code={`{\n  "mcpServers": {\n    "webmcp": { "command": "npx", "args": ["webmcp-server"] }\n  }\n}`}
-        />
       </Step>
     </div>
   )
@@ -210,7 +240,7 @@ function CodeBlock({ label, code, language }: { label: string; code: string; lan
         </Button>
       </div>
       <div className="flex text-body [&_.cm-editor]:h-auto">
-        <CodeEditor value={code} language={language} label={label} readOnly gutter={false} />
+        <CodeEditor value={code} language={language} label={label} readOnly gutter={false} wrap />
       </div>
     </div>
   )
