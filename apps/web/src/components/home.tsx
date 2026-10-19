@@ -106,11 +106,8 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
 
         {rows && rows.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 text-body text-muted-foreground">
-            {route.deleted
-              ? "Nothing deleted."
-              : query || route.tag || route.starred
-                ? "No diagrams match."
-                : "No diagrams yet."}
+            {/* An empty library just shows the button; filters and Deleted say why nothing is listed. */}
+            {route.deleted ? "Nothing deleted." : query || route.tag || route.starred ? "No diagrams match." : null}
             {!route.deleted && (
               <Button variant="outline" onClick={create}>
                 <Plus /> New diagram
