@@ -1,0 +1,13 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices", ":semanticCommits", "schedule:weekly", "group:allNonMajor"],
+  "minimumReleaseAge": "3 days",
+  "lockFileMaintenance": { "enabled": true },
+  "packageRules": [
+    {
+      "description": "Minor and patch updates, pins and lockfile refreshes merge themselves once CI passes; majors wait for review.",
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest", "lockFileMaintenance"],
+      "automerge": true
+    }
+  ]
+}
