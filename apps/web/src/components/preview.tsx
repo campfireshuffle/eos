@@ -27,6 +27,17 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
   // The last scale actually applied, and the current mode, for use inside render callbacks.
   const applied = useRef<number | null>(null)
   const modeRef = useRef<"fit" | number>("fit")
+  // A point that should stay under the cursor or fingers across the next zoom change.
+  const anchor = useRef<{ fx: number; fy: number; x: number; y: number } | null>(null)
+  /** Zooms to `next`, keeping the diagram point under (x, y) in place. */
+  const zoomAt = (next: number, x: number, y: number) => {
+    const r = host.current?.querySelector("svg")?.getBoundingClientRect()
+    if (r && r.width && r.height) anchor.current = { fx: (x - r.left) / r.width, fy: (y - r.top) / r.height, x, y }
+    setMode(Math.min(MAX, Math.max(MIN, next)))
+  }
+  const zoomAtRef = useRef(zoomAt)
+  zoomAtRef.current = zoomAt
+
   // The source last handed to Pele, and the source the current natural size was measured from.
   const sourceRef = useRef(source)
   const measuredSource = useRef<string | null>(null)
@@ -67,10 +78,7 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey && !e.metaKey) return
       e.preventDefault()
-      setMode((m) => {
-        const current = typeof m === "number" ? m : scaleRef.current
-        return Math.min(MAX, Math.max(MIN, current * 2 ** (-e.deltaY * 0.01)))
-      })
+      zoomAtRef.current(scaleRef.current * 2 ** (-e.deltaY * 0.01), e.clientX, e.clientY)
     }
     el.addEventListener("wheel", onWheel, { passive: false })
     return () => {
@@ -100,6 +108,15 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
     })
     applied.current = scale
     setUi({ zoomScale: scale })
+    // Scroll so the anchored diagram point lands back under the cursor or fingers.
+    const a = anchor.current
+    const el = scroller.current
+    if (a && el) {
+      anchor.current = null
+      const r = svg.getBoundingClientRect()
+      el.scrollLeft += r.left + a.fx * r.width - a.x
+      el.scrollTop += r.top + a.fy * r.height - a.y
+    }
   }, [scale, natural, source])
 
   useEffect(() => {
@@ -130,31 +147,59 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
     }
   }, [])
 
-  /** Pan like a canvas: middle-button drag, Space + drag, or plain left-drag. */
+  /**
+   * Pan like a canvas: middle-button drag, Space + drag, plain left-drag or one finger.
+   * Two fingers pinch-zoom around their midpoint.
+   */
+  const pointers = useRef(new Map<number, { x: number; y: number }>())
+  const gesture = useRef<
+    | { kind: "pan"; x: number; y: number; left: number; top: number }
+    | { kind: "pinch"; dist: number; scale: number }
+    | null
+  >(null)
+
+  const startGesture = () => {
+    const el = scroller.current!
+    const pts = [...pointers.current.values()]
+    if (pts.length === 1) {
+      gesture.current = { kind: "pan", x: pts[0].x, y: pts[0].y, left: el.scrollLeft, top: el.scrollTop }
+    } else if (pts.length >= 2) {
+      gesture.current = { kind: "pinch", dist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1, scale: scaleRef.current }
+    } else gesture.current = null
+    setPanning(gesture.current?.kind === "pan")
+  }
+
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0 && e.button !== 1) return
-    const el = scroller.current!
     e.preventDefault() // stops middle-click autoscroll and text selection
     try {
-      el.setPointerCapture(e.pointerId)
+      scroller.current!.setPointerCapture(e.pointerId)
     } catch {
       // Capture can fail for synthetic or already-released pointers; dragging still works without it.
     }
-    const start = { x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop }
-    setPanning(true)
-    const move = (ev: PointerEvent) => {
-      el.scrollLeft = start.left - (ev.clientX - start.x)
-      el.scrollTop = start.top - (ev.clientY - start.y)
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    startGesture()
+  }
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!pointers.current.has(e.pointerId)) return
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    const g = gesture.current
+    const el = scroller.current!
+    if (g?.kind === "pan") {
+      el.scrollLeft = g.left - (e.clientX - g.x)
+      el.scrollTop = g.top - (e.clientY - g.y)
+    } else if (g?.kind === "pinch") {
+      const [a, b] = [...pointers.current.values()]
+      const dist = Math.hypot(a.x - b.x, a.y - b.y)
+      zoomAt(g.scale * (dist / g.dist), (a.x + b.x) / 2, (a.y + b.y) / 2)
     }
-    const up = () => {
-      setPanning(false)
-      el.removeEventListener("pointermove", move)
-      el.removeEventListener("pointerup", up)
-      el.removeEventListener("pointercancel", up)
-    }
-    el.addEventListener("pointermove", move)
-    el.addEventListener("pointerup", up)
-    el.addEventListener("pointercancel", up)
+  }
+
+  const onPointerEnd = (e: React.PointerEvent) => {
+    if (!pointers.current.delete(e.pointerId)) return
+    // Lifting one finger of a pinch continues as a pan with the other.
+    startGesture()
   }
 
   // When zoomed past fit, leave room around the diagram so any edge can be panned to the middle.
@@ -165,6 +210,9 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
     <div
       ref={scroller}
       onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerEnd}
+      onPointerCancel={onPointerEnd}
       onAuxClick={(e) => e.button === 1 && e.preventDefault()}
       className={cn(
         "h-full w-full touch-none overflow-auto select-none",

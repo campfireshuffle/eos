@@ -134,7 +134,7 @@ export function Editor({ id }: { id: string }) {
     return <main className="flex-1 bg-card md:rounded-tl-xl" />
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-2">
+    <div className="flex min-w-0 flex-1 flex-col gap-2 max-md:h-svh">
       <div className="flex items-center gap-1.5 pt-1.5 pr-2 pl-1.5">
         <SidebarToggle />
         <HistoryNav />

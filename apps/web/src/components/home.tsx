@@ -33,25 +33,28 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   }
 
   return (
-    <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-card md:rounded-tl-xl">
-      <header className="flex items-center gap-2 border-b border-border py-3.5 pr-4 pl-4 md:pl-6">
-        <SidebarToggle />
-        <HistoryNav />
-        <h1 className="flex-1 text-[15px] font-medium">{route.deleted ? "Deleted" : "Diagrams"}</h1>
-        <div className="relative w-[280px] max-md:hidden">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+    <main className="relative flex min-w-0 flex-1 flex-col bg-card md:overflow-hidden md:rounded-tl-xl">
+      {/* Sticks to the top on phones, where the page itself scrolls. */}
+      <div className="z-20 bg-card max-md:sticky max-md:top-0">
+        <header className="flex items-center gap-2 border-b border-border py-3.5 pr-4 pl-4 md:pl-6">
+          <SidebarToggle />
+          <HistoryNav />
+          <h1 className="flex-1 text-[15px] font-medium">{route.deleted ? "Deleted" : "Diagrams"}</h1>
+          <div className="relative w-[280px] max-md:hidden">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search diagrams" className="pl-8" />
+          </div>
+          <Button onClick={create} aria-label="New diagram">
+            <Plus /> <span className="max-sm:hidden">New diagram</span>
+          </Button>
+        </header>
+        <div className="relative border-b border-border px-4 py-2.5 md:hidden">
+          <Search className="pointer-events-none absolute top-1/2 left-6.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search diagrams" className="pl-8" />
         </div>
-        <Button onClick={create} aria-label="New diagram">
-          <Plus /> <span className="max-sm:hidden">New diagram</span>
-        </Button>
-      </header>
-      <div className="relative border-b border-border px-4 py-2.5 md:hidden">
-        <Search className="pointer-events-none absolute top-1/2 left-6.5 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search diagrams" className="pl-8" />
       </div>
 
-      <Marquee className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4 md:p-6">
+      <Marquee className="flex flex-1 flex-col gap-5 p-4 md:min-h-0 md:overflow-y-auto md:p-6">
         <div className="flex flex-wrap items-center gap-2">
           {/* Filter chips take their own row on narrow screens; the view controls stay right-aligned. */}
           <div className="flex min-w-0 flex-1 basis-full flex-wrap items-center gap-2 empty:hidden sm:basis-0">

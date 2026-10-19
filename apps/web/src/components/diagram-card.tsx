@@ -85,7 +85,8 @@ function Thumbnail({ id, updatedAt }: { id: string; updatedAt: number }) {
   return (
     <div
       ref={ref}
-      className="pele-thumb flex aspect-[268/150] items-center justify-center overflow-hidden bg-background p-4 [&_svg]:max-h-full [&_svg]:max-w-full"
+      // The SVG is sized to fit in app.css.
+      className="pele-thumb relative flex aspect-[268/150] items-center justify-center overflow-hidden bg-background"
       dangerouslySetInnerHTML={svg ? { __html: svg } : undefined}
     >
       {svg === "" ? <span className="text-xs text-[var(--eos-faint)]">Can’t render</span> : null}

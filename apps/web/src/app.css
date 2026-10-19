@@ -1,5 +1,24 @@
 /* Pele diagrams inherit the Eos palette through --pele-* variables (see globals.css). */
 .pele-thumb svg {
-  height: auto;
   pointer-events: none;
+}
+
+/* Fit the card thumbnail: Pele inlines width/height/max-width on the SVG, so override them.
+   The default preserveAspectRatio then letterboxes the diagram inside the padded box. */
+.pele-thumb svg {
+  position: absolute;
+  inset: 1rem;
+  width: calc(100% - 2rem) !important;
+  height: calc(100% - 2rem) !important;
+  max-width: none !important;
+}
+
+/* iOS Safari zooms into any focused field with text under 16px. Keep fields at 16px on touch screens. */
+@media (hover: none) and (pointer: coarse) {
+  input,
+  textarea,
+  select,
+  .cm-editor {
+    font-size: 16px !important;
+  }
 }

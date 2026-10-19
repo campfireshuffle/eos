@@ -49,7 +49,8 @@ function Shell({ route, children }: { route: Route; children: ReactNode }) {
   if (mobile) {
     return (
       <>
-        <div className="flex h-svh flex-col">{children}</div>
+        {/* On phones the page itself scrolls (so Safari can collapse its toolbar); the editor pins itself to the viewport. */}
+        <div className="flex min-h-svh flex-col">{children}</div>
         <Sheet open={mobileNavOpen} onOpenChange={(open) => setUi({ mobileNavOpen: open })}>
           <SheetContent side="left" showCloseButton={false} className="w-72 max-w-[85vw] bg-background p-0">
             <SheetTitle className="sr-only">Navigation</SheetTitle>
