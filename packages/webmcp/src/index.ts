@@ -2,6 +2,7 @@ import {
   decodeShare,
   encodeShare,
   readBackup,
+  type Backup,
   renderSvg,
   shareUrl,
   validate,
@@ -122,6 +123,16 @@ function check(source: string) {
 export function createTools(eos: Eos, ui: UiBridge): Tool[] {
   const agent = (tool: string, changes?: string[]): Actor => ({ kind: "agent", tool, ...(changes ? { changes } : {}) })
   const notFound = (id: unknown) => fail("not_found", `No diagram with id ${String(id)}`)
+  /**
+   * The version of each diagram's source the agent last saw. Its later source edits are
+   * applied as changes from that version, so the person's edits made in between survive.
+   */
+  const lastSeen = new Map<DiagramId, string>()
+  const seen = async (id: DiagramId, version?: string) => {
+    const v = version ?? (await eos.version(id))
+    lastSeen.set(id, v)
+    return v
+  }
   /** Asks the person, unless they turned confirmations off. Returns a failure result to send back, or null to go ahead. */
   const ask = async (signal: AbortSignal | undefined, message: string, declined: string, action?: string) => {
     if (signal?.aborted) return fail("cancelled", "The call was cancelled")
@@ -187,6 +198,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
           }
         }
         const entries = history ? await eos.history(d.id, 500) : []
+        await seen(d.id, version)
         return ok({
           diagram: { ...d, source },
           version: await eos.version(d.id),
@@ -303,13 +315,13 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
         if (i.starred) await eos.setStarred(id, true, agent("create_diagram"))
         if (i.open !== false) ui.openDiagram(id)
         const d = (await eos.getDiagram(id))!
-        return ok({ id, version: await eos.version(id), ...check(d.source) })
+        return ok({ id, version: await seen(id), ...check(d.source) })
       },
     }),
     tool({
       name: "update_diagram",
       description:
-        'Edit a diagram. Every field is optional and the edit lands as one change in history, credited to the agent: title, source (full Mermaid; applied as a minimal diff), starred, addTags, removeTags. revert: "undo" or "redo" steps the agent\'s own edits (never the person\'s; refused if the person has edited since), or a version id from get_diagram\'s history restores that version. deleted: true moves it to Deleted (asks the person; reversible), false restores it. Pass expectedVersion from get_diagram to refuse the edit if the person changed it meanwhile.',
+        'Edit a diagram. Every field is optional and the edit lands as one change in history, credited to the agent: title, source (full Mermaid; applied as a minimal diff), starred, addTags, removeTags. revert: "undo" or "redo" steps back or forward through the agent\'s own edits, keeping the person\'s, or a version id from get_diagram\'s history restores that version. deleted: true moves it to Deleted (asks the person; reversible), false restores it. A new source is merged as the changes you made to the version you last read, so edits the person made since then are kept; pass expectedVersion from get_diagram to refuse the edit instead if they changed anything.',
       input: {
         id: z.string(),
         title: z.optional(z.string()),
@@ -335,13 +347,6 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
         if (i.revert !== undefined) {
           const r = i.revert
           if (r === "undo" || r === "redo") {
-            // Undoing over the person's newer edit could overwrite it (titles and tags are last-write-wins).
-            const [latest] = await eos.history(id, 1)
-            if (latest && latest.actor.kind !== "agent")
-              return fail(
-                "person_edited",
-                "The person has edited since the agent's last change. Restore a version id from history, or edit directly."
-              )
             const done = await eos[r](id, "agent", agent("update_diagram", [r]))
             if (!done) return fail("nothing_to_revert", `No agent edit to ${r}`)
           } else {
@@ -357,7 +362,8 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
           await eos.editDiagram(
             id,
             { title: i.title, source: i.source, addTags: i.addTags, removeTags: i.removeTags },
-            agent("update_diagram", [...new Set(changes)])
+            agent("update_diagram", [...new Set(changes)]),
+            { base: i.expectedVersion ?? lastSeen.get(id) }
           )
         }
         if (i.starred !== undefined) await eos.setStarred(id, i.starred, agent("update_diagram", ["starred"]))
@@ -368,7 +374,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
         } else if (i.deleted === false) await eos.restoreDiagram(id)
 
         const now = (await eos.getDiagram(id))!
-        return ok({ version: await eos.version(id), ...check(now.source), agentUndo: await eos.canUndo(id, "agent") })
+        return ok({ version: await seen(id), ...check(now.source), agentUndo: await eos.canUndo(id, "agent") })
       },
     }),
     tool({
@@ -475,8 +481,9 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
       annotations: { consequentialHint: true, destructiveHint: true },
       execute: async ({ data, mode }, signal) => {
         // Check the file before asking, so the person is never asked to replace their library with junk.
+        let backup: Backup
         try {
-          readBackup(data)
+          backup = readBackup(data)
         } catch (error) {
           return fail("invalid_input", `${(error as Error).message}. Pass what export returns with format backup.`)
         }
@@ -484,7 +491,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
           const refused = await ask(signal, "The agent wants to replace all your diagrams with a backup.", "The person declined", "Replace")
           if (refused) return refused
         }
-        await eos.importBackup(data, mode)
+        await eos.importBackup(backup, mode)
         await leaveMissingDiagram()
         return ok({ counts: await eos.counts() })
       },

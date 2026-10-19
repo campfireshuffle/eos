@@ -75,23 +75,36 @@ describe("webmcp tools", () => {
     expect(edit.ok).toBe(true)
     expect((await call("update_diagram", { id, title: "x", expectedVersion: version })).code).toBe("stale")
 
-    // The agent can undo its own edit while it's the latest change...
+    // The agent's undo steps back its own text changes; title and tags are details, not undone.
     expect((await call("update_diagram", { id, revert: "undo" })).ok).toBe(true)
     let { diagram } = await call("get_diagram", { id })
-    expect(diagram.meta.title).toBe("Agent")
     expect(diagram.source).toBe("flowchart TD\n  A-->B")
+    expect(diagram.meta.title).toBe("Renamed")
     await call("update_diagram", { id, revert: "redo" })
+    expect((await call("get_diagram", { id })).diagram.source).toBe("flowchart TD\n  A-->C")
 
-    // ...but not once the person has edited since, and the person's ⌘Z skips agent edits.
-    await eos.editDiagram(id, { title: "Person's title" })
-    expect((await call("update_diagram", { id, revert: "undo" })).code).toBe("person_edited")
+    // You and the agent are equals: each undoes only their own edits, whoever edited last.
+    await eos.setSource(id, "flowchart TD\n  A-->C\n  C-->P")
+    await call("update_diagram", { id, source: "flowchart TD\n  Z-->C\n  C-->P" })
+    expect((await call("update_diagram", { id, revert: "undo" })).ok).toBe(true)
+    ;({ diagram } = await call("get_diagram", { id }))
+    expect(diagram.source).toBe("flowchart TD\n  A-->C\n  C-->P") // the person's line stays
     await eos.undo(id)
     ;({ diagram } = await call("get_diagram", { id }))
-    expect(diagram.meta.title).toBe("Renamed")
-    expect(diagram.source).toBe("flowchart TD\n  A-->C")
+    expect(diagram.source).toBe("flowchart TD\n  A-->C") // the person's ⌘Z removes only their line
     const { history } = await call("get_diagram", { id, history: true })
     expect(history.some((e: any) => e.actor.kind === "agent" && e.changes.includes("source"))).toBe(true)
     expect(history.some((e: any) => e.actor.kind === "user")).toBe(true)
+  })
+
+  it("merges its edit with what the person typed after it read the diagram", async () => {
+    const { call, eos } = await setup()
+    const { id } = await call("create_diagram", { source: "line one\nline two", open: false })
+    const { diagram } = await call("get_diagram", { id })
+    await eos.setSource(id, "line one\nline two\nperson's line") // typed while the agent was working
+    const edit = await call("update_diagram", { id, source: diagram.source.replace("line one", "LINE ONE") })
+    expect(edit.ok).toBe(true)
+    expect((await call("get_diagram", { id })).diagram.source).toBe("LINE ONE\nline two\nperson's line")
   })
 
   it("reports parse errors and exports every format", async () => {
