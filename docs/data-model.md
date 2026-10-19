@@ -36,7 +36,7 @@ flowchart LR
 
   subgraph Loro["Loro CRDT"]
     DiagramDoc["Diagram LoroDoc<br/>source · meta"]
-    WorkspaceDoc["Workspace LoroDoc<br/>starred · tag records"]
+    WorkspaceDoc["Workspace LoroDoc<br/>starred · tag emoji"]
     Undo["UndoManager<br/>(this tab's peer)"]
   end
 
@@ -63,7 +63,7 @@ flowchart LR
   Theme --> Preview
   Actions --> Settings
 
-  DiagramDoc <-- "update · hello · catchup" --> BC["BroadcastChannel<br/>other tabs"]
+  DiagramDoc <-- "update · index · settings · close" --> BC["BroadcastChannel<br/>other tabs"]
   Actions -- "encode" --> Share["Share link<br/>#/import?d=…"]
   Share -- "import as new doc" --> DiagramDoc
   Persist["navigator.storage.persist()"] -.-> IDB
@@ -112,7 +112,7 @@ Notes:
 
 ## 1a. The workspace document
 
-Which tags a diagram has is a property of the diagram, so it travels with it in `meta.tags`, can be included in a share link, and shows up in that diagram's history. Being **starred**, and the **look of a tag** (its emoji and position in the sidebar), are personal library organisation, not diagram content. Those live in one workspace-level `LoroDoc`, stored under id `"workspace"` in the same `snapshots`/`updates` stores and synced over `eos:library`.
+Which tags a diagram has is a property of the diagram, so it travels with it in `meta.tags`, can be included in a share link, and shows up in that diagram's history. Being **starred**, and a **tag's emoji**, are personal library organisation, not diagram content. Those live in one workspace-level `LoroDoc`, stored under id `"__workspace"` in the same `snapshots`/`updates` stores and synced over the `eos` channel (§5).
 
 Reasons for keeping this in a separate doc:
 
@@ -122,18 +122,14 @@ Reasons for keeping this in a separate doc:
 
 ```ts
 // Roots of the workspace doc
-//   starred: LoroMap<DiagramId, number>   value = starredAt (ms); delete key to unstar
-//   tags:    LoroMap<TagPath, LoroMap>    one entry per tag that has been customised
-interface TagRecord {
-  path: TagPath // map key, e.g. "work/backend"; parent is implied by the path
-  emoji?: string // a single grapheme; missing → render "#"
-  order?: string // fractional index among siblings; missing → alphabetical after ordered ones
-}
+//   starred:  LoroMap<DiagramId, number>  value = starredAt (ms); delete key to unstar
+//   tagEmoji: LoroMap<TagPath, string>    a single grapheme per tag that has one; missing → render "#"
 ```
 
-- **Tag tree:** take the union of every tag in the index rows and every key in `workspace.tags`, split each on `/`, and nest. A tag with no diagrams stays in the tree only if it has a `TagRecord`. Otherwise it disappears when its last diagram drops it, the way it does in Bear.
-- **Renaming or moving a tag** (`work/backend` → `eng/backend`): one commit per affected diagram doc rewrites that tag and every tag under it, with origin `"library:retag"`, so it is not on the user's undo stack. Then one workspace commit moves the `TagRecord` keys. These are not atomic across docs, so the rename is idempotent and resumes on the next open if it was interrupted.
-- **Deleting a diagram** also removes its `starred` key.
+- **Tag tree:** only tags in use. Take every tag prefix in the index rows of diagrams that aren't deleted, split on `/`, nest, and sort alphabetically, attaching each tag's emoji from `tagEmoji`. A tag disappears when its last diagram drops it, the way it does in Bear; its emoji stays in `tagEmoji` and comes back if the tag is used again.
+- **Renaming or moving a tag** (`work/backend` → `eng/backend`): one commit per affected diagram doc rewrites that tag and every tag under it, with a `details:` origin so it is not on the user's undo stack. Then one workspace commit moves their `tagEmoji` keys; a tag merged into one that has its own emoji keeps that one. These are not atomic across docs, but the rename is idempotent, so running it again after an interruption finishes it.
+- **Deleting a tag** removes it and every tag under it from each diagram, then drops their `tagEmoji` keys.
+- **Deleting a diagram** keeps its `starred` key, so it's still starred if restored; purging it removes the key.
 - Edits to the workspace doc are committed with `{ actor: { kind: "user", tab } }` but have no UI history.
 
 ## 2. IndexedDB schema
@@ -145,7 +141,7 @@ interface EosDB {
   /** Latest compacted snapshot per diagram. */
   snapshots: {
     key: DiagramId
-    value: { id: DiagramId; bytes: Uint8Array; vv: Uint8Array /* VersionVector.encode() */; savedAt: number }
+    value: { id: DiagramId; bytes: Uint8Array; savedAt: number }
   }
   /** Append-only log of updates since the snapshot. */
   updates: {
@@ -207,23 +203,16 @@ async function openDiagram(id: DiagramId): Promise<LoroDoc> {
 
 ### Compaction
 
-Compact a diagram when **any** of these is true:
-
-- it has more than 200 log entries,
-- the log for that diagram is over 512 KB,
-- the doc is being closed, or the tab is going hidden (`visibilitychange`), and there have been more than 20 entries since the last compaction.
+Compact a diagram once its log has more than 200 entries, checked after each write (`persistDoc` in `docs.ts`).
 
 To compact, in one `readwrite` transaction over `snapshots` + `updates`:
 
 ```ts
-const bytes = doc.export({ mode: "snapshot" }) // full history kept
-const vv = doc.oplogVersion().encode()
-await tx.objectStore("snapshots").put({ id, bytes, vv, savedAt: Date.now() })
-// delete only the log rows the snapshot covers (keys <= lastKeyRead), so a concurrent
-// write from another tab that landed after we read the log survives.
+await tx.objectStore("snapshots").put({ id, bytes: doc.export({ mode: "snapshot" }), savedAt: Date.now() }) // full history kept
+// then delete that diagram's log rows, read inside the same transaction, so none written meanwhile are lost
 ```
 
-Two tabs may both compact. That is safe: each one deletes only the keys it read before taking its snapshot, and every snapshot contains all ops the tab has seen.
+Two tabs may both compact. That is safe: the transaction makes the snapshot and the deletes atomic, and every snapshot contains all ops the tab has seen.
 
 Full history is kept forever. We do not use `{ mode: "shallow-snapshot" }`, because Mermaid sources are small and history is a feature. If size becomes a problem, add an explicit "Trim history" action that exports `shallow-snapshot` at a chosen frontier (see Open questions).
 
@@ -244,17 +233,16 @@ function matches(row: DiagramIndexRow, q: LibraryQuery) {
 }
 ```
 
-**Strategy:** load every `diagrams` row into memory at startup (roughly 400 B each plus the diagram source). Filter and sort in JS, using `Intl.Collator` on `titleKey` for Title. Keep the in-memory copy current from local writes and from `eos:library` messages. At expected scale this takes well under a frame, and it avoids the IndexedDB limitation that blocks doing this in the database: a `multiEntry` index cannot be compound, so there is no `[tagPrefix, updatedAt]` index over an array field.
+**Strategy:** read every `diagrams` row for each query (roughly 400 B each plus the diagram source). Filter and sort in JS, comparing `titleKey` with `localeCompare` for Title. Queries rerun on local writes and on `index` messages from other tabs. At expected scale this takes well under a frame, and it avoids the IndexedDB limitation that blocks doing this in the database: a `multiEntry` index cannot be compound, so there is no `[tagPrefix, updatedAt]` index over an array field.
 
-Indexes are still useful for the first paint, before every row has loaded, and for direct lookups:
+The `diagrams` store has two indexes:
 
-- `byUpdatedAt`, `byCreatedAt`, `byTitleKey`: the first screen of an unfiltered grid comes from a cursor, and the rest streams in.
-- `byStarred` on `[starred, updatedAt]` for the Starred chip.
-- `byTag` (multiEntry over `tagPrefixes`): the key `"work"` returns everything under `work/*`.
+- `byUpdatedAt`.
+- `byTag` (multiEntry over `tagPrefixes`): the key `"work"` returns everything under `work/*`. Renaming or deleting a tag uses it to find the diagrams to change.
 
 **Fallback past ~20k diagrams:** add a `tagMembership` store with rows `{ prefix, id, updatedAt, createdAt, titleKey, starred }` and compound indexes `[prefix, updatedAt]` etc., one row per (diagram, tag prefix). Query the most selective chip through its index and filter the remaining chips in memory.
 
-The last-used `sort` is saved in `settings.library.sort`. Chips are view state only and are reflected in the URL hash (`#/?tag=work/backend&starred=1`) so Back/Forward work.
+Sort, grouping, search and chips are view state only and live in the URL hash (`#/?tag=work/backend&starred=1&sort=title`) so Back/Forward work.
 
 **Rebuilding the index** (after a migration or corruption): open each diagram doc and the workspace doc, re-derive the rows, and rewrite `diagrams`.
 
@@ -366,22 +354,20 @@ While a tab is detached, imports from other tabs are buffered in the oplog and n
 
 ## 5. Cross-tab sync (BroadcastChannel)
 
-Each open diagram uses one channel, `eos:doc:<id>`. Messages:
+Every tab joins one channel, `eos`. Messages:
 
 ```ts
-type SyncMsg =
-  | { t: "update"; from: TabId; bytes: Uint8Array } // local update, already persisted
-  | { t: "hello"; from: TabId; vv: Uint8Array } // on open: my oplogVersion().encode()
-  | { t: "catchup"; from: TabId; to: TabId; bytes: Uint8Array } // export({mode:"update", from: theirVV})
-  | { t: "presence"; from: TabId; actor: "user" | "agent"; cursor?: Uint8Array } // optional, via EphemeralStore later
-  | { t: "deleted"; from: TabId } // diagram soft-deleted elsewhere
+interface SyncMessage {
+  type: "update" | "index" | "settings" | "close"
+  id?: DiagramId
+  bytes?: Uint8Array
+}
 ```
 
-- When a local commit happens, `subscribeLocalUpdates(bytes)` first writes to IndexedDB (§2), **then** posts `update`. A tab that missed a broadcast can still recover from disk.
-- When a tab receives `update`, it calls `doc.import(bytes)` and does not persist the bytes.
-- When a tab opens, it loads from disk and posts `hello`. Any peer that is ahead replies `catchup` with `export({ mode: "update", from: VersionVector.decode(vv) })`. Duplicates from several responders are harmless.
-- A separate `eos:library` channel broadcasts `{ t: "index", id }` whenever a `diagrams` row changes, so other tabs refresh their grid and tag tree.
-- If an `import` returns a non-null `ImportStatus.pending` (missing dependencies), the tab sends `hello` again to request a catch-up.
+- `update` (`id`, `bytes`): a local change to a diagram, or to the workspace doc (`id: "__workspace"`). `subscribeLocalUpdates(bytes)` posts it as the write to IndexedDB (§2) is queued. A receiving tab calls `doc.import(bytes)` if it has that doc open and does not persist the bytes; a tab without it open reads it from disk when it opens it.
+- `index` (`id`): a `diagrams` row changed, so other tabs refresh their grid and tag tree.
+- `settings`: settings changed; other tabs re-read them.
+- `close` (`id?`): a diagram was purged, or with no `id` every diagram was deleted. Other tabs close their open copies so they stop saving edits to data that is gone.
 
 ## 6. Share links
 
@@ -427,7 +413,7 @@ async function ensurePersisted(): Promise<boolean> {
 
 ## 8. Settings record
 
-Settings are not CRDT data. They are a single plain record, last-write-wins, and are broadcast on `eos:library` as `{ t: "settings" }`.
+Settings are not CRDT data. They are a single plain record, last-write-wins, and are broadcast on `eos` as `{ type: "settings" }`.
 
 ```ts
 interface AppSettings {
@@ -451,18 +437,19 @@ Overrides are sanitised before use. Only `--*` keys are accepted. `customCss` is
 
 ## 9. Lifecycle summary
 
-| Event             | Doc                                              | IndexedDB                                          | Broadcast          |
-| ----------------- | ------------------------------------------------ | -------------------------------------------------- | ------------------ |
-| New diagram       | `new LoroDoc()`, set meta, commit `user`         | put snapshot + index row                           | `index`            |
-| Keystroke         | `text.insert/delete` (auto-commit on debounce)   | append `updates`                                   | `update`           |
-| Agent tool        | `agentEdit()`                                    | append `updates`                                   | `update`           |
-| Other tab edit    | `import(bytes)`                                  | —                                                  | —                  |
-| Undo              | `undo.undo()`                                    | append `updates`                                   | `update`           |
-| Restore version   | `revertTo` + commit                              | append `updates`                                   | `update`           |
-| Star / unstar     | workspace `starred` set/delete                   | workspace `updates`; mirror `starred` in index row | `index`            |
-| Tag emoji / order | workspace `tags` entry                           | workspace `updates`                                | `index`            |
-| Delete            | set `deletedAt` on index row; drop `starred` key | soft delete; purge after 30 days                   | `deleted`, `index` |
-| Open share link   | new doc from payload                             | snapshot + index row                               | `index`            |
+| Event           | Doc                                              | IndexedDB                                          | Broadcast |
+| --------------- | ------------------------------------------------ | -------------------------------------------------- | --------- |
+| New diagram     | `new LoroDoc()`, set meta, commit `user`         | put snapshot + index row                           | `index`   |
+| Keystroke       | `text.insert/delete` (auto-commit on debounce)   | append `updates`                                   | `update`  |
+| Agent tool      | `agentEdit()`                                    | append `updates`                                   | `update`  |
+| Other tab edit  | `import(bytes)`                                  | —                                                  | —         |
+| Undo            | `undo.undo()`                                    | append `updates`                                   | `update`  |
+| Restore version | `revertTo` + commit                              | append `updates`                                   | `update`  |
+| Star / unstar   | workspace `starred` set/delete                   | workspace `updates`; mirror `starred` in index row | `index`   |
+| Tag emoji       | workspace `tagEmoji` entry                       | workspace `updates`                                | `index`   |
+| Delete          | set `deletedAt` on index row; keep `starred` key | soft delete; purge from Deleted                    | `index`   |
+| Purge           | close the doc; drop its `starred` key            | delete snapshot, `updates` and index row           | `close`   |
+| Open share link | new doc from payload                             | snapshot + index row                               | `index`   |
 
 ## 10. WebMCP tools
 
