@@ -57,6 +57,7 @@ export function TagTree({
     density: "default",
     itemHeight: 32,
     flattenEmptyDirectories: false,
+    sort: byTagPath,
     renderRowDecoration: ({ row }) => {
       const count = handlers.current.counts.get(
         handlers.current.toTag.get(row.path) ?? ""
@@ -313,6 +314,21 @@ function useLeafStyles(wrapper: React.RefObject<HTMLDivElement | null>, leaves: 
     apply()
     return () => cancelAnimationFrame(raf)
   }, [wrapper, leaves])
+}
+
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" })
+
+/**
+ * Orders tree paths alphabetically by tag name, segment by segment, ignoring the
+ * emoji or "#" that starts each segment. Parents come before their children.
+ */
+function byTagPath(a: { segments: readonly string[] }, b: { segments: readonly string[] }): number {
+  const name = (segment: string) => segment.slice(segment.indexOf(" ") + 1)
+  for (let i = 0; i < Math.min(a.segments.length, b.segments.length); i++) {
+    const order = collator.compare(name(a.segments[i]), name(b.segments[i]))
+    if (order) return order
+  }
+  return a.segments.length - b.segments.length
 }
 
 function segment(tag: TagRecord): string {
