@@ -101,7 +101,7 @@ function NavItem({
         onDropIds(readDraggedIds(e.dataTransfer))
       }}
       className={cn(
-        "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground [&_svg]:size-4 [&_svg]:shrink-0",
+        "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent/30 hover:text-foreground [&_svg]:size-4 [&_svg]:shrink-0",
         active && "bg-accent font-medium text-foreground",
         over && "outline outline-1 outline-[var(--eos-champagne)]",
       )}

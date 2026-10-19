@@ -24,11 +24,22 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
   // Ignore zoom requests made before this preview mounted (e.g. on another diagram).
   const handled = useRef(zoomRequest?.n ?? 0)
 
+  // The last scale actually applied, and the current mode, for use inside render callbacks.
+  const applied = useRef<number | null>(null)
+  const modeRef = useRef<"fit" | number>("fit")
+
   const measure = () => {
     const svg = host.current?.querySelector("svg")
     onSvg(svg ?? null)
     const vb = svg?.viewBox.baseVal
-    if (vb && vb.width > 0) setNatural({ w: vb.width, h: vb.height })
+    if (!vb || vb.width <= 0) return
+    setNatural((prev) => {
+      if (prev && (prev.w !== vb.width || prev.h !== vb.height) && modeRef.current === "fit" && applied.current) {
+        // Editing changed the diagram's size: keep the zoom level instead of re-fitting.
+        setMode(applied.current)
+      }
+      return prev && prev.w === vb.width && prev.h === vb.height ? prev : { w: vb.width, h: vb.height }
+    })
   }
 
   useEffect(() => {
@@ -64,6 +75,7 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
   const pad = 48
   const fit = natural && box.w ? Math.min((box.w - pad) / natural.w, (box.h - pad) / natural.h, MAX) : 1
   const scale = mode === "fit" ? fit : mode
+  modeRef.current = mode
   const scaleRef = useRef(scale)
   scaleRef.current = scale
 
@@ -77,6 +89,7 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
       maxWidth: "none",
       display: "block",
     })
+    applied.current = scale
     setUi({ zoomScale: scale })
   }, [scale, natural, source])
 

@@ -1,4 +1,4 @@
-import { Plus, Search, X } from "lucide-react"
+import { Plus, Search } from "lucide-react"
 import { useEffect, useState } from "react"
 
 import type { LibrarySort } from "@eos/core"
@@ -8,10 +8,11 @@ import { NativeSelect, NativeSelectOption } from "@workspace/ui/components/nativ
 
 import { useEos, useLibrary, useTags } from "@/lib/eos"
 import { diagramHref, homeHref, navigate, type Route } from "@/lib/router"
-import { clearSelection, useSelection } from "@/lib/selection"
+import { clearSelection } from "@/lib/selection"
 
 import { DiagramCard } from "./diagram-card"
 import { Marquee } from "./marquee"
+import { SelectionBar } from "./selection-bar"
 import { Pill } from "./pill"
 import { HistoryNav } from "./history-nav"
 import { SidebarToggle } from "./sidebar-toggle"
@@ -22,7 +23,6 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   const rows = useLibrary({ query, starred: route.starred, tags: route.tag ? [route.tag] : [], sort: route.sort })
   const tags = useTags()
   const emoji = route.tag ? findEmoji(tags ?? [], route.tag) : null
-  const selection = useSelection()
   useEffect(() => clearSelection(), [route.tag, route.starred])
 
   const create = async () => {
@@ -32,7 +32,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   }
 
   return (
-    <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-card md:rounded-none md:rounded-tl-xl">
+    <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-card md:rounded-none md:rounded-tl-xl">
       <header className="flex items-center gap-2 border-b border-border py-3.5 pr-4 pl-4 md:pl-6">
         <SidebarToggle />
         <HistoryNav />
@@ -63,14 +63,6 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
                 {route.tag}
               </Pill>
             )}
-            {selection.size > 0 && (
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Pill>{selection.size} selected</Pill>
-                <Button variant="ghost" size="xs" onClick={clearSelection} className="text-muted-foreground">
-                  Clear <X />
-                </Button>
-              </span>
-            )}
           </div>
           <NativeSelect
             value={route.sort}
@@ -97,6 +89,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
           </div>
         )}
       </Marquee>
+      <SelectionBar />
     </main>
   )
 }

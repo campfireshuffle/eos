@@ -34,7 +34,7 @@ export function SettingsDialog() {
               type="button"
               onClick={() => setUi({ settingsTab: id })}
               className={cn(
-                "flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[13px] text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                "flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[13px] text-muted-foreground hover:bg-accent/30 hover:text-foreground",
                 tab === id && "bg-accent font-medium text-foreground",
               )}
             >

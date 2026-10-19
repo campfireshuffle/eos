@@ -251,7 +251,7 @@ const TREE_STYLE = {
   "--trees-selected-bg-override": "var(--eos-raised)",
   "--trees-selected-fg-override": "var(--eos-body)",
   "--trees-selected-focused-border-color-override": "transparent",
-  "--trees-theme-list-hover-bg": "color-mix(in srgb, var(--eos-raised) 60%, transparent)",
+  "--trees-theme-list-hover-bg": "color-mix(in srgb, var(--eos-raised) 30%, transparent)",
   "--trees-accent-override": "var(--eos-champagne)",
   "--trees-focus-ring-color-override": "var(--eos-line-active)",
   "--trees-focus-ring-width-override": "1px",

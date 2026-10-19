@@ -57,6 +57,16 @@ export function Editor({ id }: { id: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [diagram?.source])
 
+  // Undo/redo only appear once this tab has something to undo or redo.
+  const [history, setHistory] = useState({ canUndo: false, canRedo: false })
+  useEffect(() => {
+    let alive = true
+    void eos.canUndo(id).then((h) => alive && setHistory(h))
+    return () => {
+      alive = false
+    }
+  }, [eos, id, diagram?.source])
+
   const result = useMemo(
     () => (source === null ? null : validate(source)),
     [source]
@@ -138,13 +148,17 @@ export function Editor({ id }: { id: string }) {
         >
           <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-card md:rounded-b-none">
             <PanelHeader title="Source">
-              <IconButton label="Undo" shortcut="⌘Z" onClick={undo}>
-                <Undo2 />
-              </IconButton>
-              <IconButton label="Redo" shortcut="⇧⌘Z" onClick={redo}>
-                <Redo2 />
-              </IconButton>
-              <div className="mx-1 h-4 w-px bg-border" />
+              {(history.canUndo || history.canRedo) && (
+                <>
+                  <IconButton label="Undo" shortcut="⌘Z" onClick={undo} disabled={!history.canUndo}>
+                    <Undo2 />
+                  </IconButton>
+                  <IconButton label="Redo" shortcut="⇧⌘Z" onClick={redo} disabled={!history.canRedo}>
+                    <Redo2 />
+                  </IconButton>
+                  <div className="mx-1 h-4 w-px bg-border" />
+                </>
+              )}
               <IconButton
                 label="Copy source"
                 onClick={() => navigator.clipboard.writeText(source)}
@@ -265,11 +279,13 @@ function IconButton({
   label,
   shortcut,
   onClick,
+  disabled,
   children,
 }: {
   label: string
   shortcut?: string
   onClick: () => void
+  disabled?: boolean
   children: React.ReactNode
 }) {
   return (
@@ -280,6 +296,7 @@ function IconButton({
           size="icon-sm"
           aria-label={label}
           onClick={onClick}
+          disabled={disabled}
           className="text-muted-foreground"
         >
           {children}
