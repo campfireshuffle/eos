@@ -67,6 +67,27 @@ export interface DiagramSnapshot {
   deletedAt?: number
 }
 
+/** One replacement in a text, in the coordinates of the text before the change. */
+export interface TextChange {
+  from: number
+  to: number
+  insert: string
+}
+
+/**
+ * A live link between an editor and a diagram's source. The editor applies each
+ * keystroke with edit(), and hears every other change (other tabs, agents, undo)
+ * through onChange as it lands, so concurrent edits merge instead of overwriting.
+ */
+export interface SourceBinding {
+  /** The source as it is now. */
+  text(): string
+  /** Applies the person's edit. Changes are in ascending order, in the coordinates of text() before the edit. */
+  edit(changes: TextChange[]): void
+  /** Calls `listener` with each change made by anything other than edit(), in the coordinates of the text before it. */
+  onChange(listener: (changes: TextChange[]) => void): () => void
+}
+
 export interface HistoryEntry {
   version: string
   actor: Actor

@@ -13,7 +13,7 @@ import {
 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
-import { validate } from "@eos/core"
+import { validate, type SourceBinding } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
 import {
   DropdownMenu,
@@ -46,22 +46,34 @@ export function Editor({ id }: { id: string }) {
   const eos = useEos()
   const diagram = useDiagram(id)
   const [source, setSource] = useState<string | null>(null)
-  const sentLocally = useRef(new Set<string>())
   const svgRef = useRef<SVGSVGElement | null>(null)
   const editorRef = useRef<CodeEditorHandle | null>(null)
 
-  // Adopt store changes unless they are echoes of our own keystrokes.
+  // The editor syncs with Loro edit by edit; `source` follows it for the preview and checks.
+  const [binding, setBinding] = useState<SourceBinding | null>(null)
   useEffect(() => {
-    if (!diagram) return
-    if (source === null || !sentLocally.current.has(diagram.source)) setSource(diagram.source)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [diagram?.source])
+    let alive = true
+    eos.bindSource(id).then(
+      (b) => {
+        if (!alive) return
+        setBinding(b)
+        setSource(b.text())
+      },
+      () => {} // Gone (deleted, or replaced by a backup); the page shows that.
+    )
+    return () => {
+      alive = false
+    }
+  }, [eos, id])
 
   // Undo/redo only appear once this tab has something to undo or redo.
   const [history, setHistory] = useState({ canUndo: false, canRedo: false })
   useEffect(() => {
     let alive = true
-    void eos.canUndo(id).then((h) => alive && setHistory(h))
+    eos.canUndo(id).then(
+      (h) => alive && setHistory(h),
+      () => {}
+    )
     return () => {
       alive = false
     }
@@ -74,7 +86,10 @@ export function Editor({ id }: { id: string }) {
   useEffect(() => {
     if (!previewing) return setPreviewSource(null)
     let alive = true
-    void eos.getSource(id, previewing.version).then((s) => alive && setPreviewSource(s))
+    eos.getSource(id, previewing.version).then(
+      (s) => alive && setPreviewSource(s),
+      () => {}
+    )
     return () => {
       alive = false
     }
@@ -87,20 +102,8 @@ export function Editor({ id }: { id: string }) {
   const lastValid = useRef<string>("")
   if (result?.ok && shown !== null) lastValid.current = shown
 
-  const onChange = (next: string) => {
-    sentLocally.current.add(next)
-    if (sentLocally.current.size > 200) sentLocally.current = new Set([next])
-    setSource(next)
-    void eos.setSource(id, next)
-  }
-  const undo = () => {
-    sentLocally.current.clear()
-    void eos.undo(id)
-  }
-  const redo = () => {
-    sentLocally.current.clear()
-    void eos.redo(id)
-  }
+  const undo = () => void eos.undo(id).catch(() => {})
+  const redo = () => void eos.redo(id).catch(() => {})
 
   const title = diagram?.meta.title ?? ""
   const actions = useExportActions(title, source ?? "", () => svgRef.current)
@@ -189,16 +192,27 @@ export function Editor({ id }: { id: string }) {
                 {copied ? <Check className="text-[var(--eos-green)]" /> : <Copy />}
               </IconButton>
             </PanelHeader>
-            <CodeEditor
-              key={previewing ? `preview:${previewing.version}` : "live"}
-              value={shown ?? ""}
-              readOnly={!!previewing}
-              onChange={previewing ? undefined : onChange}
-              onUndo={previewing ? undefined : undo}
-              onRedo={previewing ? undefined : redo}
-              errorAt={result && !result.ok ? result.error.line || null : null}
-              handleRef={editorRef}
-            />
+            {previewing ? (
+              <CodeEditor
+                key={`preview:${previewing.version}`}
+                value={previewSource ?? ""}
+                readOnly
+                errorAt={result && !result.ok ? result.error.line || null : null}
+                handleRef={editorRef}
+              />
+            ) : binding ? (
+              <CodeEditor
+                key="live"
+                binding={binding}
+                onChange={setSource}
+                onUndo={undo}
+                onRedo={redo}
+                errorAt={result && !result.ok ? result.error.line || null : null}
+                handleRef={editorRef}
+              />
+            ) : (
+              <div className="min-h-0 flex-1" />
+            )}
             {result?.ok ? (
               <footer className="flex items-center gap-1.5 px-4 py-2.5 text-caption text-muted-foreground">
                 <CircleCheck className="size-3.5 text-[var(--eos-green)]" /> Valid

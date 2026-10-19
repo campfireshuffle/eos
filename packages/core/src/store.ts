@@ -23,9 +23,22 @@ import { SAMPLES } from "./samples"
 import { searchRows } from "./search"
 import type { SharePayload } from "./share"
 import { buildTagTree, normalizeTag, normalizeTags, tagMatches, tagPrefixes } from "./tags"
-import type { Actor, AppSettings, DiagramId, DiagramIndexRow, DiagramSnapshot, HistoryEntry, LibraryFilter, TagRecord } from "./types"
+import type {
+  Actor,
+  AppSettings,
+  DiagramId,
+  DiagramIndexRow,
+  DiagramSnapshot,
+  HistoryEntry,
+  LibraryFilter,
+  SourceBinding,
+  TagRecord,
+  TextChange,
+} from "./types"
 
 const USER: Actor = { kind: "user" }
+/** Origin of keystrokes from a bound editor. Starts with "user", so undo treats them as the person's. */
+const EDITOR_ORIGIN = "user:editor"
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: { mode: "system", customCss: null, diagramCss: null },
@@ -203,6 +216,42 @@ export class Eos {
     const d = await this.openDiagram(id)
     if (!version) return sourceOf(d)
     return d.doc.forkAt(decodeVersion(version)).getText("source").toString()
+  }
+
+  /** Binds an editor to a diagram's source (see SourceBinding). */
+  async bindSource(id: DiagramId): Promise<SourceBinding> {
+    const d = await this.openDiagram(id)
+    return {
+      text: () => d.text.toString(),
+      edit: (changes) => {
+        // Last first, so earlier positions stay valid.
+        for (const c of [...changes].reverse()) {
+          if (c.to > c.from) d.text.delete(c.from, c.to - c.from)
+          if (c.insert) d.text.insert(c.from, c.insert)
+        }
+        // Its own origin, so onChange can skip it; it's still the person's edit for undo and history.
+        d.doc.commit({ origin: EDITOR_ORIGIN, message: JSON.stringify(USER) })
+        void this.afterChange(id, d)
+      },
+      // Loro reports changes synchronously, as they're committed or imported.
+      onChange: (listener) =>
+        d.text.subscribe((batch) => {
+          if (batch.by === "local" && batch.origin === EDITOR_ORIGIN) return
+          for (const event of batch.events) {
+            if (event.diff.type !== "text") continue
+            const changes: TextChange[] = []
+            let pos = 0
+            for (const op of event.diff.diff) {
+              if (op.retain !== undefined) pos += op.retain
+              else if (op.delete !== undefined) {
+                changes.push({ from: pos, to: pos + op.delete, insert: "" })
+                pos += op.delete
+              } else if (op.insert !== undefined) changes.push({ from: pos, to: pos, insert: op.insert })
+            }
+            if (changes.length) listener(changes)
+          }
+        }),
+    }
   }
 
   async setSource(id: DiagramId, source: string, actor: Actor = USER) {

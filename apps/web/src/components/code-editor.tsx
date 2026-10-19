@@ -3,6 +3,8 @@ import { Annotation, EditorState, StateEffect, StateField } from "@codemirror/st
 import { Decoration, EditorView, keymap, lineNumbers, drawSelection, type DecorationSet } from "@codemirror/view"
 import { useEffect, useRef } from "react"
 
+import type { SourceBinding, TextChange } from "@eos/core"
+
 import { languageExtension, type CodeLanguage } from "@/lib/mermaid-language"
 
 const external = Annotation.define<boolean>()
@@ -47,6 +49,7 @@ export interface CodeEditorHandle {
 
 export function CodeEditor({
   value,
+  binding,
   onChange,
   onUndo,
   onRedo,
@@ -58,7 +61,15 @@ export function CodeEditor({
   gutter = true,
   wrap = false,
 }: {
-  value: string
+  /** The text to show. Ignored when `binding` is given. */
+  value?: string
+  /**
+   * Links the editor to a diagram's source in Loro: keystrokes go in as individual
+   * edits and every other change (other tabs, agents, undo) comes out the same way,
+   * so concurrent edits merge instead of overwriting each other.
+   */
+  binding?: SourceBinding
+  /** Called with the full text after every change, local or not. */
   onChange?: (value: string) => void
   /** When given, undo/redo go to these (e.g. Loro); otherwise CodeMirror keeps its own history. */
   onUndo?: () => void
@@ -81,7 +92,7 @@ export function CodeEditor({
     const v = new EditorView({
       parent: host.current!,
       state: EditorState.create({
-        doc: value,
+        doc: binding ? binding.text() : (value ?? ""),
         extensions: [
           gutter ? lineNumbers() : [],
           drawSelection(),
@@ -105,9 +116,13 @@ export function CodeEditor({
           wrap ? EditorView.lineWrapping : [],
           EditorView.contentAttributes.of({ "aria-label": label, spellcheck: "false", autocapitalize: "off" }),
           EditorView.updateListener.of((u) => {
-            if (u.docChanged && !u.transactions.some((t) => t.annotation(external))) {
-              callbacks.current.onChange?.(u.state.doc.toString())
+            if (!u.docChanged) return
+            if (binding && !u.transactions.some((t) => t.annotation(external))) {
+              const changes: TextChange[] = []
+              u.changes.iterChanges((from, to, _fromB, _toB, inserted) => changes.push({ from, to, insert: inserted.toString() }))
+              binding.edit(changes)
             }
+            if (binding || !u.transactions.some((t) => t.annotation(external))) callbacks.current.onChange?.(u.state.doc.toString())
           }),
         ],
       }),
@@ -123,14 +138,34 @@ export function CodeEditor({
         },
       }
     }
-    return () => v.destroy()
+    // Changes from elsewhere arrive as edits, in the coordinates of the text the editor shows.
+    const unbind = binding?.onChange((changes) => {
+      const apply = () => {
+        v.dispatch({ changes, annotations: external.of(true) })
+        // Belt and braces: if the two ever disagree, show what's stored.
+        const stored = binding.text()
+        if (v.state.doc.toString() !== stored) {
+          v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: stored }, annotations: external.of(true) })
+        }
+      }
+      // A change can land while CodeMirror is mid-update, which it refuses; apply it right after.
+      try {
+        apply()
+      } catch {
+        queueMicrotask(apply)
+      }
+    })
+    return () => {
+      unbind?.()
+      v.destroy()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Apply changes that came from elsewhere (undo, agent, other tabs) as a minimal patch.
+  // Without a binding, apply a new value as a minimal patch.
   useEffect(() => {
     const v = view.current
-    if (!v) return
+    if (!v || binding || value === undefined) return
     const prev = v.state.doc.toString()
     if (prev === value) return
     let from = 0
@@ -142,7 +177,7 @@ export function CodeEditor({
       end--
     }
     v.dispatch({ changes: { from, to, insert: value.slice(from, end) }, annotations: external.of(true) })
-  }, [value])
+  }, [value, binding])
 
   useEffect(() => {
     view.current?.dispatch({ effects: setErrorLine.of(errorAt) })

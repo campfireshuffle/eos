@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import { fromBase64, toBase64 } from "./base64"
 import { decodeShare, encodeShare } from "./share"
 import { Eos } from "./store"
+import type { TextChange } from "./types"
 
 let n = 0
 const fresh = () => Eos.create({ dbName: `test-${n++}`, seed: false })
@@ -98,6 +99,60 @@ describe("Eos store", () => {
     const b = await fresh()
     await b.importBackup(backup, "merge")
     expect(await b.getSource(id)).toBe("z")
+  })
+})
+
+describe("editor binding", () => {
+  /** What a bound editor does with reported changes. */
+  const apply = (text: string, changes: TextChange[]) =>
+    [...changes].reverse().reduce((t, c) => t.slice(0, c.from) + c.insert + t.slice(c.to), text)
+  /** An editor bound to a diagram: types with edit() and follows everything else through onChange. */
+  async function editor(eos: Eos, id: string) {
+    const binding = await eos.bindSource(id)
+    const state = { text: binding.text() }
+    binding.onChange((changes) => (state.text = apply(state.text, changes)))
+    const type = (at: number, insert: string) => {
+      const change = { from: at, to: at, insert }
+      state.text = apply(state.text, [change])
+      binding.edit([change])
+    }
+    return { state, type, binding }
+  }
+  const settle = () => new Promise((r) => setTimeout(r, 50))
+
+  it("merges two tabs typing at once, keystroke by keystroke", async () => {
+    const name = `tabs-${n++}`
+    const one = await Eos.create({ dbName: name, seed: false })
+    const id = await one.createDiagram({ source: "line one\nline two" })
+    const two = await Eos.create({ dbName: name, seed: false })
+    const a = await editor(one, id)
+    const b = await editor(two, id)
+    // Interleaved keystrokes, each tab typing before it has heard the other's last one.
+    for (const ch of "AAAA") {
+      a.type(a.state.text.indexOf("\n"), ch)
+      b.type(b.state.text.length, ch.toLowerCase().replace("a", "b"))
+    }
+    await settle()
+    expect(a.state.text).toBe("line oneAAAA\nline twobbbb")
+    expect(b.state.text).toBe(a.state.text)
+    expect(await one.getSource(id)).toBe(a.state.text)
+  })
+
+  it("shows agent edits, undo and redo in the editor without echoing its own keystrokes", async () => {
+    const eos = await fresh()
+    const id = await eos.createDiagram({ source: "flowchart TD\n  A --> B" })
+    const ed = await editor(eos, id)
+    const heard: TextChange[][] = []
+    ed.binding.onChange((c) => heard.push(c))
+    ed.type(ed.state.text.length, "\n  B --> C")
+    expect(heard).toEqual([]) // its own keystroke isn't reported back
+    await eos.editDiagram(id, { source: ed.state.text + "\n  C --> D" }, { kind: "agent", tool: "update_diagram" })
+    expect(ed.state.text).toContain("C --> D")
+    expect(await eos.undo(id)).toBe(true) // the person's undo skips the agent's edit
+    expect(ed.state.text).toBe("flowchart TD\n  A --> B\n  C --> D")
+    expect(await eos.redo(id)).toBe(true)
+    expect(ed.state.text).toBe(await eos.getSource(id))
+    expect(ed.state.text).toContain("B --> C")
   })
 })
 
