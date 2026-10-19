@@ -1,6 +1,5 @@
 import {
-  
-  
+  Check,
   ChevronDown,
   CircleCheck,
   Copy,
@@ -33,6 +32,7 @@ import {
 import { useDefaultLayout } from "react-resizable-panels"
 
 import { useDiagram, useEos } from "@/lib/eos"
+import { useCopy } from "@/lib/use-copy"
 import { useIsMobile } from "@/lib/layout"
 import { homeHref } from "@/lib/router"
 import { getUi, requestZoom, setUi, useUi } from "@/lib/ui-state"
@@ -46,6 +46,7 @@ import { HistoryNav } from "./history-nav"
 import { SidebarToggle } from "./sidebar-toggle"
 
 export function Editor({ id }: { id: string }) {
+  const [copied, copy] = useCopy()
   const eos = useEos()
   const diagram = useDiagram(id)
   const [source, setSource] = useState<string | null>(null)
@@ -209,11 +210,8 @@ export function Editor({ id }: { id: string }) {
                 </>
               )}
               <HistoryMenu id={id} />
-              <IconButton
-                label="Copy source"
-                onClick={() => navigator.clipboard.writeText(shown ?? "")}
-              >
-                <Copy />
+              <IconButton label={copied ? "Copied" : "Copy source"} onClick={() => copy(shown ?? "")}>
+                {copied ? <Check className="text-[var(--eos-green)]" /> : <Copy />}
               </IconButton>
             </PanelHeader>
             <CodeEditor

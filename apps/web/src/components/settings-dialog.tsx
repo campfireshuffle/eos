@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogTitle } from "@workspace/ui/components/dia
 import { cn } from "@workspace/ui/lib/utils"
 
 import { useEos, useSettings } from "@/lib/eos"
+import { useCopy } from "@/lib/use-copy"
 import { download } from "@/lib/files"
 import { currentAppCss, DEFAULT_DIAGRAM_CSS } from "@/lib/theme"
 import type { CodeLanguage } from "@/lib/mermaid-language"
@@ -231,16 +232,12 @@ function Mcp() {
  * for pasting into the address bar.
  */
 function ChromeUrl({ url }: { url: string }) {
-  const [copied, setCopied] = useState(false)
+  const [copied, copy] = useCopy()
   return (
     <button
       type="button"
       title="Copy, then paste into the address bar"
-      onClick={() => {
-        void navigator.clipboard.writeText(url)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 1500)
-      }}
+      onClick={() => copy(url)}
       className="inline-flex max-w-full items-center gap-1 rounded bg-background px-1.5 align-baseline font-mono text-caption break-all text-foreground hover:bg-accent [&_svg]:size-3 [&_svg]:shrink-0"
     >
       {url}
@@ -259,12 +256,13 @@ function Step({ title, children }: { title: string; children: ReactNode }) {
 }
 
 function CodeBlock({ label, code, language }: { label: string; code: string; language: CodeLanguage }) {
+  const [copied, copy] = useCopy()
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-background">
       <div className="flex items-center border-b border-border py-1 pr-1.5 pl-3">
         <span className="flex-1 font-mono text-caption text-[var(--eos-faint)]">{label}</span>
-        <Button variant="ghost" size="icon-xs" aria-label={`Copy ${label}`} onClick={() => navigator.clipboard.writeText(code)}>
-          <Copy />
+        <Button variant="ghost" size="icon-xs" aria-label={copied ? "Copied" : `Copy ${label}`} onClick={() => copy(code)}>
+          {copied ? <Check className="text-[var(--eos-green)]" /> : <Copy />}
         </Button>
       </div>
       <div className="flex text-body [&_.cm-editor]:h-auto">
