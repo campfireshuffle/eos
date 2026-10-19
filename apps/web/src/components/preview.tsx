@@ -63,6 +63,14 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
     if (!vb || vb.width <= 0) return
     const edited = measuredSource.current !== null && measuredSource.current !== sourceRef.current
     measuredSource.current = sourceRef.current
+    // A resize that switched Pele to a different layout: fade the new one in so it doesn't read as a flicker.
+    if (relayout.current) {
+      relayout.current = false
+      const before = laidOutSize.current
+      if (before && (before.w !== vb.width || before.h !== vb.height) && !matchMedia("(prefers-reduced-motion: reduce)").matches)
+        host.current?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: "ease-out" })
+    }
+    laidOutSize.current = { w: vb.width, h: vb.height }
     setNatural((prev) => {
       // Editing changed the diagram's size: keep the zoom level instead of re-fitting.
       // A re-render of the same source (e.g. once web fonts load) re-fits as usual.
@@ -84,6 +92,9 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
   }
   const renderOptions = (maxWidth: number) => ({ zoom: false, responsive: false, maxWidth, onRender: measure })
   const laidOutFor = useRef(0)
+  // Set while a width-driven re-layout is in flight, and the size of the layout it replaces.
+  const relayout = useRef(false)
+  const laidOutSize = useRef<{ w: number; h: number } | null>(null)
 
   useEffect(() => {
     if (!valid) return
@@ -105,6 +116,7 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
       const w = layoutWidth()
       if (!mounted.current || w === laidOutFor.current) return
       laidOutFor.current = w
+      relayout.current = true
       mounted.current.update(sourceRef.current, renderOptions(w))
     }, 150)
     return () => clearTimeout(t)
