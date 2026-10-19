@@ -17,12 +17,13 @@
   </picture>
 </p>
 
-Write Mermaid, see it render instantly with [Pele](https://pele.run), and keep every diagram in your browser.
-No account, no server. Tag and star diagrams, fuzzy-search them, roll back to any version, and share a
+Write Mermaid and the preview updates as you type, rendered by [Pele](https://pele.run), a fast Mermaid
+renderer. Every diagram stays in your browser: no account, no server. Tag and star diagrams, fuzzy-search them, roll back to any version, and share a
 diagram as a link.
 
-Every button in the app is also a [WebMCP](https://github.com/webmachinelearning/webmcp) tool, so an agent
-in your browser can create, edit, organise and theme diagrams just like you. It asks before deleting anything.
+An agent in your browser can do anything you can in the app: create, edit, organise, theme and export
+diagrams. Eos offers it a small set of tools through [WebMCP](https://github.com/webmachinelearning/webmcp),
+a proposed browser standard that lets a page offer tools to AI agents. It asks before deleting anything.
 
 <p align="center">
   <picture>
@@ -33,8 +34,8 @@ in your browser can create, edit, organise and theme diagrams just like you. It 
 
 ## Use
 
-Open [eos.lil.run](https://eos.lil.run). Diagrams are saved to IndexedDB as [Loro](https://loro.dev) CRDT
-documents, sync across tabs and can be backed up from Settings.
+Open [eos.lil.run](https://eos.lil.run). Your diagrams stay in this browser and are never uploaded. They're
+stored with [Loro](https://loro.dev), so edits in one tab show up in your other open tabs. Export a backup from Settings.
 
 ## Develop
 
