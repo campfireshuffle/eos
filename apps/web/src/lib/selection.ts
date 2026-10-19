@@ -10,7 +10,7 @@ const emit = () => listeners.forEach((l) => l())
 export function useSelection(): Set<string> {
   return useSyncExternalStore(
     (cb) => (listeners.add(cb), () => listeners.delete(cb)),
-    () => selected,
+    () => selected
   )
 }
 

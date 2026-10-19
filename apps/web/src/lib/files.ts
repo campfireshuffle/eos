@@ -50,13 +50,17 @@ function embeddedFontCss(): Promise<string> {
     })
     const faces = await Promise.all(
       rules
-        .filter(({ rule }) => loaded.has(plain(rule.style.getPropertyValue("font-family")) + plain(rule.style.getPropertyValue("unicode-range") || "U+0-10FFFF")))
+        .filter(({ rule }) =>
+          loaded.has(
+            plain(rule.style.getPropertyValue("font-family")) + plain(rule.style.getPropertyValue("unicode-range") || "U+0-10FFFF")
+          )
+        )
         .map(async ({ rule, base }) => {
           const src = rule.style.getPropertyValue("src").match(/url\(["']?([^"')]+)["']?\)/)?.[1]
           if (!src) return ""
           const data = await blobToDataUrl(await (await fetch(new URL(src, base))).blob())
           return rule.cssText.replace(/src:[^;]+;/, `src: url("${data}");`)
-        }),
+        })
     )
     return faces.join("\n")
   })().catch(() => "")

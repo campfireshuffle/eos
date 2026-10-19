@@ -61,7 +61,7 @@ export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramInde
       aria-selected={selected}
       className={cn(
         "group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors select-none [-webkit-touch-callout:none] hover:border-[var(--eos-line-active)]",
-        selected && "border-[var(--eos-champagne)] ring-1 ring-[var(--eos-champagne)] hover:border-[var(--eos-champagne)]",
+        selected && "border-[var(--eos-champagne)] ring-1 ring-[var(--eos-champagne)] hover:border-[var(--eos-champagne)]"
       )}
     >
       {selected && (

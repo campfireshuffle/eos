@@ -36,7 +36,7 @@ const theme = EditorView.theme(
     ".cm-cursor": { borderLeftColor: "var(--eos-body)" },
     ".cm-error-line": { backgroundColor: "color-mix(in srgb, var(--eos-red) 12%, transparent)" },
   },
-  { dark: true },
+  { dark: true }
 )
 
 const noGutterTheme = EditorView.theme({ ".cm-scroller": { padding: "10px 14px" } })

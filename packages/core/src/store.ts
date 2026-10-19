@@ -23,16 +23,7 @@ import { SAMPLES } from "./samples"
 import { searchRows } from "./search"
 import type { SharePayload } from "./share"
 import { buildTagTree, normalizeTag, normalizeTags, tagMatches, tagPrefixes } from "./tags"
-import type {
-  Actor,
-  AppSettings,
-  DiagramId,
-  DiagramIndexRow,
-  DiagramSnapshot,
-  HistoryEntry,
-  LibraryFilter,
-  TagRecord,
-} from "./types"
+import type { Actor, AppSettings, DiagramId, DiagramIndexRow, DiagramSnapshot, HistoryEntry, LibraryFilter, TagRecord } from "./types"
 
 const USER: Actor = { kind: "user" }
 
@@ -120,11 +111,7 @@ export class Eos {
     if (q) return searchRows(rows, q)
     const sort = filter.sort ?? "modified"
     rows.sort((a, b) =>
-      sort === "title"
-        ? a.titleKey.localeCompare(b.titleKey)
-        : sort === "created"
-          ? b.createdAt - a.createdAt
-          : b.updatedAt - a.updatedAt,
+      sort === "title" ? a.titleKey.localeCompare(b.titleKey) : sort === "created" ? b.createdAt - a.createdAt : b.updatedAt - a.updatedAt
     )
     return rows
   }
@@ -156,10 +143,7 @@ export class Eos {
     }
   }
 
-  async createDiagram(
-    input: { title?: string; source?: string; tags?: string[] } = {},
-    actor: Actor = USER,
-  ): Promise<DiagramId> {
+  async createDiagram(input: { title?: string; source?: string; tags?: string[] } = {}, actor: Actor = USER): Promise<DiagramId> {
     const id = crypto.randomUUID()
     const doc = new LoroDoc()
     doc.setRecordTimestamp(true)
@@ -180,14 +164,17 @@ export class Eos {
   async editDiagram(
     id: DiagramId,
     edit: { title?: string; source?: string; addTags?: string[]; removeTags?: string[] },
-    actor: Actor = USER,
+    actor: Actor = USER
   ) {
     await this.mutate(id, actor, (d) => {
       if (edit.title !== undefined) d.meta.set("title", edit.title.trim() || "Untitled")
       if (edit.source !== undefined) d.text.update(edit.source)
       if (edit.addTags?.length || edit.removeTags?.length) {
         const drop = new Set(normalizeTags(edit.removeTags ?? []))
-        setTags(d.meta, normalizeTags([...metaOf(d).tags, ...(edit.addTags ?? [])]).filter((t) => !drop.has(t)))
+        setTags(
+          d.meta,
+          normalizeTags([...metaOf(d).tags, ...(edit.addTags ?? [])]).filter((t) => !drop.has(t))
+        )
       }
     })
   }
@@ -276,7 +263,12 @@ export class Eos {
 
   async removeTags(id: DiagramId, tags: string[], actor: Actor = USER) {
     const drop = new Set(normalizeTags(tags))
-    await this.mutate(id, actor, (d) => setTags(d.meta, metaOf(d).tags.filter((t) => !drop.has(t))))
+    await this.mutate(id, actor, (d) =>
+      setTags(
+        d.meta,
+        metaOf(d).tags.filter((t) => !drop.has(t))
+      )
+    )
   }
 
   async renameTag(from: string, to: string, actor: Actor = USER) {
@@ -286,7 +278,7 @@ export class Eos {
     const rows = await this.db.getAllFromIndex("diagrams", "byTag", src)
     for (const row of rows) {
       await this.mutate(row.id, actor, (d) =>
-        setTags(d.meta, normalizeTags(metaOf(d).tags.map((t) => (tagMatches(t, src) ? dst + t.slice(src.length) : t)))),
+        setTags(d.meta, normalizeTags(metaOf(d).tags.map((t) => (tagMatches(t, src) ? dst + t.slice(src.length) : t))))
       )
     }
   }
@@ -297,7 +289,12 @@ export class Eos {
     if (!tag) return 0
     const rows = await this.db.getAllFromIndex("diagrams", "byTag", tag)
     for (const row of rows) {
-      await this.mutate(row.id, actor, (d) => setTags(d.meta, metaOf(d).tags.filter((t) => !tagMatches(t, tag))))
+      await this.mutate(row.id, actor, (d) =>
+        setTags(
+          d.meta,
+          metaOf(d).tags.filter((t) => !tagMatches(t, tag))
+        )
+      )
     }
     for (const key of this.workspace.tagEmoji.keys()) if (tagMatches(key, tag)) this.workspace.tagEmoji.delete(key)
     commit(this.workspace.doc, actor)
@@ -382,11 +379,7 @@ export class Eos {
       this.open.delete(id)
     }
     const tx = this.db.transaction(["snapshots", "updates", "diagrams"], "readwrite")
-    await Promise.all([
-      tx.objectStore("snapshots").clear(),
-      tx.objectStore("updates").clear(),
-      tx.objectStore("diagrams").clear(),
-    ])
+    await Promise.all([tx.objectStore("snapshots").clear(), tx.objectStore("updates").clear(), tx.objectStore("diagrams").clear()])
     await tx.done
     for (const key of this.workspace.starred.keys()) this.workspace.starred.delete(key)
     for (const key of this.workspace.tagEmoji.keys()) this.workspace.tagEmoji.delete(key)
@@ -404,7 +397,7 @@ export class Eos {
 
   private async findIdentical(title: string, source: string): Promise<DiagramId | null> {
     const candidates = (await this.db.getAll("diagrams")).filter(
-      (r) => !r.deletedAt && r.title === (title.trim() || "Untitled") && source.startsWith(r.sourcePreview),
+      (r) => !r.deletedAt && r.title === (title.trim() || "Untitled") && source.startsWith(r.sourcePreview)
     )
     for (const row of candidates) if ((await this.getSource(row.id)) === source) return row.id
     return null
@@ -577,10 +570,10 @@ const BackupSchema = z.object({
           mode: z.optional(z.enum(["system", "light", "dark"])),
           customCss: z.optional(z.nullable(z.string())),
           diagramCss: z.optional(z.nullable(z.string())),
-        }),
+        })
       ),
       agent: z.optional(z.object({ webmcpEnabled: z.optional(z.boolean()), confirmDestructive: z.optional(z.boolean()) })),
-    }),
+    })
   ),
   workspace: z.optional(z.string()),
   diagrams: z.array(z.object({ id: z.string(), deletedAt: z.optional(z.nullable(z.number())), snapshot: z.string() })),

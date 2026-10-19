@@ -117,7 +117,10 @@ describe("backup import", () => {
 describe("base64", () => {
   // What Eos wrote before switching to the shared helper; old links and backups must still decode.
   const legacyUrl = (bytes: Uint8Array) =>
-    btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+    btoa(String.fromCharCode(...bytes))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "")
 
   it("matches the old encoding byte for byte", () => {
     const bytes = Uint8Array.from({ length: 300 }, (_, i) => (i * 37) % 256)
@@ -135,9 +138,9 @@ describe("base64", () => {
 describe("share imports", () => {
   it("reuses an identical diagram instead of duplicating it", async () => {
     const eos = await fresh()
-    const id = await eos.createDiagram({ title: "Same", source: "pie\n  \"a\": 1" })
-    expect(await eos.importShare({ title: "Same", source: "pie\n  \"a\": 1" })).toBe(id)
-    expect(await eos.importShare({ title: "Same", source: "pie\n  \"a\": 2" })).not.toBe(id)
+    const id = await eos.createDiagram({ title: "Same", source: 'pie\n  "a": 1' })
+    expect(await eos.importShare({ title: "Same", source: 'pie\n  "a": 1' })).toBe(id)
+    expect(await eos.importShare({ title: "Same", source: 'pie\n  "a": 2' })).not.toBe(id)
     expect((await eos.listDiagrams()).length).toBe(2)
   })
 })
@@ -153,7 +156,7 @@ describe("share links", () => {
     const eos = await Eos.create({ dbName: `search-${Math.random()}`, seed: false })
     const body = await eos.createDiagram({ title: "Notes", source: "flowchart TD\n  Checkout --> Payment" })
     const title = await eos.createDiagram({ title: "Checkout flow", source: "flowchart TD\n  A --> B" })
-    await eos.createDiagram({ title: "Unrelated", source: "pie\n  \"a\": 1" })
+    await eos.createDiagram({ title: "Unrelated", source: 'pie\n  "a": 1' })
     expect((await eos.listDiagrams({ query: "checkout" })).map((r) => r.id)).toEqual([title, body])
     expect((await eos.listDiagrams({ query: "chekout" })).map((r) => r.id)).toContain(title)
   })
@@ -162,8 +165,16 @@ describe("share links", () => {
     const eos = await fresh()
     const id = await eos.createDiagram({ title: "Mixed", source: "flowchart TD\n  A-->B" })
     await eos.setSource(id, "flowchart TD\n  A-->B\n  B-->C")
-    await eos.editDiagram(id, { title: "Agent title", addTags: ["ai"] }, { kind: "agent", tool: "update_diagram", changes: ["title", "tags"] })
-    await eos.editDiagram(id, { source: "flowchart TD\n  A-->B\n  B-->C\n  C-->D" }, { kind: "agent", tool: "update_diagram", changes: ["source"] })
+    await eos.editDiagram(
+      id,
+      { title: "Agent title", addTags: ["ai"] },
+      { kind: "agent", tool: "update_diagram", changes: ["title", "tags"] }
+    )
+    await eos.editDiagram(
+      id,
+      { source: "flowchart TD\n  A-->B\n  B-->C\n  C-->D" },
+      { kind: "agent", tool: "update_diagram", changes: ["source"] }
+    )
 
     // The person's undo reverts their own edit and leaves the agent's title, tags and line alone.
     await eos.undo(id)

@@ -24,11 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
 import { ResizablePanel, ResizablePanelGroup } from "@workspace/ui/components/resizable"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@workspace/ui/components/tooltip"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@workspace/ui/components/tooltip"
 import { useDefaultLayout } from "react-resizable-panels"
 
 import { useDiagram, useEos } from "@/lib/eos"
@@ -57,8 +53,7 @@ export function Editor({ id }: { id: string }) {
   // Adopt store changes unless they are echoes of our own keystrokes.
   useEffect(() => {
     if (!diagram) return
-    if (source === null || !sentLocally.current.has(diagram.source))
-      setSource(diagram.source)
+    if (source === null || !sentLocally.current.has(diagram.source)) setSource(diagram.source)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [diagram?.source])
 
@@ -88,10 +83,7 @@ export function Editor({ id }: { id: string }) {
   useEffect(() => () => void (getUi().preview?.id === id && setUi({ preview: null })), [id])
   const shown = previewing ? previewSource : source
 
-  const result = useMemo(
-    () => (shown === null ? null : validate(shown)),
-    [shown]
-  )
+  const result = useMemo(() => (shown === null ? null : validate(shown)), [shown])
   const lastValid = useRef<string>("")
   if (result?.ok && shown !== null) lastValid.current = shown
 
@@ -123,7 +115,7 @@ export function Editor({ id }: { id: string }) {
 
   if (diagram === null) {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center gap-3 bg-card text-body text-muted-foreground md:rounded-tl-xl md:group-data-[collapsed=true]/shell:rounded-tl-none transition-[border-radius] duration-200">
+      <main className="flex flex-1 flex-col items-center justify-center gap-3 bg-card text-body text-muted-foreground transition-[border-radius] duration-200 md:rounded-tl-xl md:group-data-[collapsed=true]/shell:rounded-tl-none">
         This diagram doesn’t exist.
         <Button variant="outline" asChild>
           <a href={homeHref()}>Back to diagrams</a>
@@ -132,7 +124,9 @@ export function Editor({ id }: { id: string }) {
     )
   }
   if (!diagram || source === null)
-    return <main className="flex-1 bg-card md:rounded-tl-xl md:group-data-[collapsed=true]/shell:rounded-tl-none transition-[border-radius] duration-200" />
+    return (
+      <main className="flex-1 bg-card transition-[border-radius] duration-200 md:rounded-tl-xl md:group-data-[collapsed=true]/shell:rounded-tl-none" />
+    )
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-2 max-md:h-svh">
@@ -141,17 +135,8 @@ export function Editor({ id }: { id: string }) {
         <HistoryNav />
         <TitleInput value={title} onCommit={(t) => eos.renameDiagram(id, t)} />
         <div className="flex-1" />
-        <IconButton
-          label={diagram.starred ? "Unstar" : "Star"}
-          onClick={() => eos.setStarred(id, !diagram.starred)}
-        >
-          <Star
-            className={
-              diagram.starred
-                ? "fill-[var(--eos-champagne)] text-[var(--eos-champagne)]"
-                : ""
-            }
-          />
+        <IconButton label={diagram.starred ? "Unstar" : "Star"} onClick={() => eos.setStarred(id, !diagram.starred)}>
+          <Star className={diagram.starred ? "fill-[var(--eos-champagne)] text-[var(--eos-champagne)]" : ""} />
         </IconButton>
       </div>
 
@@ -184,19 +169,9 @@ export function Editor({ id }: { id: string }) {
           </Button>
         </Banner>
       )}
-      <ResizablePanelGroup
-        key={orientation}
-        orientation={orientation}
-        className="min-h-0 flex-1"
-        {...layout}
-      >
-        <ResizablePanel
-          id="source"
-          defaultSize="42%"
-          minSize={mobile ? "120px" : "280px"}
-          className="flex"
-        >
-          <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card md:rounded-t-xl md:group-data-[collapsed=true]/shell:rounded-tl-none transition-[border-radius] duration-200">
+      <ResizablePanelGroup key={orientation} orientation={orientation} className="min-h-0 flex-1" {...layout}>
+        <ResizablePanel id="source" defaultSize="42%" minSize={mobile ? "120px" : "280px"} className="flex">
+          <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card transition-[border-radius] duration-200 md:rounded-t-xl md:group-data-[collapsed=true]/shell:rounded-tl-none">
             <PanelHeader title="Source">
               {(history.canUndo || history.canRedo) && (
                 <>
@@ -226,43 +201,31 @@ export function Editor({ id }: { id: string }) {
             />
             {result?.ok ? (
               <footer className="flex items-center gap-1.5 px-4 py-2.5 text-caption text-muted-foreground">
-                <CircleCheck className="size-3.5 text-[var(--eos-green)]" />{" "}
-                Valid
+                <CircleCheck className="size-3.5 text-[var(--eos-green)]" /> Valid
               </footer>
             ) : result ? (
               <footer className="flex flex-col gap-1.5 border-t border-border bg-[color-mix(in_srgb,var(--eos-red)_7%,transparent)] px-4 pt-3 pb-3.5">
                 <button
                   type="button"
                   className="flex items-center gap-2 text-left text-caption font-medium"
-                  onClick={() =>
-                    editorRef.current?.focusLine(
-                      result.error.line,
-                      result.error.column
-                    )
-                  }
+                  onClick={() => editorRef.current?.focusLine(result.error.line, result.error.column)}
                 >
                   <TriangleAlert className="size-3.5 text-destructive" />
-                  {result.error.line > 0
-                    ? `Line ${result.error.line}, column ${result.error.column}: `
-                    : ""}
+                  {result.error.line > 0 ? `Line ${result.error.line}, column ${result.error.column}: ` : ""}
                   {result.error.message}
                 </button>
                 {result.error.snippet && (
-                  <pre className="pl-[22px] font-mono text-caption whitespace-pre text-muted-foreground">
-                    {result.error.snippet}
-                  </pre>
+                  <pre className="pl-[22px] font-mono text-caption whitespace-pre text-muted-foreground">{result.error.snippet}</pre>
                 )}
               </footer>
             ) : null}
           </section>
         </ResizablePanel>
         {/* Stacked on small screens: a hairline instead of a gap, so both panes stay flush. */}
-        <ResizeHandle className={mobile ? "h-px! bg-border before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-['']" : undefined} />
-        <ResizablePanel
-          id="preview"
-          minSize={mobile ? "160px" : "320px"}
-          className="flex"
-        >
+        <ResizeHandle
+          className={mobile ? "h-px! bg-border before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-['']" : undefined}
+        />
+        <ResizablePanel id="preview" minSize={mobile ? "160px" : "320px"} className="flex">
           <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-card md:rounded-tl-xl">
             <PanelHeader title="Preview">
               <ZoomMenu />
@@ -276,8 +239,7 @@ export function Editor({ id }: { id: string }) {
               />
               {result && !result.ok && (
                 <div className="absolute bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-[var(--eos-line-active)] bg-accent px-3 py-1.5 text-caption whitespace-nowrap text-muted-foreground">
-                  <TriangleAlert className="size-3.5 text-destructive" />{" "}
-                  Couldn’t render — showing the last valid version
+                  <TriangleAlert className="size-3.5 text-destructive" /> Couldn’t render — showing the last valid version
                 </div>
               )}
             </div>
@@ -296,13 +258,7 @@ function Banner({ children }: { children: React.ReactNode }) {
   )
 }
 
-function TitleInput({
-  value,
-  onCommit,
-}: {
-  value: string
-  onCommit: (v: string) => void
-}) {
+function TitleInput({ value, onCommit }: { value: string; onCommit: (v: string) => void }) {
   const [draft, setDraft] = useState(value)
   useEffect(() => setDraft(value), [value])
   return (
@@ -311,21 +267,13 @@ function TitleInput({
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => draft !== value && onCommit(draft)}
-      onKeyDown={(e) =>
-        e.key === "Enter" && (e.target as HTMLInputElement).blur()
-      }
-      className="field-sizing-content min-w-[4ch] max-w-full rounded-md bg-transparent px-1.5 py-1 text-body font-medium outline-none hover:bg-accent/50 focus:bg-accent"
+      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+      className="field-sizing-content max-w-full min-w-[4ch] rounded-md bg-transparent px-1.5 py-1 text-body font-medium outline-none hover:bg-accent/50 focus:bg-accent"
     />
   )
 }
 
-function PanelHeader({
-  title,
-  children,
-}: {
-  title: string
-  children: React.ReactNode
-}) {
+function PanelHeader({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <header className="flex h-12 items-center gap-1 border-b border-border pr-2.5 pl-4">
       <span className="flex-1 text-body">{title}</span>
@@ -350,22 +298,13 @@ function IconButton({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label={label}
-          onClick={onClick}
-          disabled={disabled}
-          className="text-muted-foreground"
-        >
+        <Button variant="ghost" size="icon-sm" aria-label={label} onClick={onClick} disabled={disabled} className="text-muted-foreground">
           {children}
         </Button>
       </TooltipTrigger>
       <TooltipContent>
         {label}
-        {shortcut && (
-          <span className="ml-2 text-muted-foreground">{shortcut}</span>
-        )}
+        {shortcut && <span className="ml-2 text-muted-foreground">{shortcut}</span>}
       </TooltipContent>
     </Tooltip>
   )
@@ -403,17 +342,21 @@ function useShortcuts(actions: ReturnType<typeof useExportActions>) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey
-      const inText = (e.target as HTMLElement | null)?.closest?.(
-        ".cm-editor, input, textarea"
-      )
+      const inText = (e.target as HTMLElement | null)?.closest?.(".cm-editor, input, textarea")
       const action =
-        mod && (e.key === "=" || e.key === "+") ? () => requestZoom("in")
-        : mod && e.key === "-" ? () => requestZoom("out")
-        : mod && e.shiftKey && e.key.toLowerCase() === "l" ? () => void actions.copyShareLink()
-        : mod && e.shiftKey && e.key.toLowerCase() === "c" ? () => void actions.copySvg()
-        : !inText && e.shiftKey && e.code === "Digit1" ? () => requestZoom("fit")
-        : !inText && e.shiftKey && e.code === "Digit0" ? () => requestZoom("actual")
-        : null
+        mod && (e.key === "=" || e.key === "+")
+          ? () => requestZoom("in")
+          : mod && e.key === "-"
+            ? () => requestZoom("out")
+            : mod && e.shiftKey && e.key.toLowerCase() === "l"
+              ? () => void actions.copyShareLink()
+              : mod && e.shiftKey && e.key.toLowerCase() === "c"
+                ? () => void actions.copySvg()
+                : !inText && e.shiftKey && e.code === "Digit1"
+                  ? () => requestZoom("fit")
+                  : !inText && e.shiftKey && e.code === "Digit0"
+                    ? () => requestZoom("actual")
+                    : null
       if (!action) return
       // ⌘ shortcuts would otherwise zoom or act on the whole page.
       if (mod) e.preventDefault()

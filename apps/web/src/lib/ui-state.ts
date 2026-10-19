@@ -37,7 +37,7 @@ export function getUi() {
 export function useUi<T>(select: (s: UiState) => T): T {
   return useSyncExternalStore(
     (cb) => (listeners.add(cb), () => listeners.delete(cb)),
-    () => select(state),
+    () => select(state)
   )
 }
 
@@ -61,7 +61,7 @@ export function askConfirm(message: string, action = "Delete", signal?: AbortSig
         setUi({ confirm: null })
         resolve(false)
       },
-      { once: true },
+      { once: true }
     )
     setUi({ confirm })
   })

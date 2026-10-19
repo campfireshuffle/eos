@@ -10,10 +10,24 @@ export function HistoryNav() {
   if (!canGoBack && !canGoForward) return null
   return (
     <div className="flex items-center gap-0.5">
-      <Button variant="ghost" size="icon-sm" aria-label="Back" disabled={!canGoBack} onClick={() => history.back()} className="text-muted-foreground">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Back"
+        disabled={!canGoBack}
+        onClick={() => history.back()}
+        className="text-muted-foreground"
+      >
         <ArrowLeft />
       </Button>
-      <Button variant="ghost" size="icon-sm" aria-label="Forward" disabled={!canGoForward} onClick={() => history.forward()} className="text-muted-foreground">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Forward"
+        disabled={!canGoForward}
+        onClick={() => history.forward()}
+        className="text-muted-foreground"
+      >
         <ArrowRight />
       </Button>
     </div>

@@ -84,10 +84,7 @@ export function HistoryMenu({ id }: { id: string }) {
                   setUi({ preview: latest ? null : { id, version: e.version, at: e.at, label: actorLabel(e.actor) } })
                   setOpen(false)
                 }}
-                className={cn(
-                  "flex items-start gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-accent/40",
-                  active && "bg-accent",
-                )}
+                className={cn("flex items-start gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-accent/40", active && "bg-accent")}
               >
                 <ActorBadge actor={e.actor} />
                 <span className="flex min-w-0 flex-1 flex-col">
@@ -117,7 +114,7 @@ function ActorBadge({ actor }: { actor: Actor }) {
     <span
       className={cn(
         "mt-px flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground [&_svg]:size-3",
-        agent && "bg-[color-mix(in_srgb,var(--eos-champagne)_22%,transparent)] text-[var(--eos-champagne)]",
+        agent && "bg-[color-mix(in_srgb,var(--eos-champagne)_22%,transparent)] text-[var(--eos-champagne)]"
       )}
     >
       <Icon />

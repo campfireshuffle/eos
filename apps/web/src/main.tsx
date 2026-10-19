@@ -56,7 +56,7 @@ try {
       <EosProvider eos={eos}>
         <App />
       </EosProvider>
-    </StrictMode>,
+    </StrictMode>
   )
 } catch (error) {
   clearTimeout(slow)

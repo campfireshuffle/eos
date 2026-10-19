@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "cf dev",
     "build": "tsc -b && vite build",
-    "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
     "preview": "vite preview",
     "deploy": "cf deploy",

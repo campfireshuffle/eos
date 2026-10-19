@@ -38,7 +38,7 @@ export function parseRoute(hash: string): Route {
 }
 
 export function homeHref(
-  view: { starred?: boolean; deleted?: boolean; tag?: TagPath | null; sort?: LibrarySort; group?: LibraryGroup; q?: string } = {},
+  view: { starred?: boolean; deleted?: boolean; tag?: TagPath | null; sort?: LibrarySort; group?: LibraryGroup; q?: string } = {}
 ): string {
   const params = new URLSearchParams()
   if (view.starred) params.set("starred", "1")

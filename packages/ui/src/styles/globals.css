@@ -8,148 +8,152 @@
 @source "../**/*.{ts,tsx}";
 
 @theme inline {
-    --font-heading: var(--font-sans);
-    /* Type scale: four sizes, one step larger on phones and touch screens (see :root below). */
-    --text-caption: var(--eos-fs-caption);
-    --text-caption--line-height: 1.4;
-    --text-body: var(--eos-fs-body);
-    --text-body--line-height: 1.5;
-    --text-title: var(--eos-fs-title);
-    --text-title--line-height: 1.35;
-    --text-heading: var(--eos-fs-heading);
-    --text-heading--line-height: 1.25;
-    --color-ring: var(--ring);
-    --color-input: var(--input);
-    --color-border: var(--border);
-    --color-destructive: var(--destructive);
-    --color-accent-foreground: var(--accent-foreground);
-    --color-accent: var(--accent);
-    --color-muted-foreground: var(--muted-foreground);
-    --color-muted: var(--muted);
-    --color-secondary-foreground: var(--secondary-foreground);
-    --color-secondary: var(--secondary);
-    --color-primary-foreground: var(--primary-foreground);
-    --color-primary: var(--primary);
-    --color-popover-foreground: var(--popover-foreground);
-    --color-popover: var(--popover);
-    --color-card-foreground: var(--card-foreground);
-    --color-card: var(--card);
-    --color-foreground: var(--foreground);
-    --color-background: var(--background);
-    --radius-sm: calc(var(--radius) * 0.6);
-    --radius-md: calc(var(--radius) * 0.8);
-    --radius-lg: var(--radius);
-    --radius-xl: calc(var(--radius) * 1.4);
-    --radius-2xl: calc(var(--radius) * 1.8);
-    --radius-3xl: calc(var(--radius) * 2.2);
-    --radius-4xl: calc(var(--radius) * 2.6);
-    --font-sans: 'Inter Variable', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-    --font-mono: ui-monospace, SFMono-Regular, 'Cascadia Code', 'IBM Plex Mono', 'Roboto Mono', 'DejaVu Sans Mono', 'Liberation Mono', Menlo, Monaco, Consolas, 'Source Code Pro', monospace;
+  --font-heading: var(--font-sans);
+  /* Type scale: four sizes, one step larger on phones and touch screens (see :root below). */
+  --text-caption: var(--eos-fs-caption);
+  --text-caption--line-height: 1.4;
+  --text-body: var(--eos-fs-body);
+  --text-body--line-height: 1.5;
+  --text-title: var(--eos-fs-title);
+  --text-title--line-height: 1.35;
+  --text-heading: var(--eos-fs-heading);
+  --text-heading--line-height: 1.25;
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  --font-sans: "Inter Variable", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, "Cascadia Code", "IBM Plex Mono", "Roboto Mono", "DejaVu Sans Mono", "Liberation Mono", Menlo, Monaco,
+    Consolas, "Source Code Pro", monospace;
 }
 
 /* Eos palettes: light on :root, dark on .dark. Logo-sampled accents, neutral surfaces. */
 :root {
-    color-scheme: light;
-    --eos-ink: #f1f0ec;
-    --eos-panel: #ffffff;
-    --eos-raised: #e9e7e2;
-    --eos-line: #dddad3;
-    --eos-line-hover: #cbc7bf;
-    --eos-line-active: #aeaaa1;
-    --eos-body: #141413;
-    --eos-muted: #57564f;
-    --eos-faint: #87857e;
-    --eos-ivory: #fcf4e4;
-    --eos-champagne: #85652a;
-    --eos-red: #b3261e;
-    --eos-green: #4f6b0a;
-    --eos-primary: #141413;
-    --eos-on-primary: #fcf4e4;
-    --eos-syntax-keyword: #7a5a1c;
-    --eos-syntax-string: #4b6612;
-    --eos-syntax-property: #964b1f;
-    --eos-syntax-definition: #1f5c92;
-    --eos-syntax-number: #6d3f92;
-    --eos-syntax-comment: #8a887f;
-    --eos-selection: #cbc7bf;
+  color-scheme: light;
+  --eos-ink: #f1f0ec;
+  --eos-panel: #ffffff;
+  --eos-raised: #e9e7e2;
+  --eos-line: #dddad3;
+  --eos-line-hover: #cbc7bf;
+  --eos-line-active: #aeaaa1;
+  --eos-body: #141413;
+  --eos-muted: #57564f;
+  --eos-faint: #87857e;
+  --eos-ivory: #fcf4e4;
+  --eos-champagne: #85652a;
+  --eos-red: #b3261e;
+  --eos-green: #4f6b0a;
+  --eos-primary: #141413;
+  --eos-on-primary: #fcf4e4;
+  --eos-syntax-keyword: #7a5a1c;
+  --eos-syntax-string: #4b6612;
+  --eos-syntax-property: #964b1f;
+  --eos-syntax-definition: #1f5c92;
+  --eos-syntax-number: #6d3f92;
+  --eos-syntax-comment: #8a887f;
+  --eos-selection: #cbc7bf;
 }
 
 .dark {
-    color-scheme: dark;
-    --eos-ink: #0e0e0e;
-    --eos-panel: #191919;
-    --eos-raised: #242424;
-    --eos-line: #262626;
-    --eos-line-hover: #313131;
-    --eos-line-active: #3d3d3d;
-    --eos-body: #ebeae6;
-    --eos-muted: #8b8b88;
-    --eos-faint: #5a5a58;
-    --eos-ivory: #fcf4e4;
-    --eos-champagne: #e6cc9c;
-    --eos-red: #d14d41;
-    --eos-green: #879a39;
-    --eos-primary: #fcf4e4;
-    --eos-on-primary: #0e0e0e;
-    --eos-syntax-keyword: #e6cc9c;
-    --eos-syntax-string: #b9c59a;
-    --eos-syntax-property: #d9a684;
-    --eos-syntax-definition: #9fb6d9;
-    --eos-syntax-number: #c7a6d9;
-    --eos-syntax-comment: #6b6b69;
-    --eos-selection: #3d3d3d;
+  color-scheme: dark;
+  --eos-ink: #0e0e0e;
+  --eos-panel: #191919;
+  --eos-raised: #242424;
+  --eos-line: #262626;
+  --eos-line-hover: #313131;
+  --eos-line-active: #3d3d3d;
+  --eos-body: #ebeae6;
+  --eos-muted: #8b8b88;
+  --eos-faint: #5a5a58;
+  --eos-ivory: #fcf4e4;
+  --eos-champagne: #e6cc9c;
+  --eos-red: #d14d41;
+  --eos-green: #879a39;
+  --eos-primary: #fcf4e4;
+  --eos-on-primary: #0e0e0e;
+  --eos-syntax-keyword: #e6cc9c;
+  --eos-syntax-string: #b9c59a;
+  --eos-syntax-property: #d9a684;
+  --eos-syntax-definition: #9fb6d9;
+  --eos-syntax-number: #c7a6d9;
+  --eos-syntax-comment: #6b6b69;
+  --eos-selection: #3d3d3d;
 }
 
 :root,
 .dark {
+  --background: var(--eos-ink);
+  --foreground: var(--eos-body);
+  --card: var(--eos-panel);
+  --card-foreground: var(--eos-body);
+  --popover: var(--eos-panel);
+  --popover-foreground: var(--eos-body);
+  --primary: var(--eos-primary);
+  --primary-foreground: var(--eos-on-primary);
+  --secondary: var(--eos-raised);
+  --secondary-foreground: var(--eos-body);
+  --muted: var(--eos-raised);
+  --muted-foreground: var(--eos-muted);
+  --accent: var(--eos-raised);
+  --accent-foreground: var(--eos-body);
+  --destructive: var(--eos-red);
+  --border: var(--eos-line);
+  --input: var(--eos-line-hover);
+  --ring: var(--eos-line-active);
+  --radius: 0.625rem;
 
-    --background: var(--eos-ink);
-    --foreground: var(--eos-body);
-    --card: var(--eos-panel);
-    --card-foreground: var(--eos-body);
-    --popover: var(--eos-panel);
-    --popover-foreground: var(--eos-body);
-    --primary: var(--eos-primary);
-    --primary-foreground: var(--eos-on-primary);
-    --secondary: var(--eos-raised);
-    --secondary-foreground: var(--eos-body);
-    --muted: var(--eos-raised);
-    --muted-foreground: var(--eos-muted);
-    --accent: var(--eos-raised);
-    --accent-foreground: var(--eos-body);
-    --destructive: var(--eos-red);
-    --border: var(--eos-line);
-    --input: var(--eos-line-hover);
-    --ring: var(--eos-line-active);
-    --radius: 0.625rem;
-
-    /* Pele diagram theme */
-    --pele-bg: transparent;
-    --pele-fg: var(--eos-body);
-    --pele-muted: var(--eos-muted);
-    --pele-line: var(--eos-muted);
-    --pele-surface: var(--eos-raised);
-    --pele-surface-alt: var(--eos-line-hover);
-    --pele-border: var(--eos-line-active);
-    --pele-accent: var(--eos-champagne);
-    --pele-font: var(--font-sans);
-    --pele-radius: 6px;
+  /* Pele diagram theme */
+  --pele-bg: transparent;
+  --pele-fg: var(--eos-body);
+  --pele-muted: var(--eos-muted);
+  --pele-line: var(--eos-muted);
+  --pele-surface: var(--eos-raised);
+  --pele-surface-alt: var(--eos-line-hover);
+  --pele-border: var(--eos-line-active);
+  --pele-accent: var(--eos-champagne);
+  --pele-font: var(--font-sans);
+  --pele-radius: 6px;
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
-    }
+  }
   body {
-    @apply bg-background text-foreground text-body;
+    @apply bg-background text-body text-foreground;
     /* Type settings from pele.run */
     font-family: var(--font-sans);
     line-height: 1.55;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    }
-  button, input, select, textarea {
+  }
+  button,
+  input,
+  select,
+  textarea {
     font-family: inherit;
   }
 }

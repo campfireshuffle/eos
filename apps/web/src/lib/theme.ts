@@ -55,7 +55,7 @@ const APP_VARS: [string, string[]][] = [
 export function currentAppCss(): string {
   const cs = getComputedStyle(document.documentElement)
   const body = APP_VARS.map(
-    ([label, vars]) => `  /* ${label} */\n` + vars.map((v) => `  ${v}: ${cs.getPropertyValue(v).trim()};`).join("\n"),
+    ([label, vars]) => `  /* ${label} */\n` + vars.map((v) => `  ${v}: ${cs.getPropertyValue(v).trim()};`).join("\n")
   ).join("\n\n")
   return `:root {\n${body}\n}\n`
 }

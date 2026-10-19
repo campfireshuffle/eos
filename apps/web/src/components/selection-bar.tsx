@@ -20,8 +20,8 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
     <div
       aria-hidden={!count}
       className={cn(
-        "pointer-events-none absolute inset-x-0 bottom-6 z-20 max-md:fixed max-md:bottom-[calc(1.5rem+env(safe-area-inset-bottom))] flex justify-center transition-all duration-200",
-        count ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0",
+        "pointer-events-none absolute inset-x-0 bottom-6 z-20 flex justify-center transition-all duration-200 max-md:fixed max-md:bottom-[calc(1.5rem+env(safe-area-inset-bottom))]",
+        count ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0"
       )}
     >
       <div
@@ -31,7 +31,7 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
           "flex max-w-[calc(100vw-2rem)] items-center gap-1 rounded-full border border-[var(--eos-line-hover)] py-1.5 pr-1.5 pl-4 text-body",
           "bg-[color-mix(in_srgb,var(--eos-raised)_62%,transparent)] backdrop-blur-xl backdrop-saturate-150",
           "shadow-[0_12px_40px_-8px_rgb(0_0_0/0.35),inset_0_1px_0_color-mix(in_srgb,var(--eos-body)_6%,transparent)]",
-          count && "pointer-events-auto",
+          count && "pointer-events-auto"
         )}
       >
         <span className="pr-2 whitespace-nowrap tabular-nums">{count} selected</span>
@@ -65,12 +65,7 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
           </>
         ) : (
           <>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="rounded-full"
-              onClick={() => ids.forEach((id) => void eos.setStarred(id, true))}
-            >
+            <Button variant="ghost" size="sm" className="rounded-full" onClick={() => ids.forEach((id) => void eos.setStarred(id, true))}>
               <Star /> <span className="max-sm:sr-only">Star</span>
             </Button>
             <TagMenu ids={ids} />
@@ -89,7 +84,13 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
           </>
         )}
         <div className="mx-1 h-4 w-px bg-[var(--eos-line-hover)]" />
-        <Button variant="ghost" size="icon-sm" className="rounded-full text-muted-foreground" aria-label="Clear selection" onClick={clearSelection}>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="rounded-full text-muted-foreground"
+          aria-label="Clear selection"
+          onClick={clearSelection}
+        >
           <X />
         </Button>
       </div>

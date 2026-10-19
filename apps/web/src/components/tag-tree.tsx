@@ -43,17 +43,7 @@ type Anchored = { tag: TagPath; x: number; y: number }
  * tag (nesting under it) or onto the top-level zone; there are no between-row drops.
  * Dropping diagram cards onto a tag tags them.
  */
-export function TagTree({
-  tags,
-  selected,
-  sort,
-  group,
-}: {
-  tags: TagRecord[]
-  selected: TagPath | null
-  sort?: string
-  group?: string
-}) {
+export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; selected: TagPath | null; sort?: string; group?: string }) {
   const eos = useEos()
   const sorted = useMemo(() => sortTags(tags), [tags])
   const withChildren = useMemo(() => collect(tags, (t) => t.children.length > 0), [tags])
@@ -123,12 +113,12 @@ export function TagTree({
               }}
               className={({ isDropTarget, isDragging, isFocusVisible, isHovered }) =>
                 cn(
-                  "flex h-8 shrink-0 cursor-default items-center rounded-md px-2.5 text-body text-muted-foreground outline-none select-none max-md:h-10 [-webkit-touch-callout:none]",
+                  "flex h-8 shrink-0 cursor-default items-center rounded-md px-2.5 text-body text-muted-foreground outline-none select-none [-webkit-touch-callout:none] max-md:h-10",
                   isHovered && "bg-accent/30 text-foreground",
                   tag.path === selected && "bg-accent font-medium text-foreground",
                   isDropTarget && DROP_HIGHLIGHT,
                   isDragging && "opacity-50",
-                  isFocusVisible && "ring-1 ring-[var(--eos-line-active)]",
+                  isFocusVisible && "ring-1 ring-[var(--eos-line-active)]"
                 )
               }
             >
@@ -172,13 +162,12 @@ export function TagTree({
           aria-label="Move to top level"
           getDropOperation={(types) => (types.has(TAG_MIME) ? "move" : "cancel")}
           onDrop={async (e) => {
-            for (const item of e.items)
-              if (item.kind === "text" && item.types.has(TAG_MIME)) moveTo(await item.getText(TAG_MIME), null)
+            for (const item of e.items) if (item.kind === "text" && item.types.has(TAG_MIME)) moveTo(await item.getText(TAG_MIME), null)
           }}
           className={({ isDropTarget }) =>
             cn(
               "mt-1 flex h-8 shrink-0 items-center gap-2 rounded-md border border-dashed border-[var(--eos-line-active)] px-2.5 text-body text-muted-foreground max-md:h-10",
-              isDropTarget && DROP_HIGHLIGHT,
+              isDropTarget && DROP_HIGHLIGHT
             )
           }
         >
@@ -287,9 +276,7 @@ function TagMenu({
 }
 
 function sortTags(tags: TagRecord[]): TagRecord[] {
-  return [...tags]
-    .sort((a, b) => collator.compare(nameOf(a.path), nameOf(b.path)))
-    .map((t) => ({ ...t, children: sortTags(t.children) }))
+  return [...tags].sort((a, b) => collator.compare(nameOf(a.path), nameOf(b.path))).map((t) => ({ ...t, children: sortTags(t.children) }))
 }
 
 function collect(tags: TagRecord[], keep: (t: TagRecord) => boolean): TagPath[] {

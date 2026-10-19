@@ -63,11 +63,7 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
       {!!tags?.length && <TagTree tags={tags} selected={selectedTag} sort={home?.sort} group={home?.group} />}
 
       {!tags?.length && <div className="flex-1" />}
-      <button
-        type="button"
-        onClick={() => setUi({ settingsOpen: true })}
-        className={NAV_ITEM}
-      >
+      <button type="button" onClick={() => setUi({ settingsOpen: true })} className={NAV_ITEM}>
         <span className="flex size-4 items-center justify-center">
           <Settings />
         </span>
@@ -76,7 +72,6 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
     </aside>
   )
 }
-
 
 /** One row style for every sidebar item: links (Starred, Deleted) and the Settings button. */
 const NAV_ITEM =
@@ -117,7 +112,7 @@ function NavItem({
       className={cn(
         NAV_ITEM,
         active && "bg-accent font-medium text-foreground",
-        over && "outline outline-1 outline-[var(--eos-champagne)]",
+        over && "outline outline-1 outline-[var(--eos-champagne)]"
       )}
     >
       <span className="flex size-4 items-center justify-center">{icon}</span>

@@ -80,7 +80,7 @@ export function TagMenu({ ids }: { ids: string[] }) {
                 <span
                   className={cn(
                     "flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-[var(--eos-line-active)]",
-                    state !== "none" && "border-transparent bg-primary text-primary-foreground",
+                    state !== "none" && "border-transparent bg-primary text-primary-foreground"
                   )}
                 >
                   {state === "all" && <Check className="size-3" />}

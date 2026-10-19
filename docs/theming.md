@@ -27,29 +27,29 @@ App CSS is a list of variable declarations. Only declarations are kept: selector
 }
 ```
 
-| Variable | Used for | Light | Dark |
-| --- | --- | --- | --- |
-| `--eos-ink` | Page background | `#f1f0ec` | `#0e0e0e` |
-| `--eos-panel` | Panes, cards, menus | `#ffffff` | `#191919` |
-| `--eos-raised` | Hover and selected rows, inputs | `#e9e7e2` | `#242424` |
-| `--eos-line` | Borders and dividers | `#dddad3` | `#262626` |
-| `--eos-line-hover` | Borders on hover | `#cbc7bf` | `#313131` |
-| `--eos-line-active` | Focus rings, strong borders | `#aeaaa1` | `#3d3d3d` |
-| `--eos-body` | Main text | `#141413` | `#ebeae6` |
-| `--eos-muted` | Secondary text | `#57564f` | `#8b8b88` |
-| `--eos-faint` | Counts, hints, line numbers | `#87857e` | `#5a5a58` |
-| `--eos-primary` | Primary buttons | `#141413` | `#fcf4e4` |
-| `--eos-on-primary` | Text on primary buttons | `#fcf4e4` | `#0e0e0e` |
-| `--eos-champagne` | Accent: stars, selection, drop targets, links | `#85652a` | `#e6cc9c` |
-| `--eos-red` | Errors and delete actions | `#b3261e` | `#d14d41` |
-| `--eos-green` | Success, "Valid" | `#4f6b0a` | `#879a39` |
-| `--eos-selection` | Selected text in the editor | `#cbc7bf` | `#3d3d3d` |
-| `--eos-syntax-keyword` | Mermaid keywords | `#7a5a1c` | `#e6cc9c` |
-| `--eos-syntax-string` | Strings and labels | `#4b6612` | `#b9c59a` |
-| `--eos-syntax-property` | Properties | `#964b1f` | `#d9a684` |
-| `--eos-syntax-definition` | Node and type names | `#1f5c92` | `#9fb6d9` |
-| `--eos-syntax-number` | Numbers | `#6d3f92` | `#c7a6d9` |
-| `--eos-syntax-comment` | Comments | `#8a887f` | `#6b6b69` |
+| Variable                  | Used for                                      | Light     | Dark      |
+| ------------------------- | --------------------------------------------- | --------- | --------- |
+| `--eos-ink`               | Page background                               | `#f1f0ec` | `#0e0e0e` |
+| `--eos-panel`             | Panes, cards, menus                           | `#ffffff` | `#191919` |
+| `--eos-raised`            | Hover and selected rows, inputs               | `#e9e7e2` | `#242424` |
+| `--eos-line`              | Borders and dividers                          | `#dddad3` | `#262626` |
+| `--eos-line-hover`        | Borders on hover                              | `#cbc7bf` | `#313131` |
+| `--eos-line-active`       | Focus rings, strong borders                   | `#aeaaa1` | `#3d3d3d` |
+| `--eos-body`              | Main text                                     | `#141413` | `#ebeae6` |
+| `--eos-muted`             | Secondary text                                | `#57564f` | `#8b8b88` |
+| `--eos-faint`             | Counts, hints, line numbers                   | `#87857e` | `#5a5a58` |
+| `--eos-primary`           | Primary buttons                               | `#141413` | `#fcf4e4` |
+| `--eos-on-primary`        | Text on primary buttons                       | `#fcf4e4` | `#0e0e0e` |
+| `--eos-champagne`         | Accent: stars, selection, drop targets, links | `#85652a` | `#e6cc9c` |
+| `--eos-red`               | Errors and delete actions                     | `#b3261e` | `#d14d41` |
+| `--eos-green`             | Success, "Valid"                              | `#4f6b0a` | `#879a39` |
+| `--eos-selection`         | Selected text in the editor                   | `#cbc7bf` | `#3d3d3d` |
+| `--eos-syntax-keyword`    | Mermaid keywords                              | `#7a5a1c` | `#e6cc9c` |
+| `--eos-syntax-string`     | Strings and labels                            | `#4b6612` | `#b9c59a` |
+| `--eos-syntax-property`   | Properties                                    | `#964b1f` | `#d9a684` |
+| `--eos-syntax-definition` | Node and type names                           | `#1f5c92` | `#9fb6d9` |
+| `--eos-syntax-number`     | Numbers                                       | `#6d3f92` | `#c7a6d9` |
+| `--eos-syntax-comment`    | Comments                                      | `#8a887f` | `#6b6b69` |
 
 Text sizes are variables too: `--eos-fs-caption`, `--eos-fs-body`, `--eos-fs-title` and `--eos-fs-heading` (12, 13, 15 and 18px on desktop; one step larger on phones).
 

@@ -167,7 +167,11 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
       name: "get_diagram",
       description:
         "One diagram: title, tags, starred, Mermaid source and current version id (pass it back as expectedVersion when editing). version reads the source at a past version; history: true adds the version list, where agent edits are listed separately from the person's.",
-      input: { id: z.string(), version: z.optional(z.string().check(z.describe("A version id from history"))), history: z.optional(z.boolean()) },
+      input: {
+        id: z.string(),
+        version: z.optional(z.string().check(z.describe("A version id from history"))),
+        history: z.optional(z.boolean()),
+      },
       annotations: { readOnlyHint: true, untrustedContentHint: true },
       execute: async ({ id, version, history }) => {
         const d = await eos.getDiagram(id)
@@ -216,7 +220,11 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
         const settings = eos.getSettings()
         return ok({
           settings,
-          theme: { mode: settings.theme.mode, ...ui.getTheme(), overridden: { app: !!settings.theme.customCss, diagram: !!settings.theme.diagramCss } },
+          theme: {
+            mode: settings.theme.mode,
+            ...ui.getTheme(),
+            overridden: { app: !!settings.theme.customCss, diagram: !!settings.theme.diagramCss },
+          },
           storage: await eos.storageUsage(),
         })
       },
@@ -301,7 +309,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
     tool({
       name: "update_diagram",
       description:
-        "Edit a diagram. Every field is optional and the edit lands as one change in history, credited to the agent: title, source (full Mermaid; applied as a minimal diff), starred, addTags, removeTags. revert: \"undo\" or \"redo\" steps the agent's own edits (never the person's; refused if the person has edited since), or a version id from get_diagram's history restores that version. deleted: true moves it to Deleted (asks the person; reversible), false restores it. Pass expectedVersion from get_diagram to refuse the edit if the person changed it meanwhile.",
+        'Edit a diagram. Every field is optional and the edit lands as one change in history, credited to the agent: title, source (full Mermaid; applied as a minimal diff), starred, addTags, removeTags. revert: "undo" or "redo" steps the agent\'s own edits (never the person\'s; refused if the person has edited since), or a version id from get_diagram\'s history restores that version. deleted: true moves it to Deleted (asks the person; reversible), false restores it. Pass expectedVersion from get_diagram to refuse the edit if the person changed it meanwhile.',
       input: {
         id: z.string(),
         title: z.optional(z.string()),
@@ -330,7 +338,10 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
             // Undoing over the person's newer edit could overwrite it (titles and tags are last-write-wins).
             const [latest] = await eos.history(id, 1)
             if (latest && latest.actor.kind !== "agent")
-              return fail("person_edited", "The person has edited since the agent's last change. Restore a version id from history, or edit directly.")
+              return fail(
+                "person_edited",
+                "The person has edited since the agent's last change. Restore a version id from history, or edit directly."
+              )
             const done = await eos[r](id, "agent", agent("update_diagram", [r]))
             if (!done) return fail("nothing_to_revert", `No agent edit to ${r}`)
           } else {
@@ -346,7 +357,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
           await eos.editDiagram(
             id,
             { title: i.title, source: i.source, addTags: i.addTags, removeTags: i.removeTags },
-            agent("update_diagram", [...new Set(changes)]),
+            agent("update_diagram", [...new Set(changes)])
           )
         }
         if (i.starred !== undefined) await eos.setStarred(id, i.starred, agent("update_diagram", ["starred"]))
@@ -363,7 +374,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
     tool({
       name: "update_tag",
       description:
-        "Rename or move a tag (and everything nested under it) across every diagram, and/or set its sidebar icon. moveTo is the new full path: \"archive/backend\" nests it, \"backend\" puts it at the top level. emoji: an emoji, or null for the default #.",
+        'Rename or move a tag (and everything nested under it) across every diagram, and/or set its sidebar icon. moveTo is the new full path: "archive/backend" nests it, "backend" puts it at the top level. emoji: an emoji, or null for the default #.',
       input: { path: z.string(), moveTo: z.optional(z.string()), emoji: z.optional(z.nullable(z.string())) },
       execute: async ({ path, moveTo, emoji }) => {
         let current = path
@@ -378,12 +389,17 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
     tool({
       name: "set_view",
       description:
-        "Change what the person sees. page: \"library\" (with optional filters) or \"diagram\" (with diagramId). previewVersion shows a past version of the open diagram read-only, or \"latest\" to go back. zoom changes the preview. settingsOpen shows or hides Settings.",
+        'Change what the person sees. page: "library" (with optional filters) or "diagram" (with diagramId). previewVersion shows a past version of the open diagram read-only, or "latest" to go back. zoom changes the preview. settingsOpen shows or hides Settings.',
       input: {
         page: z.optional(z.enum(["library", "diagram"])),
         diagramId: z.optional(z.string()),
         filters: z.optional(
-          z.strictObject({ starred: z.optional(z.boolean()), deleted: z.optional(z.boolean()), tags: z.optional(z.array(z.string())), sort: z.optional(sort) }),
+          z.strictObject({
+            starred: z.optional(z.boolean()),
+            deleted: z.optional(z.boolean()),
+            tags: z.optional(z.array(z.string())),
+            sort: z.optional(sort),
+          })
         ),
         previewVersion: z.optional(z.string().check(z.describe('A version id from get_diagram\'s history, or "latest"'))),
         zoom: z.optional(z.enum(["in", "out", "fit", "actual"])),
@@ -403,8 +419,15 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
           if (i.previewVersion === "latest") ui.previewVersion(id, null)
           else {
             const entry = (await eos.history(id, 500)).find((e) => e.version === i.previewVersion)
-            if (!entry) return fail("not_found", "previewVersion must be a version id from get_diagram's history (it shows who made it and when), or \"latest\"")
-            ui.previewVersion(id, entry.version, { at: entry.at, label: entry.actor.kind === "agent" ? "Agent" : entry.actor.kind === "user" ? "You" : entry.actor.kind })
+            if (!entry)
+              return fail(
+                "not_found",
+                'previewVersion must be a version id from get_diagram\'s history (it shows who made it and when), or "latest"'
+              )
+            ui.previewVersion(id, entry.version, {
+              at: entry.at,
+              label: entry.actor.kind === "agent" ? "Agent" : entry.actor.kind === "user" ? "You" : entry.actor.kind,
+            })
           }
         }
         if (i.zoom !== undefined) ui.setZoom(i.zoom)
@@ -446,7 +469,8 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
     }),
     tool({
       name: "import_backup",
-      description: "Import a backup (from export with format backup). merge adds to the library; replace wipes local data first and asks the person to confirm.",
+      description:
+        "Import a backup (from export with format backup). merge adds to the library; replace wipes local data first and asks the person to confirm.",
       input: { data: z.string(), mode: z.enum(["merge", "replace"]) },
       annotations: { consequentialHint: true, destructiveHint: true },
       execute: async ({ data, mode }, signal) => {

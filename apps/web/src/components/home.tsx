@@ -42,7 +42,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   }
 
   return (
-    <main className="relative flex min-w-0 flex-1 flex-col bg-card md:overflow-hidden md:rounded-tl-xl md:group-data-[collapsed=true]/shell:rounded-tl-none transition-[border-radius] duration-200">
+    <main className="relative flex min-w-0 flex-1 flex-col bg-card transition-[border-radius] duration-200 md:overflow-hidden md:rounded-tl-xl md:group-data-[collapsed=true]/shell:rounded-tl-none">
       {/* Sticks to the top on phones, where the page itself scrolls. */}
       <div className="z-20 bg-card max-md:sticky max-md:top-0">
         <header className="flex items-center gap-2 border-b border-border py-3.5 pr-4 pl-4 md:pl-6">
@@ -81,9 +81,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
           <div className="ml-auto flex gap-2 max-sm:w-full">
             <NativeSelect
               value={route.group}
-              onChange={(e) =>
-                navigate(homeHref({ ...route, group: e.target.value as LibraryGroup }), { replace: true })
-              }
+              onChange={(e) => navigate(homeHref({ ...route, group: e.target.value as LibraryGroup }), { replace: true })}
               className="w-[150px] shrink-0 max-sm:w-auto max-sm:flex-1"
               aria-label="Group by"
             >
@@ -138,7 +136,6 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
     </main>
   )
 }
-
 
 function findEmoji(tags: { path: string; emoji: string | null; children: unknown[] }[], path: string): string | null {
   for (const t of tags) {

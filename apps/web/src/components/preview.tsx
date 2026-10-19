@@ -126,7 +126,7 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
   useEffect(() => {
     const el = scroller.current!
     const ro = new ResizeObserver(([e]) =>
-      setBox({ w: e.contentRect.width, h: e.contentRect.height, ow: el.offsetWidth, oh: el.offsetHeight }),
+      setBox({ w: e.contentRect.width, h: e.contentRect.height, ow: el.offsetWidth, oh: el.offsetHeight })
     )
     ro.observe(el)
     // ⌘/Ctrl + wheel (and trackpad pinch) zooms; needs a non-passive listener.
@@ -180,7 +180,8 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
     const clamp = (s: number) => Math.min(MAX, Math.max(MIN, s))
     // Menu and keyboard zoom keep the centre of the pane in place.
     const r = scroller.current!.getBoundingClientRect()
-    const cx = r.left + r.width / 2, cy = r.top + r.height / 2
+    const cx = r.left + r.width / 2,
+      cy = r.top + r.height / 2
     if (zoomRequest.action === "in") zoomAt(clamp(scale * 1.25), cx, cy)
     if (zoomRequest.action === "out") zoomAt(clamp(scale * 0.8), cx, cy)
     if (zoomRequest.action === "fit") setMode("fit")
@@ -213,9 +214,7 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
    */
   const pointers = useRef(new Map<number, { x: number; y: number }>())
   const gesture = useRef<
-    | { kind: "pan"; x: number; y: number; left: number; top: number }
-    | { kind: "pinch"; dist: number; scale: number }
-    | null
+    { kind: "pan"; x: number; y: number; left: number; top: number } | { kind: "pinch"; dist: number; scale: number } | null
   >(null)
 
   const startGesture = () => {
@@ -280,10 +279,10 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
       onAuxClick={(e) => e.button === 1 && e.preventDefault()}
       className={cn(
         "h-full w-full touch-none overflow-auto select-none",
-        panning ? "cursor-grabbing" : zoomedIn || spaceHeld ? "cursor-grab" : "cursor-default",
+        panning ? "cursor-grabbing" : zoomedIn || spaceHeld ? "cursor-grab" : "cursor-default"
       )}
     >
-      <div className="flex min-h-full min-w-full w-max items-center justify-center" style={{ padding: margin }}>
+      <div className="flex min-h-full w-max min-w-full items-center justify-center" style={{ padding: margin }}>
         <div ref={host} className="pele-preview transition-opacity data-[stale=true]:opacity-30" data-stale={!valid} />
       </div>
     </div>

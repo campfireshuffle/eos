@@ -3,12 +3,36 @@ import { useState } from "react"
 import { Input } from "@workspace/ui/components/input"
 
 const EMOJI: [string, string][] = [
-  ["💼", "work briefcase"], ["⚙️", "gear settings backend"], ["💳", "card payments"], ["🐦", "bird"],
-  ["📄", "doc page"], ["💡", "idea bulb"], ["🧪", "test lab"], ["🚀", "launch rocket"], ["🎯", "goal target"],
-  ["📈", "chart growth"], ["🗂️", "folder files"], ["🧭", "compass"], ["🛠️", "tools"], ["🔒", "lock security"],
-  ["🌱", "plant growth"], ["🎨", "art design"], ["🧩", "puzzle"], ["📦", "package box"], ["🔥", "fire hot"],
-  ["⭐", "star"], ["🌙", "moon"], ["🪐", "planet"], ["🧠", "brain"], ["📚", "books learning"], ["🏠", "home personal"],
-  ["✈️", "travel"], ["🎵", "music"], ["🐛", "bug"], ["☁️", "cloud"], ["🗄️", "database"],
+  ["💼", "work briefcase"],
+  ["⚙️", "gear settings backend"],
+  ["💳", "card payments"],
+  ["🐦", "bird"],
+  ["📄", "doc page"],
+  ["💡", "idea bulb"],
+  ["🧪", "test lab"],
+  ["🚀", "launch rocket"],
+  ["🎯", "goal target"],
+  ["📈", "chart growth"],
+  ["🗂️", "folder files"],
+  ["🧭", "compass"],
+  ["🛠️", "tools"],
+  ["🔒", "lock security"],
+  ["🌱", "plant growth"],
+  ["🎨", "art design"],
+  ["🧩", "puzzle"],
+  ["📦", "package box"],
+  ["🔥", "fire hot"],
+  ["⭐", "star"],
+  ["🌙", "moon"],
+  ["🪐", "planet"],
+  ["🧠", "brain"],
+  ["📚", "books learning"],
+  ["🏠", "home personal"],
+  ["✈️", "travel"],
+  ["🎵", "music"],
+  ["🐛", "bug"],
+  ["☁️", "cloud"],
+  ["🗄️", "database"],
 ]
 
 /** Emoji choices for a tag's sidebar icon. */
@@ -32,7 +56,11 @@ export function EmojiGrid({ current, onChoose }: { current: string | null; onCho
         ))}
       </div>
       <div className="h-px bg-border" />
-      <button type="button" onClick={() => onChoose(null)} className="flex items-center gap-2 px-1 text-left text-body text-muted-foreground hover:text-foreground">
+      <button
+        type="button"
+        onClick={() => onChoose(null)}
+        className="flex items-center gap-2 px-1 text-left text-body text-muted-foreground hover:text-foreground"
+      >
         <span className="font-mono text-body">#</span> Use default icon
       </button>
     </div>

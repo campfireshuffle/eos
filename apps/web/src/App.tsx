@@ -71,11 +71,7 @@ function Shell({ route, children }: { route: Route; children: ReactNode }) {
         {/* On phones the page itself scrolls (so Safari can collapse its toolbar); the editor pins itself to the viewport. */}
         <div className="flex min-h-svh flex-col">{children}</div>
         <Sheet open={mobileNavOpen} onOpenChange={(open) => setUi({ mobileNavOpen: open })}>
-          <SheetContent
-            side="left"
-            showCloseButton={false}
-            className="w-72 max-w-[85vw] bg-background p-0"
-          >
+          <SheetContent side="left" showCloseButton={false} className="w-72 max-w-[85vw] bg-background p-0">
             <SheetTitle className="sr-only">Navigation</SheetTitle>
             {sidebar}
           </SheetContent>
@@ -109,7 +105,7 @@ function Shell({ route, children }: { route: Route; children: ReactNode }) {
         <ResizeHandle
           className={cn(
             "transition-[width] duration-200",
-            collapsed && "aria-[orientation=vertical]:w-0 before:absolute before:inset-y-0 before:left-0 before:w-2 before:content-['']",
+            collapsed && "before:absolute before:inset-y-0 before:left-0 before:w-2 before:content-[''] aria-[orientation=vertical]:w-0"
           )}
         />
         <ResizablePanel id="content" minSize="360px" className="flex min-w-0">

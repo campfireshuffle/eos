@@ -13,7 +13,7 @@ export async function searchRows(rows: DiagramIndexRow[], query: string): Promis
   const db = create({ schema: { id: "string", title: "string", source: "string" } as const })
   await insertMultiple(
     db,
-    rows.map((r) => ({ id: r.id, title: r.title, source: r.sourceText ?? r.sourcePreview })),
+    rows.map((r) => ({ id: r.id, title: r.title, source: r.sourceText ?? r.sourcePreview }))
   )
   const byId = new Map(rows.map((r) => [r.id, r]))
   const result = (await search(db, {

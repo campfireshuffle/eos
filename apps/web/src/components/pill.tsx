@@ -22,7 +22,7 @@ export function Pill({
       className={cn(
         "inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-full border border-border bg-accent text-foreground",
         size === "md" ? "h-6 px-2.5 text-caption" : "h-5 px-2 text-caption",
-        removeHref && (size === "md" ? "pr-1.5" : "pr-1"),
+        removeHref && (size === "md" ? "pr-1.5" : "pr-1")
       )}
     >
       {icon && <span className="shrink-0 leading-none">{icon}</span>}

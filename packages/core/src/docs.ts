@@ -52,12 +52,7 @@ export async function loadDoc(db: Database, id: DiagramId): Promise<LoroDoc> {
 }
 
 /** Appends every local change to the update log; compacts when it gets long. */
-export function persistDoc(
-  db: Database,
-  id: DiagramId,
-  doc: LoroDoc,
-  onLocalUpdate?: (bytes: Uint8Array) => void,
-): () => void {
+export function persistDoc(db: Database, id: DiagramId, doc: LoroDoc, onLocalUpdate?: (bytes: Uint8Array) => void): () => void {
   let pending = Promise.resolve()
   const unsubscribe = doc.subscribeLocalUpdates((bytes) => {
     onLocalUpdate?.(bytes)

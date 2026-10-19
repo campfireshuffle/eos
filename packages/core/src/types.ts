@@ -75,14 +75,6 @@ export interface HistoryEntry {
   changes?: string[]
 }
 
-export type Result<T = Record<string, never>> =
-  | ({ ok: true } & T)
-  | { ok: false; code: ErrorCode; message: string }
+export type Result<T = Record<string, never>> = ({ ok: true } & T) | { ok: false; code: ErrorCode; message: string }
 
-export type ErrorCode =
-  | "not_found"
-  | "invalid_input"
-  | "parse_error"
-  | "user_declined"
-  | "disabled"
-  | "stale"
+export type ErrorCode = "not_found" | "invalid_input" | "parse_error" | "user_declined" | "disabled" | "stale"

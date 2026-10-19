@@ -6,7 +6,9 @@
     "build": "turbo build",
     "dev": "turbo dev",
     "lint": "eslint .",
-    "format": "turbo format",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
     "typecheck": "turbo typecheck",
     "deploy": "pnpm --filter @eos/web deploy",
     "test": "turbo test"

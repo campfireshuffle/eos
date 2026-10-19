@@ -30,10 +30,7 @@ export function tagMatches(tag: TagPath, filter: TagPath): boolean {
   return tag === filter || tag.startsWith(filter + "/")
 }
 
-export function buildTagTree(
-  rows: DiagramIndexRow[],
-  emoji: Record<TagPath, string | null>,
-): TagRecord[] {
+export function buildTagTree(rows: DiagramIndexRow[], emoji: Record<TagPath, string | null>): TagRecord[] {
   const counts = new Map<TagPath, number>()
   for (const row of rows) {
     if (row.deletedAt) continue

@@ -31,7 +31,10 @@ export function useExportActions(title: string, source: string, getSvg: () => SV
       await navigator.clipboard.writeText(url)
     },
     copySvg: () => navigator.clipboard.writeText(svg()),
-    copyEmbed: () => navigator.clipboard.writeText(`<img alt="${title.replace(/"/g, "&quot;")}" src="data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg())))}">`),
+    copyEmbed: () =>
+      navigator.clipboard.writeText(
+        `<img alt="${title.replace(/"/g, "&quot;")}" src="data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg())))}">`
+      ),
     downloadSvg: () => download(`${title}.svg`, svg(), "image/svg+xml"),
     downloadPng: async () => download(`${title}.png`, await svgToPng(svg())),
     downloadMmd: () => download(`${title}.mmd`, source),

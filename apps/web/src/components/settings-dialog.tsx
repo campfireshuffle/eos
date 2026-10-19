@@ -17,7 +17,6 @@ import { askConfirm, setUi, useUi } from "@/lib/ui-state"
 // CodeMirror is part of the editor's download; Settings fetches it when first opened.
 const CodeEditor = lazy(() => import("./code-editor").then((m) => ({ default: m.CodeEditor })))
 
-
 const TABS = [
   { id: "theming", label: "Theming", icon: Palette },
   { id: "mcp", label: "MCP", icon: Bot },
@@ -43,7 +42,7 @@ export function SettingsDialog() {
                 onClick={() => setUi({ settingsTab: id })}
                 className={cn(
                   "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-body text-muted-foreground outline-none hover:bg-accent/30 hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--eos-line-active)] max-md:h-9 max-md:px-2",
-                  tab === id && "bg-accent font-medium text-foreground",
+                  tab === id && "bg-accent font-medium text-foreground"
                 )}
               >
                 <Icon className="size-4 max-md:hidden" />
@@ -154,7 +153,7 @@ function Theming() {
                 const next = currentAppCss()
                 appDefault.current = next
                 setAppCss(next)
-              }),
+              })
             )
           }}
         >
@@ -215,8 +214,8 @@ function Mcp() {
       </Step>
       <Step title="2. Connect your agent">
         <p className="text-body text-muted-foreground">
-          Agents built into the browser can use Eos once WebMCP is on. For an agent on your computer, like Claude Code or
-          Cursor, turn on remote debugging:
+          Agents built into the browser can use Eos once WebMCP is on. For an agent on your computer, like Claude Code or Cursor, turn on
+          remote debugging:
         </p>
         <ChromeUrl url="chrome://inspect/#remote-debugging" />
         <p className="text-body text-muted-foreground">

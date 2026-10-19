@@ -1,14 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
 
-import type {
-  AppSettings,
-  DiagramId,
-  DiagramIndexRow,
-  DiagramSnapshot,
-  Eos,
-  LibraryFilter,
-  TagRecord,
-} from "@eos/core"
+import type { AppSettings, DiagramId, DiagramIndexRow, DiagramSnapshot, Eos, LibraryFilter, TagRecord } from "@eos/core"
 
 const EosContext = createContext<Eos | null>(null)
 

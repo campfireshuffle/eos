@@ -12,7 +12,7 @@ export function useIsMobile(): boolean {
       mq.addEventListener("change", cb)
       return () => mq.removeEventListener("change", cb)
     },
-    () => matchMedia(MOBILE_QUERY).matches,
+    () => matchMedia(MOBILE_QUERY).matches
   )
 }
 

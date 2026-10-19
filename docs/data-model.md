@@ -75,28 +75,32 @@ Agent edits and human edits both go through `Actions` into the same `LoroDoc`, s
 
 There is one `LoroDoc` per diagram. Its root containers:
 
-| Root | Type | Contents |
-| --- | --- | --- |
-| `source` | `LoroText` | Mermaid source |
-| `meta` | `LoroMap` | `title`, `tags`, `createdAt`, `schema` |
+| Root     | Type       | Contents                               |
+| -------- | ---------- | -------------------------------------- |
+| `source` | `LoroText` | Mermaid source                         |
+| `meta`   | `LoroMap`  | `title`, `tags`, `createdAt`, `schema` |
 
 ```ts
-import { LoroDoc, LoroText, LoroMap, LoroList } from "loro-crdt";
+import { LoroDoc, LoroText, LoroMap, LoroList } from "loro-crdt"
 
-type DiagramId = string; // nanoid, stable for the life of the diagram
+type DiagramId = string // nanoid, stable for the life of the diagram
 
 /** Path-style tag, e.g. "work/backend". Segments are trimmed, lowercased, no empty segments. */
-type TagPath = string;
+type TagPath = string
 
 interface DiagramMeta {
-  title: string;
-  tags: TagPath[];     // stored as a LoroList<string> under meta.tags
-  createdAt: number;   // ms epoch; set once at creation
-  schema: 1;           // doc schema version for future migrations
+  title: string
+  tags: TagPath[] // stored as a LoroList<string> under meta.tags
+  createdAt: number // ms epoch; set once at creation
+  schema: 1 // doc schema version for future migrations
 }
 
-function sourceOf(doc: LoroDoc): LoroText { return doc.getText("source"); }
-function metaOf(doc: LoroDoc): LoroMap { return doc.getMap("meta"); }
+function sourceOf(doc: LoroDoc): LoroText {
+  return doc.getText("source")
+}
+function metaOf(doc: LoroDoc): LoroMap {
+  return doc.getMap("meta")
+}
 ```
 
 Notes:
@@ -111,6 +115,7 @@ Notes:
 Which tags a diagram has is a property of the diagram, so it travels with it in `meta.tags`, can be included in a share link, and shows up in that diagram's history. Being **starred**, and the **look of a tag** (its emoji and position in the sidebar), are personal library organisation, not diagram content. Those live in one workspace-level `LoroDoc`, stored under id `"workspace"` in the same `snapshots`/`updates` stores and synced over `eos:library`.
 
 Reasons for keeping this in a separate doc:
+
 - Starring a diagram should not bump its Modified time, appear in its history, or be undoable with ⌘Z in the editor.
 - A tag's emoji belongs to the tag, not to any one diagram. Renaming a tag in one place should rename it everywhere.
 - Using a CRDT, rather than a plain record like settings (§8), means a star in one tab and an emoji change in another both survive.
@@ -120,9 +125,9 @@ Reasons for keeping this in a separate doc:
 //   starred: LoroMap<DiagramId, number>   value = starredAt (ms); delete key to unstar
 //   tags:    LoroMap<TagPath, LoroMap>    one entry per tag that has been customised
 interface TagRecord {
-  path: TagPath;     // map key, e.g. "work/backend"; parent is implied by the path
-  emoji?: string;    // a single grapheme; missing → render "#"
-  order?: string;    // fractional index among siblings; missing → alphabetical after ordered ones
+  path: TagPath // map key, e.g. "work/backend"; parent is implied by the path
+  emoji?: string // a single grapheme; missing → render "#"
+  order?: string // fractional index among siblings; missing → alphabetical after ordered ones
 }
 ```
 
@@ -139,42 +144,44 @@ Database `eos`, version 1. Use `idb` as a thin wrapper.
 interface EosDB {
   /** Latest compacted snapshot per diagram. */
   snapshots: {
-    key: DiagramId;
-    value: { id: DiagramId; bytes: Uint8Array; vv: Uint8Array /* VersionVector.encode() */; savedAt: number };
-  };
+    key: DiagramId
+    value: { id: DiagramId; bytes: Uint8Array; vv: Uint8Array /* VersionVector.encode() */; savedAt: number }
+  }
   /** Append-only log of updates since the snapshot. */
   updates: {
-    key: number;                         // autoIncrement
-    value: { id: DiagramId; bytes: Uint8Array; at: number };
-    indexes: { byDiagram: DiagramId };
-  };
+    key: number // autoIncrement
+    value: { id: DiagramId; bytes: Uint8Array; at: number }
+    indexes: { byDiagram: DiagramId }
+  }
   /** Denormalised rows for the library grid and tag tree. Rebuildable from snapshots+updates. */
   diagrams: {
-    key: DiagramId;
-    value: DiagramIndexRow;
+    key: DiagramId
+    value: DiagramIndexRow
     indexes: {
-      byUpdatedAt: number; byCreatedAt: number; byTitleKey: string;
-      byStarred: [0 | 1, number];  // [starred, updatedAt]
-      byTag: TagPath;              // multiEntry over tagPrefixes
-    };
-  };
+      byUpdatedAt: number
+      byCreatedAt: number
+      byTitleKey: string
+      byStarred: [0 | 1, number] // [starred, updatedAt]
+      byTag: TagPath // multiEntry over tagPrefixes
+    }
+  }
   /** Singleton app settings. */
-  settings: { key: "app"; value: AppSettings };
+  settings: { key: "app"; value: AppSettings }
 }
 
 interface DiagramIndexRow {
-  id: DiagramId;
-  title: string;
-  tags: TagPath[];
+  id: DiagramId
+  title: string
+  tags: TagPath[]
   /** Every prefix of every tag: "work/backend" → ["work", "work/backend"]. Backs the tag tree. */
-  tagPrefixes: TagPath[];
-  createdAt: number;
-  updatedAt: number;      // ms; from last change timestamp
-  titleKey: string;       // title folded for sorting (lowercased, NFKD, diacritics stripped)
-  starred: 0 | 1;         // mirrored from workspace.starred; number because IDB can't index booleans
-  sourcePreview: string;  // first ~200 chars
-  sourceText: string;     // full source, for search (Orama, title boosted)
-  deletedAt?: number;     // soft delete → "Deleted"
+  tagPrefixes: TagPath[]
+  createdAt: number
+  updatedAt: number // ms; from last change timestamp
+  titleKey: string // title folded for sorting (lowercased, NFKD, diacritics stripped)
+  starred: 0 | 1 // mirrored from workspace.starred; number because IDB can't index booleans
+  sourcePreview: string // first ~200 chars
+  sourceText: string // full source, for search (Orama, title boosted)
+  deletedAt?: number // soft delete → "Deleted"
 }
 ```
 
@@ -187,12 +194,12 @@ interface DiagramIndexRow {
 
 ```ts
 async function openDiagram(id: DiagramId): Promise<LoroDoc> {
-  const snap = await db.get("snapshots", id);
-  const doc = snap ? LoroDoc.fromSnapshot(snap.bytes) : new LoroDoc();
-  const logs = await db.getAllFromIndex("updates", "byDiagram", id);
-  if (logs.length) doc.importBatch(logs.map(l => l.bytes)); // faster than N imports
-  configureDoc(doc); // setRecordTimestamp, pre-commit hook (§4)
-  return doc;
+  const snap = await db.get("snapshots", id)
+  const doc = snap ? LoroDoc.fromSnapshot(snap.bytes) : new LoroDoc()
+  const logs = await db.getAllFromIndex("updates", "byDiagram", id)
+  if (logs.length) doc.importBatch(logs.map((l) => l.bytes)) // faster than N imports
+  configureDoc(doc) // setRecordTimestamp, pre-commit hook (§4)
+  return doc
 }
 ```
 
@@ -209,9 +216,9 @@ Compact a diagram when **any** of these is true:
 To compact, in one `readwrite` transaction over `snapshots` + `updates`:
 
 ```ts
-const bytes = doc.export({ mode: "snapshot" });          // full history kept
-const vv = doc.oplogVersion().encode();
-await tx.objectStore("snapshots").put({ id, bytes, vv, savedAt: Date.now() });
+const bytes = doc.export({ mode: "snapshot" }) // full history kept
+const vv = doc.oplogVersion().encode()
+await tx.objectStore("snapshots").put({ id, bytes, vv, savedAt: Date.now() })
 // delete only the log rows the snapshot covers (keys <= lastKeyRead), so a concurrent
 // write from another tab that landed after we read the log survives.
 ```
@@ -225,23 +232,22 @@ Full history is kept forever. We do not use `{ mode: "shallow-snapshot" }`, beca
 The sidebar has no "Recent" item; sorting replaces it. Clicking **Starred** or a tag adds a removable chip to the right pane (`★ Starred ×`, `#work/backend ×`). Chips combine with AND, and a **Sort by** dropdown (Modified / Created / Title) applies on top.
 
 ```ts
-type LibrarySort = "modified" | "created" | "title";
+type LibrarySort = "modified" | "created" | "title"
 interface LibraryQuery {
-  starred: boolean;
-  tags: TagPath[];      // each matches itself and its descendants
-  sort: LibrarySort;    // modified/created: newest first; title: A→Z
+  starred: boolean
+  tags: TagPath[] // each matches itself and its descendants
+  sort: LibrarySort // modified/created: newest first; title: A→Z
 }
 
 function matches(row: DiagramIndexRow, q: LibraryQuery) {
-  return !row.deletedAt
-    && (!q.starred || row.starred === 1)
-    && q.tags.every(t => row.tagPrefixes.includes(t));
+  return !row.deletedAt && (!q.starred || row.starred === 1) && q.tags.every((t) => row.tagPrefixes.includes(t))
 }
 ```
 
 **Strategy:** load every `diagrams` row into memory at startup (roughly 400 B each plus the diagram source). Filter and sort in JS, using `Intl.Collator` on `titleKey` for Title. Keep the in-memory copy current from local writes and from `eos:library` messages. At expected scale this takes well under a frame, and it avoids the IndexedDB limitation that blocks doing this in the database: a `multiEntry` index cannot be compound, so there is no `[tagPrefix, updatedAt]` index over an array field.
 
 Indexes are still useful for the first paint, before every row has loaded, and for direct lookups:
+
 - `byUpdatedAt`, `byCreatedAt`, `byTitleKey`: the first screen of an unfiltered grid comes from a cursor, and the rest streams in.
 - `byStarred` on `[starred, updatedAt]` for the Starred chip.
 - `byTag` (multiEntry over `tagPrefixes`): the key `"work"` returns everything under `work/*`.
@@ -267,38 +273,42 @@ type Actor =
   | { kind: "user"; tab: TabId }
   | { kind: "agent"; tab: TabId; tool: string; client?: string } // WebMCP tool name, optional agent label
   | { kind: "import"; source: "share-link" | "file" }
-  | { kind: "system"; reason: "migration" | "undo" | "redo" | "restore" };
+  | { kind: "system"; reason: "migration" | "undo" | "redo" | "restore" }
 
-type TabId = string; // random per tab session, kept in sessionStorage; also used as BroadcastChannel sender id
+type TabId = string // random per tab session, kept in sessionStorage; also used as BroadcastChannel sender id
 ```
 
 The user and the agent share a tab, and therefore a peer, so the peer id alone cannot tell them apart. Attribution is carried in the **commit message**, which is persisted and synced. The **origin** is used for local routing only, because Loro does not persist it:
 
-| Writer | `commit({ origin })` | message `by` |
-| --- | --- | --- |
-| Editor keystrokes / UI | `"user"` | `user` |
-| WebMCP tool call | `"agent:<tool>"` | `agent` |
-| UndoManager undo/redo | `"undo"` / `"redo"` (set by Loro) | `system` |
-| History "restore to here" | `"restore"` | `system` |
+| Writer                    | `commit({ origin })`              | message `by` |
+| ------------------------- | --------------------------------- | ------------ |
+| Editor keystrokes / UI    | `"user"`                          | `user`       |
+| WebMCP tool call          | `"agent:<tool>"`                  | `agent`      |
+| UndoManager undo/redo     | `"undo"` / `"redo"` (set by Loro) | `system`     |
+| History "restore to here" | `"restore"`                       | `system`     |
 
 ```ts
-interface ChangeMessage { v: 1; actor: Actor; summary?: string } // JSON in Change.message
+interface ChangeMessage {
+  v: 1
+  actor: Actor
+  summary?: string
+} // JSON in Change.message
 
 function configureDoc(doc: LoroDoc, tab: TabId) {
-  doc.setRecordTimestamp(true);
+  doc.setRecordTimestamp(true)
   // Catch implicit commits (export/import/checkout also commit) so nothing is unattributed.
   doc.subscribePreCommit(({ changeMeta, origin, modifier }) => {
-    if (changeMeta.message) return;
-    modifier.setMessage(JSON.stringify(actorFromOrigin(origin, tab)));
-  });
+    if (changeMeta.message) return
+    modifier.setMessage(JSON.stringify(actorFromOrigin(origin, tab)))
+  })
 }
 
 // WebMCP tool wrapper
 function agentEdit(doc: LoroDoc, tool: string, fn: () => void, summary?: string) {
-  undo.groupStart();
-  fn();
-  doc.commit({ origin: `agent:${tool}`, message: JSON.stringify({ v: 1, actor: { kind: "agent", tab, tool }, summary }) });
-  undo.groupEnd();
+  undo.groupStart()
+  fn()
+  doc.commit({ origin: `agent:${tool}`, message: JSON.stringify({ v: 1, actor: { kind: "agent", tab, tool }, summary }) })
+  undo.groupEnd()
 }
 ```
 
@@ -309,8 +319,8 @@ function agentEdit(doc: LoroDoc, tool: string, fn: () => void, summary?: string)
 Every commit carries its actor as the origin: `user`, `agent:<tool>`, `import` or `system` (§3). Each open diagram has two `UndoManager`s that filter on it:
 
 ```ts
-const undo      = new UndoManager(doc, { mergeInterval: 800, maxUndoSteps: 200, excludeOriginPrefixes: ["agent", "import", "system"] })
-const agentUndo = new UndoManager(doc, { mergeInterval: 0,   maxUndoSteps: 200, excludeOriginPrefixes: ["user", "import", "system"] })
+const undo = new UndoManager(doc, { mergeInterval: 800, maxUndoSteps: 200, excludeOriginPrefixes: ["agent", "import", "system"] })
+const agentUndo = new UndoManager(doc, { mergeInterval: 0, maxUndoSteps: 200, excludeOriginPrefixes: ["user", "import", "system"] })
 ```
 
 - **⌘Z never undoes an agent.** Your stack skips agent commits; Loro rebases your steps over them, so undoing your line leaves the agent's lines in place. An agent's edit is reversed from history (restore an earlier version) or by the agent itself.
@@ -325,18 +335,17 @@ The history panel replaces toasts. It lists changes newest first, grouped into s
 
 ```ts
 interface HistoryEntry {
-  id: { peer: `${number}`; counter: number };
-  actor: Actor;       // parsed from Change.message; unknown/missing → { kind: "user", tab: "?" }
-  at: number;         // Change.timestamp * 1000
-  summary?: string;
-  isThisTab: boolean; // actor.tab === myTab
+  id: { peer: `${number}`; counter: number }
+  actor: Actor // parsed from Change.message; unknown/missing → { kind: "user", tab: "?" }
+  at: number // Change.timestamp * 1000
+  summary?: string
+  isThisTab: boolean // actor.tab === myTab
 }
 
 function history(doc: LoroDoc): HistoryEntry[] {
-  const out: HistoryEntry[] = [];
-  for (const changes of doc.getAllChanges().values())
-    for (const c of changes) out.push(toEntry(c));
-  return out.sort((a, b) => b.at - a.at || 0);
+  const out: HistoryEntry[] = []
+  for (const changes of doc.getAllChanges().values()) for (const c of changes) out.push(toEntry(c))
+  return out.sort((a, b) => b.at - a.at || 0)
 }
 ```
 
@@ -344,10 +353,10 @@ For large docs, use `doc.travelChangeAncestors(doc.oplogFrontiers(), cb)` and st
 
 Panel actions:
 
-| Action | Loro API | Effect |
-| --- | --- | --- |
-| Preview a version | `doc.checkout(frontiers)` → doc becomes detached, read-only | Renders the diagram at that point. "Back to latest" calls `doc.checkoutToLatest()`. |
-| Restore to here | `doc.revertTo(frontiers)` + `commit({ origin: "restore" })` | Adds **new** ops that bring the state back. History is preserved and peers converge. |
+| Action            | Loro API                                                                   | Effect                                                                                                           |
+| ----------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Preview a version | `doc.checkout(frontiers)` → doc becomes detached, read-only                | Renders the diagram at that point. "Back to latest" calls `doc.checkoutToLatest()`.                              |
+| Restore to here   | `doc.revertTo(frontiers)` + `commit({ origin: "restore" })`                | Adds **new** ops that bring the state back. History is preserved and peers converge.                             |
 | Revert one change | `doc.diff(before, after)` → invert → `applyDiff` (or a text-level inverse) | Undoes only that change (e.g. one agent edit). Behind a flag until the inversion is proven (see Open questions). |
 
 Frontiers for a change are `[{ peer, counter: c.counter + c.length - 1 }]`.
@@ -360,11 +369,11 @@ Each open diagram uses one channel, `eos:doc:<id>`. Messages:
 
 ```ts
 type SyncMsg =
-  | { t: "update"; from: TabId; bytes: Uint8Array }                 // local update, already persisted
-  | { t: "hello";  from: TabId; vv: Uint8Array }                    // on open: my oplogVersion().encode()
-  | { t: "catchup"; from: TabId; to: TabId; bytes: Uint8Array }     // export({mode:"update", from: theirVV})
+  | { t: "update"; from: TabId; bytes: Uint8Array } // local update, already persisted
+  | { t: "hello"; from: TabId; vv: Uint8Array } // on open: my oplogVersion().encode()
+  | { t: "catchup"; from: TabId; to: TabId; bytes: Uint8Array } // export({mode:"update", from: theirVV})
   | { t: "presence"; from: TabId; actor: "user" | "agent"; cursor?: Uint8Array } // optional, via EphemeralStore later
-  | { t: "deleted"; from: TabId };                                  // diagram soft-deleted elsewhere
+  | { t: "deleted"; from: TabId } // diagram soft-deleted elsewhere
 ```
 
 - When a local commit happens, `subscribeLocalUpdates(bytes)` first writes to IndexedDB (§2), **then** posts `update`. A tab that missed a broadcast can still recover from disk.
@@ -382,12 +391,17 @@ https://eos.app/#/import?v=1&d=<base64url(deflate-raw(utf8(payload)))>
 ```
 
 ```ts
-interface SharePayload { v: 1; title: string; source: string; tags?: TagPath[] }
+interface SharePayload {
+  v: 1
+  title: string
+  source: string
+  tags?: TagPath[]
+}
 
 async function encodeShare(p: SharePayload): Promise<string> {
-  const raw = new TextEncoder().encode(JSON.stringify(p));
-  const z = await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream("deflate-raw"))).arrayBuffer();
-  return base64url(new Uint8Array(z)); // no padding; + → -, / → _
+  const raw = new TextEncoder().encode(JSON.stringify(p))
+  const z = await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream("deflate-raw"))).arrayBuffer()
+  return base64url(new Uint8Array(z)) // no padding; + → -, / → _
 }
 ```
 
@@ -401,9 +415,9 @@ async function encodeShare(p: SharePayload): Promise<string> {
 
 ```ts
 async function ensurePersisted(): Promise<boolean> {
-  if (!navigator.storage?.persist) return false;
-  if (await navigator.storage.persisted()) return true;
-  return navigator.storage.persist();
+  if (!navigator.storage?.persist) return false
+  if (await navigator.storage.persisted()) return true
+  return navigator.storage.persist()
 }
 ```
 
@@ -416,19 +430,19 @@ Settings are not CRDT data. They are a single plain record, last-write-wins, and
 
 ```ts
 interface AppSettings {
-  key: "app";
-  schema: 1;
+  key: "app"
+  schema: 1
   theme: {
-    mode: "system" | "light" | "dark";
+    mode: "system" | "light" | "dark"
     /** User CSS custom-property overrides applied to :root, e.g. { "--eos-node-fill": "#fef3c7" }. */
-    overrides: Record<`--${string}`, string>;
+    overrides: Record<`--${string}`, string>
     /** Optional raw CSS appended after overrides, scoped to the Pele renderer root. */
-    customCss?: string;
-  };
-  persist: "granted" | "denied" | "unknown";
-  lastOpenedId?: DiagramId;
-  library: { sort: LibrarySort };
-  agent: { webmcpEnabled: boolean };
+    customCss?: string
+  }
+  persist: "granted" | "denied" | "unknown"
+  lastOpenedId?: DiagramId
+  library: { sort: LibrarySort }
+  agent: { webmcpEnabled: boolean }
 }
 ```
 
@@ -436,18 +450,18 @@ Overrides are sanitised before use. Only `--*` keys are accepted. `customCss` is
 
 ## 9. Lifecycle summary
 
-| Event | Doc | IndexedDB | Broadcast |
-| --- | --- | --- | --- |
-| New diagram | `new LoroDoc()`, set meta, commit `user` | put snapshot + index row | `index` |
-| Keystroke | `text.insert/delete` (auto-commit on debounce) | append `updates` | `update` |
-| Agent tool | `agentEdit()` | append `updates` | `update` |
-| Other tab edit | `import(bytes)` | — | — |
-| Undo | `undo.undo()` | append `updates` | `update` |
-| Restore version | `revertTo` + commit | append `updates` | `update` |
-| Star / unstar | workspace `starred` set/delete | workspace `updates`; mirror `starred` in index row | `index` |
-| Tag emoji / order | workspace `tags` entry | workspace `updates` | `index` |
-| Delete | set `deletedAt` on index row; drop `starred` key | soft delete; purge after 30 days | `deleted`, `index` |
-| Open share link | new doc from payload | snapshot + index row | `index` |
+| Event             | Doc                                              | IndexedDB                                          | Broadcast          |
+| ----------------- | ------------------------------------------------ | -------------------------------------------------- | ------------------ |
+| New diagram       | `new LoroDoc()`, set meta, commit `user`         | put snapshot + index row                           | `index`            |
+| Keystroke         | `text.insert/delete` (auto-commit on debounce)   | append `updates`                                   | `update`           |
+| Agent tool        | `agentEdit()`                                    | append `updates`                                   | `update`           |
+| Other tab edit    | `import(bytes)`                                  | —                                                  | —                  |
+| Undo              | `undo.undo()`                                    | append `updates`                                   | `update`           |
+| Restore version   | `revertTo` + commit                              | append `updates`                                   | `update`           |
+| Star / unstar     | workspace `starred` set/delete                   | workspace `updates`; mirror `starred` in index row | `index`            |
+| Tag emoji / order | workspace `tags` entry                           | workspace `updates`                                | `index`            |
+| Delete            | set `deletedAt` on index row; drop `starred` key | soft delete; purge after 30 days                   | `deleted`, `index` |
+| Open share link   | new doc from payload                             | snapshot + index row                               | `index`            |
 
 ## 10. WebMCP tools
 
@@ -459,25 +473,25 @@ Overrides are sanitised before use. Only `--*` keys are accepted. `customCss` is
 - **Confirmation is in the page.** Deletes open Eos's own dialog and wait; a model can't get past it. Agents can read but not change agent settings, so they can't turn confirmation off.
 - **Off switch.** With `settings.agent.webmcpEnabled` false, no tools are registered.
 
-| Tool | Kind | Does |
-| --- | --- | --- |
-| `get_library({ query?, starred?, tags?, deleted?, sort? })` | read | Diagrams, the tag tree and counts. |
-| `get_diagram({ id, version?, history? })` | read | Title, tags, star, source (now or at a version), version id; `history` adds the version list. |
-| `get_view()` | read | Page, open diagram, filters, zoom, Settings open. |
-| `get_settings()` | read | Settings, the theme in effect with full CSS, storage used. |
-| `export({ format, id? \| source?, includeTags?, download? })` | read | `svg`, `png`, `mmd`, `link`, `backup`. Doubles as a dry-run parse check. |
-| `create_diagram({ title?, source?, tags?, starred?, fromShareLink?, open? })` | write | New diagram, duplicate (from `get_diagram`'s source) or import a share link. |
-| `update_diagram({ id, title?, source?, starred?, addTags?, removeTags?, revert?, deleted?, expectedVersion? })` | write | Every edit as one change. `revert`: `"undo"`, `"redo"` or a version id. `deleted: true` moves to Deleted (asks). `expectedVersion` refuses stale edits. |
-| `update_tag({ path, moveTo?, emoji? })` | write | Rename or move a tag (including to the top level), set its icon. |
-| `set_view({ page?, diagramId?, filters?, previewVersion?, zoom?, settingsOpen? })` | write | Navigation and UI state. |
-| `set_theme({ mode?, appCss?, diagramCss? })` | write | Theming. |
-| `delete_tag({ path })` | destructive | Remove a tag everywhere (asks). |
-| `import_backup({ data, mode })` | destructive | Merge, or replace (asks). |
-| `delete_all_data()` | destructive | Wipe this browser's data (asks). |
+| Tool                                                                                                            | Kind        | Does                                                                                                                                                    |
+| --------------------------------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get_library({ query?, starred?, tags?, deleted?, sort? })`                                                     | read        | Diagrams, the tag tree and counts.                                                                                                                      |
+| `get_diagram({ id, version?, history? })`                                                                       | read        | Title, tags, star, source (now or at a version), version id; `history` adds the version list.                                                           |
+| `get_view()`                                                                                                    | read        | Page, open diagram, filters, zoom, Settings open.                                                                                                       |
+| `get_settings()`                                                                                                | read        | Settings, the theme in effect with full CSS, storage used.                                                                                              |
+| `export({ format, id? \| source?, includeTags?, download? })`                                                   | read        | `svg`, `png`, `mmd`, `link`, `backup`. Doubles as a dry-run parse check.                                                                                |
+| `create_diagram({ title?, source?, tags?, starred?, fromShareLink?, open? })`                                   | write       | New diagram, duplicate (from `get_diagram`'s source) or import a share link.                                                                            |
+| `update_diagram({ id, title?, source?, starred?, addTags?, removeTags?, revert?, deleted?, expectedVersion? })` | write       | Every edit as one change. `revert`: `"undo"`, `"redo"` or a version id. `deleted: true` moves to Deleted (asks). `expectedVersion` refuses stale edits. |
+| `update_tag({ path, moveTo?, emoji? })`                                                                         | write       | Rename or move a tag (including to the top level), set its icon.                                                                                        |
+| `set_view({ page?, diagramId?, filters?, previewVersion?, zoom?, settingsOpen? })`                              | write       | Navigation and UI state.                                                                                                                                |
+| `set_theme({ mode?, appCss?, diagramCss? })`                                                                    | write       | Theming.                                                                                                                                                |
+| `delete_tag({ path })`                                                                                          | destructive | Remove a tag everywhere (asks).                                                                                                                         |
+| `import_backup({ data, mode })`                                                                                 | destructive | Merge, or replace (asks).                                                                                                                               |
+| `delete_all_data()`                                                                                             | destructive | Wipe this browser's data (asks).                                                                                                                        |
 
 ## Open questions
 
-1. **Revert-one-change.** Inverting an arbitrary past change with concurrent edits on top is not a first-class Loro API (`revertTo` reverts to a *version*, not a single change). Should v1 ship only "restore to here"?
+1. **Revert-one-change.** Inverting an arbitrary past change with concurrent edits on top is not a first-class Loro API (`revertTo` reverts to a _version_, not a single change). Should v1 ship only "restore to here"?
 2. **History trimming.** Do we ever offer a shallow snapshot (`mode: "shallow-snapshot"`) to drop old history? If we do, links to old history entries break, and other tabs that hold a deeper history need a strategy for reconciling with it.
 3. **Agent identity.** WebMCP may not tell us which agent or client is calling. Is `kind: "agent"` plus the tool name enough, or do we want the user to label sessions?
 4. **Separate undo for user and agent.** Today the tab has one shared stack (§4). If users want "undo only my edits" while an agent works alongside them, the agent needs its own peer, for example a `doc.fork()` per agent session that merges back, with its own `UndoManager`.

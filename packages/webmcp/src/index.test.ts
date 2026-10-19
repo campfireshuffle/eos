@@ -129,7 +129,11 @@ describe("webmcp tools", () => {
   it("rejects bad input with a clear error instead of throwing", async () => {
     const { call } = await setup()
     const { id } = await call("create_diagram", { title: "T", source: "flowchart TD\n  A-->B", open: false })
-    expect(await call("update_diagram", { id, title: 42 })).toMatchObject({ ok: false, code: "invalid_input", message: "input.title must be string, not number" })
+    expect(await call("update_diagram", { id, title: 42 })).toMatchObject({
+      ok: false,
+      code: "invalid_input",
+      message: "input.title must be string, not number",
+    })
     expect((await call("set_view", { library: { tag: "x" } })).message).toMatch(/input.library isn't a field/)
     expect((await call("set_view", { zoom: "huge" })).code).toBe("invalid_input")
     expect((await call("get_diagram", {})).message).toBe("input.id is required")
@@ -184,7 +188,10 @@ describe("webmcp tools", () => {
   it("closes the confirm and reports cancelled when the agent cancels the call", async () => {
     const { list, bridge, eos } = await setup()
     // A confirm that stays open until the call's signal aborts, like the in-page dialog.
-    bridge.confirm = vi.fn((_m: string, _a?: string, signal?: AbortSignal) => new Promise<boolean>((resolve) => signal?.addEventListener("abort", () => resolve(false))))
+    bridge.confirm = vi.fn(
+      (_m: string, _a?: string, signal?: AbortSignal) =>
+        new Promise<boolean>((resolve) => signal?.addEventListener("abort", () => resolve(false)))
+    )
     const tools = Object.fromEntries(list.map((t) => [t.name, t]))
     const { id } = (await tools.create_diagram.execute({ title: "Keep", open: false })) as any
     const controller = new AbortController()
