@@ -26,6 +26,11 @@ export function touchHoldEnd() {
   holding = false
 }
 
+/** True only while the finger is still down after the hold began. */
+export function isTouchDragging(): boolean {
+  return holding
+}
+
 export function isTouchHolding(): boolean {
   return holding || Date.now() < graceUntil
 }

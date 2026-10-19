@@ -7,7 +7,7 @@ import { cn } from "@workspace/ui/lib/utils"
 
 import { useEos } from "@/lib/eos"
 import { DIAGRAM_MIME, readDraggedIds } from "@/lib/selection"
-import { isTouchHolding, touchHoldCancel, touchHoldEnd, touchHoldStart } from "@/lib/touch-hold"
+import { isTouchDragging, isTouchHolding, touchHoldCancel, touchHoldEnd, touchHoldStart } from "@/lib/touch-hold"
 import { useIsMobile } from "@/lib/layout"
 import { homeHref, navigate } from "@/lib/router"
 
@@ -166,9 +166,22 @@ export function TagTree({
     <div
       ref={host}
       onTouchStartCapture={touchHoldStart}
-      onTouchMoveCapture={touchHoldCancel}
-      onTouchEndCapture={touchHoldEnd}
-      onTouchCancelCapture={touchHoldEnd}
+      onTouchMoveCapture={(e) => {
+        if (!isTouchDragging()) return touchHoldCancel()
+        // The tree doesn't redraw its drop highlight during touch drags, so mark the row under the finger.
+        const t = e.touches[0]
+        const root = host.current?.querySelector(FILE_TREE_TAG_NAME)?.shadowRoot
+        const row = t && root?.elementFromPoint(t.clientX, t.clientY)?.closest<HTMLElement>("[data-item-path]:not([data-item-dragging]):not([data-file-tree-drag-preview])")
+        highlightRow(host.current, row?.getAttribute("data-item-path") ?? null)
+      }}
+      onTouchEndCapture={() => {
+        touchHoldEnd()
+        highlightRow(host.current, null)
+      }}
+      onTouchCancelCapture={() => {
+        touchHoldEnd()
+        highlightRow(host.current, null)
+      }}
       onPointerDownCapture={swallowIcon}
       onMouseDownCapture={swallowIcon}
       onClickCapture={(e) => {
@@ -312,10 +325,12 @@ function useLeafStyles(wrapper: React.RefObject<HTMLDivElement | null>, leaves: 
       style.textContent = [
         // Context menu opens on right-click; don't reserve the button lane.
         `[data-item-section="action"] { display: none; }`,
-        // Drop target for dragged diagram cards.
-        `[data-eos-drop] { background: color-mix(in srgb, var(--eos-champagne) 14%, transparent) !important; color: var(--eos-body) !important; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--eos-champagne) 55%, transparent); }`,
+        // Drop target for dragged diagram cards, and for a tag dragged within the tree.
+        `[data-eos-drop], [data-item-drag-target="true"] { background: color-mix(in srgb, var(--eos-champagne) 14%, transparent) !important; color: var(--eos-body) !important; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--eos-champagne) 55%, transparent); }`,
         // The leading glyph opens the icon picker.
         `[data-item-section="content"] { cursor: default; }`,
+        // The floating copy of a touch-dragged tag sits under the finger; let hit-testing see the row beneath.
+        `[data-file-tree-drag-preview] { pointer-events: none; translate: 0 -44px; opacity: 1 !important; background: var(--eos-raised) !important; color: var(--eos-body) !important; border-radius: calc(var(--radius) * 0.8); box-shadow: 0 10px 28px rgb(0 0 0 / 0.35), inset 0 0 0 1px var(--eos-line-active); }`,
         // Press-and-hold drags a tag; don't show iOS's text callout or selection.
         `[data-item-path] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }`,
         // Only show the focused-row ring while the tree itself has keyboard focus.
