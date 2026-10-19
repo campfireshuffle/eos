@@ -13,7 +13,7 @@ import {
   type Key,
 } from "react-aria-components"
 
-import type { TagPath, TagRecord } from "@eos/core"
+import { findEmoji, type TagPath, type TagRecord } from "@eos/core"
 import { Popover, PopoverAnchor, PopoverContent } from "@workspace/ui/components/popover"
 import { cn } from "@workspace/ui/lib/utils"
 
@@ -281,15 +281,6 @@ function sortTags(tags: TagRecord[]): TagRecord[] {
 
 function collect(tags: TagRecord[], keep: (t: TagRecord) => boolean): TagPath[] {
   return tags.flatMap((t) => [...(keep(t) ? [t.path] : []), ...collect(t.children, keep)])
-}
-
-function findEmoji(tags: TagRecord[], path: TagPath): string | null {
-  for (const t of tags) {
-    if (t.path === path) return t.emoji
-    const found = findEmoji(t.children, path)
-    if (found) return found
-  }
-  return null
 }
 
 function parseIds(json: string): string[] {

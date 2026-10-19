@@ -1,5 +1,5 @@
 import { Check, Star } from "lucide-react"
-import { memo, useEffect, useRef, useState } from "react"
+import { memo, useEffect, useMemo, useRef, useState } from "react"
 import { useLongPress } from "react-aria"
 
 import { renderSvg, type DiagramIndexRow } from "@eos/core"
@@ -58,7 +58,6 @@ export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramInde
           toggleSelected(row.id)
         } else clearSelection()
       }}
-      aria-selected={selected}
       className={cn(
         "group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors select-none [-webkit-touch-callout:none] hover:border-[var(--eos-line-active)]",
         selected && "border-[var(--eos-champagne)] ring-1 ring-[var(--eos-champagne)] hover:border-[var(--eos-champagne)]"
@@ -67,9 +66,10 @@ export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramInde
       {selected && (
         <span className="absolute top-2.5 right-2.5 z-10 flex size-6 items-center justify-center rounded-full bg-[var(--eos-champagne)] text-[var(--eos-ink)] shadow-sm">
           <Check className="size-3.5" strokeWidth={3} />
+          <span className="sr-only">Selected</span>
         </span>
       )}
-      <Thumbnail id={row.id} updatedAt={row.updatedAt} />
+      <Thumbnail id={row.id} source={row.sourceText} updatedAt={row.updatedAt} />
       <div className="flex flex-col gap-1.5 border-t border-border px-3.5 pt-3 pb-3.5">
         <div className="flex items-center gap-2">
           <span className="flex-1 truncate text-body font-medium">{row.title}</span>
@@ -91,11 +91,11 @@ export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramInde
 })
 
 /** Renders the diagram live with Pele once the card scrolls into view. */
-function Thumbnail({ id, updatedAt }: { id: string; updatedAt: number }) {
+function Thumbnail({ id, source, updatedAt }: { id: string; source: string | undefined; updatedAt: number }) {
   const eos = useEos()
   const ref = useRef<HTMLDivElement>(null)
   const [visible, setVisible] = useState(false)
-  const [svg, setSvg] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState<string | null>(null)
 
   useEffect(() => {
     const el = ref.current
@@ -105,21 +105,28 @@ function Thumbnail({ id, updatedAt }: { id: string; updatedAt: number }) {
     return () => io.disconnect()
   }, [])
 
+  // Rows written before the index kept the full source have to read it from the diagram.
   useEffect(() => {
-    if (!visible) return
+    if (!visible || source !== undefined) return
     let alive = true
-    eos.getSource(id).then((source) => {
-      if (!alive) return
-      try {
-        setSvg(renderSvg(source, `t-${id.slice(0, 8)}-`))
-      } catch {
-        setSvg("")
-      }
-    })
+    eos.getSource(id).then(
+      (text) => alive && setLoaded(text),
+      () => alive && setLoaded("")
+    )
     return () => {
       alive = false
     }
-  }, [eos, id, updatedAt, visible])
+  }, [eos, id, source, updatedAt, visible])
+
+  const text = source ?? loaded
+  const svg = useMemo(() => {
+    if (!visible || text === null) return null
+    try {
+      return renderSvg(text, `t-${id.slice(0, 8)}-`)
+    } catch {
+      return ""
+    }
+  }, [id, text, visible])
 
   return (
     <div

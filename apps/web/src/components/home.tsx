@@ -1,7 +1,7 @@
 import { Plus, Search } from "lucide-react"
 import { useEffect, useRef } from "react"
 
-import type { LibrarySort } from "@eos/core"
+import { findEmoji, type LibrarySort } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { NativeSelect, NativeSelectOption } from "@workspace/ui/components/native-select"
@@ -135,13 +135,4 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
       <SelectionBar deleted={route.deleted} />
     </main>
   )
-}
-
-function findEmoji(tags: { path: string; emoji: string | null; children: unknown[] }[], path: string): string | null {
-  for (const t of tags) {
-    if (t.path === path) return t.emoji
-    const found = findEmoji(t.children as never, path)
-    if (found) return found
-  }
-  return null
 }

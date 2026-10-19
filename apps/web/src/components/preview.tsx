@@ -30,10 +30,10 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
   const modeRef = useRef<"fit" | number>("fit")
   // A point that should stay under the cursor or fingers across the next zoom change.
   const anchor = useRef<{ fx: number; fy: number; x: number; y: number } | null>(null)
-  /** Zooms to `next`, keeping the diagram point under (x, y) in place. */
   // The diagram point a zoom gesture is anchored to. While the cursor stays put, every step reuses it
   // instead of re-measuring, so whole-pixel scroll rounding can't accumulate into drift.
   const zoomGesture = useRef<{ fx: number; fy: number; x: number; y: number; at: number } | null>(null)
+  /** Zooms to `next`, keeping the diagram point under (x, y) in place. */
   const zoomAt = (next: number, x: number, y: number) => {
     const g = zoomGesture.current
     const now = performance.now()
@@ -192,10 +192,9 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
   const [panning, setPanning] = useState(false)
   const [spaceHeld, setSpaceHeld] = useState(false)
 
-  // Hold Space to show the hand cursor (as in Figma), unless typing.
+  // Hold Space to show the hand cursor (as in Figma), unless something focused uses Space (typing, a button).
   useEffect(() => {
-    const typing = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.(".cm-editor, input, textarea, [contenteditable]")
-    const down = (e: KeyboardEvent) => e.code === "Space" && !typing(e.target) && (e.preventDefault(), setSpaceHeld(true))
+    const down = (e: KeyboardEvent) => e.code === "Space" && e.target === document.body && (e.preventDefault(), setSpaceHeld(true))
     const up = (e: KeyboardEvent) => e.code === "Space" && setSpaceHeld(false)
     const blur = () => setSpaceHeld(false)
     window.addEventListener("keydown", down)
