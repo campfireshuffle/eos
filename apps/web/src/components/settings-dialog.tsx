@@ -87,8 +87,18 @@ function Theming() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
       <section className="flex min-h-0 flex-1 flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <h3 className="flex-1 text-body font-medium whitespace-nowrap">App theme</h3>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-body font-medium">App theme</h3>
+          <a
+            href="https://github.com/campfireshuffle/eos/blob/main/docs/theming.md"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-0.5 text-caption text-muted-foreground hover:text-foreground"
+          >
+            Theming reference <ArrowUpRight className="size-3.5" />
+          </a>
+        </div>
+        <div className="flex">
           <ToggleGroup
             type="single"
             variant="outline"
