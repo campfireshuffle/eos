@@ -9,12 +9,15 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
-    "typecheck": "turbo typecheck",
+    "typecheck": "turbo typecheck && tsc -p e2e",
     "deploy": "pnpm --filter @eos/web deploy",
-    "test": "turbo test"
+    "test": "turbo test",
+    "e2e": "playwright test"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "1.62.1",
+    "@types/node": "^24.19.2",
     "eslint": "^10.13.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.7",
