@@ -19,7 +19,8 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
   const mounted = useRef<Mounted | null>(null)
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
   const [mode, setMode] = useState<"fit" | number>("fit")
-  const [box, setBox] = useState({ w: 0, h: 0 })
+  // w/h: the content area (for fitting). ow/oh: the outer size, which a scrollbar appearing doesn't change.
+  const [box, setBox] = useState({ w: 0, h: 0, ow: 0, oh: 0 })
   const zoomRequest = useUi((s) => s.zoomRequest)
   // Ignore zoom requests made before this preview mounted (e.g. on another diagram).
   const handled = useRef(zoomRequest?.n ?? 0)
@@ -30,9 +31,17 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
   // A point that should stay under the cursor or fingers across the next zoom change.
   const anchor = useRef<{ fx: number; fy: number; x: number; y: number } | null>(null)
   /** Zooms to `next`, keeping the diagram point under (x, y) in place. */
+  // The diagram point a zoom gesture is anchored to. While the cursor stays put, every step reuses it
+  // instead of re-measuring, so whole-pixel scroll rounding can't accumulate into drift.
+  const zoomGesture = useRef<{ fx: number; fy: number; x: number; y: number; at: number } | null>(null)
   const zoomAt = (next: number, x: number, y: number) => {
-    const r = host.current?.querySelector("svg")?.getBoundingClientRect()
-    if (r && r.width && r.height) anchor.current = { fx: (x - r.left) / r.width, fy: (y - r.top) / r.height, x, y }
+    const g = zoomGesture.current
+    const now = performance.now()
+    if (!g || Math.abs(g.x - x) > 2 || Math.abs(g.y - y) > 2 || now - g.at > 600) {
+      const r = host.current?.querySelector("svg")?.getBoundingClientRect()
+      zoomGesture.current = r && r.width && r.height ? { fx: (x - r.left) / r.width, fy: (y - r.top) / r.height, x, y, at: now } : null
+    } else g.at = now
+    if (zoomGesture.current) anchor.current = { ...zoomGesture.current, x, y }
     setMode(Math.min(MAX, Math.max(MIN, next)))
   }
   const zoomAtRef = useRef(zoomAt)
@@ -104,7 +113,9 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
 
   useEffect(() => {
     const el = scroller.current!
-    const ro = new ResizeObserver(([e]) => setBox({ w: e.contentRect.width, h: e.contentRect.height }))
+    const ro = new ResizeObserver(([e]) =>
+      setBox({ w: e.contentRect.width, h: e.contentRect.height, ow: el.offsetWidth, oh: el.offsetHeight }),
+    )
     ro.observe(el)
     // ⌘/Ctrl + wheel (and trackpad pinch) zooms; needs a non-passive listener.
     const onWheel = (e: WheelEvent) => {
@@ -155,10 +166,13 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
     if (!zoomRequest || zoomRequest.n <= handled.current) return
     handled.current = zoomRequest.n
     const clamp = (s: number) => Math.min(MAX, Math.max(MIN, s))
-    if (zoomRequest.action === "in") setMode(clamp(scale * 1.25))
-    if (zoomRequest.action === "out") setMode(clamp(scale * 0.8))
+    // Menu and keyboard zoom keep the centre of the pane in place.
+    const r = scroller.current!.getBoundingClientRect()
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2
+    if (zoomRequest.action === "in") zoomAt(clamp(scale * 1.25), cx, cy)
+    if (zoomRequest.action === "out") zoomAt(clamp(scale * 0.8), cx, cy)
     if (zoomRequest.action === "fit") setMode("fit")
-    if (zoomRequest.action === "actual") setMode(1)
+    if (zoomRequest.action === "actual") zoomAt(1, cx, cy)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoomRequest])
 
@@ -236,7 +250,11 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
 
   // When zoomed past fit, leave room around the diagram so any edge can be panned to the middle.
   const zoomedIn = scale > fit + 0.001
-  const margin = zoomedIn ? Math.round(Math.min(box.w, box.h) * 0.4) : 24
+  // Past fit, pad each axis by nearly a full pane (keeping 40px of diagram in view), so there is always
+  // room to scroll both ways. Otherwise an axis where the diagram is still smaller than the pane gets
+  // centred, and zooming drifts the point under the cursor along it.
+  const gutter = (size: number) => (zoomedIn ? Math.max(24, Math.round(size - 40)) : 24)
+  const margin = `${gutter(box.oh)}px ${gutter(box.ow)}px`
 
   return (
     <div
