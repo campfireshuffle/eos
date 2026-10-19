@@ -13,7 +13,16 @@ export function connectWebMcp(eos: Eos): () => void {
     getView: () => ({ route: parseRoute(location.hash), zoom: getUi().zoomScale, settingsOpen: getUi().settingsOpen }),
     openDiagram: (id) => navigate(diagramHref(id)),
     goHome: () => navigate(homeHref()),
-    setLibraryView: ({ starred, deleted, tags, sort }) => navigate(homeHref({ starred, deleted, tag: tags?.[0] ?? null, sort })),
+    // Filters the agent leaves out, and the grouping and search it can't set, keep their current values.
+    setLibraryView: ({ starred, deleted, tags, sort }) => {
+      const current = parseRoute(location.hash)
+      const view: Parameters<typeof homeHref>[0] = current.name === "home" ? { ...current } : {}
+      if (starred !== undefined) view.starred = starred
+      if (deleted !== undefined) view.deleted = deleted
+      if (sort !== undefined) view.sort = sort
+      if (tags !== undefined) view.tag = tags[0] ?? null
+      navigate(homeHref(view))
+    },
     setZoom: requestZoom,
     openSettings: (open) => setUi({ settingsOpen: open }),
     previewVersion: (id, version, meta) =>
@@ -34,7 +43,10 @@ export function connectWebMcp(eos: Eos): () => void {
   const sync = () => {
     const enabled = eos.getSettings().agent.webmcpEnabled
     if (enabled && !unregister) unregister = registerTools(tools)
-    if (!enabled && unregister) (unregister(), (unregister = null))
+    if (!enabled && unregister) {
+      unregister()
+      unregister = null
+    }
   }
   sync()
   const off = eos.subscribe("settings", sync)

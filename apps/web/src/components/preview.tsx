@@ -196,12 +196,14 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
     const typing = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.(".cm-editor, input, textarea, [contenteditable]")
     const down = (e: KeyboardEvent) => e.code === "Space" && !typing(e.target) && (e.preventDefault(), setSpaceHeld(true))
     const up = (e: KeyboardEvent) => e.code === "Space" && setSpaceHeld(false)
+    const blur = () => setSpaceHeld(false)
     window.addEventListener("keydown", down)
     window.addEventListener("keyup", up)
-    window.addEventListener("blur", () => setSpaceHeld(false))
+    window.addEventListener("blur", blur)
     return () => {
       window.removeEventListener("keydown", down)
       window.removeEventListener("keyup", up)
+      window.removeEventListener("blur", blur)
     }
   }, [])
 

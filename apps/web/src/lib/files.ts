@@ -30,9 +30,53 @@ export function standaloneSvg(svgEl: SVGSVGElement): string {
   return new XMLSerializer().serializeToString(clone)
 }
 
+let fontCss: Promise<string> | null = null
+
+/**
+ * The page's loaded web fonts as @font-face rules with the font files inlined.
+ * An SVG drawn as an image can't fetch anything, so without this a PNG export
+ * falls back from Inter to a system font.
+ */
+function embeddedFontCss(): Promise<string> {
+  fontCss ??= (async () => {
+    const plain = (v: string) => v.replace(/["'\s]/g, "").toUpperCase()
+    const loaded = new Set([...document.fonts].filter((f) => f.status === "loaded").map((f) => plain(f.family) + plain(f.unicodeRange)))
+    const rules = [...document.styleSheets].flatMap((sheet) => {
+      try {
+        return [...sheet.cssRules].filter((r) => r instanceof CSSFontFaceRule).map((rule) => ({ rule, base: sheet.href ?? location.href }))
+      } catch {
+        return []
+      }
+    })
+    const faces = await Promise.all(
+      rules
+        .filter(({ rule }) => loaded.has(plain(rule.style.getPropertyValue("font-family")) + plain(rule.style.getPropertyValue("unicode-range") || "U+0-10FFFF")))
+        .map(async ({ rule, base }) => {
+          const src = rule.style.getPropertyValue("src").match(/url\(["']?([^"')]+)["']?\)/)?.[1]
+          if (!src) return ""
+          const data = await blobToDataUrl(await (await fetch(new URL(src, base))).blob())
+          return rule.cssText.replace(/src:[^;]+;/, `src: url("${data}");`)
+        }),
+    )
+    return faces.join("\n")
+  })().catch(() => "")
+  return fontCss
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
+}
+
 export async function svgToPng(svg: string, scale = 2): Promise<Blob> {
+  const fonts = await embeddedFontCss()
+  const withFonts = fonts ? svg.replace(/<svg[^>]*>/, (open) => `${open}<style>${fonts}</style>`) : svg
   const img = new Image()
-  img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+  img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(withFonts)}`
   await img.decode()
   const canvas = document.createElement("canvas")
   canvas.width = img.naturalWidth * scale
@@ -53,12 +97,7 @@ export async function svgMarkupToPng(markup: string): Promise<{ dataUrl: string;
     const svg = host.querySelector("svg")
     if (!svg) throw new Error("Not an SVG")
     const blob = await svgToPng(standaloneSvg(svg))
-    const dataUrl = await new Promise<string>((resolve) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(reader.result as string)
-      reader.readAsDataURL(blob)
-    })
-    return { dataUrl, blob }
+    return { dataUrl: await blobToDataUrl(blob), blob }
   } finally {
     host.remove()
   }
