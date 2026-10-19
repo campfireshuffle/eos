@@ -121,7 +121,7 @@ export function TagTree({
               }}
               className={({ isDropTarget, isDragging, isFocusVisible, isHovered }) =>
                 cn(
-                  "flex h-8 shrink-0 cursor-default items-center rounded-md pr-2.5 text-body text-muted-foreground outline-none select-none max-md:h-10 [-webkit-touch-callout:none]",
+                  "flex h-8 shrink-0 cursor-default items-center rounded-md px-2.5 text-body text-muted-foreground outline-none select-none max-md:h-10 [-webkit-touch-callout:none]",
                   isHovered && "bg-accent/30 text-foreground",
                   tag.path === selected && "bg-accent font-medium text-foreground",
                   isDropTarget && DROP_HIGHLIGHT,
@@ -132,29 +132,29 @@ export function TagTree({
             >
               <TreeItemContent>
                 {({ hasChildItems, isExpanded, level }) => (
-                  <div className="flex w-full min-w-0 items-center gap-1" style={{ paddingLeft: 6 + (level - 1) * 18 }}>
-                    {hasChildItems ? (
-                      <AriaButton
-                        slot="chevron"
-                        aria-label={isExpanded ? "Collapse" : "Expand"}
-                        className="flex size-4 shrink-0 items-center justify-center rounded text-[var(--eos-faint)] outline-none"
-                      >
-                        <ChevronRight className={cn("size-3.5 transition-transform", isExpanded && "rotate-90")} />
-                      </AriaButton>
-                    ) : (
-                      <span className="size-4 shrink-0" />
-                    )}
+                  // Same columns as Starred and Deleted: icon at the row's padding, name 10px after it.
+                  // Nested tags indent 18px per level; the expand arrow sits at the end, before the count.
+                  <div className="flex w-full min-w-0 items-center gap-2.5" style={{ paddingLeft: (level - 1) * 18 }}>
                     <AriaButton
                       aria-label={`Change icon for ${tag.path}`}
                       onPress={(e) => {
                         const r = (e.target as HTMLElement).getBoundingClientRect()
                         setPicker({ tag: tag.path, x: r.left, y: r.bottom })
                       }}
-                      className="flex h-6 min-w-5 shrink-0 items-center justify-center rounded px-0.5 outline-none hover:bg-accent"
+                      className="-mx-0.5 flex h-6 w-5 shrink-0 items-center justify-center rounded outline-none hover:bg-accent"
                     >
                       {tag.emoji ?? "#"}
                     </AriaButton>
                     <span className="min-w-0 flex-1 truncate">{nameOf(tag.path)}</span>
+                    {hasChildItems && (
+                      <AriaButton
+                        slot="chevron"
+                        aria-label={isExpanded ? "Collapse" : "Expand"}
+                        className="-mr-1 flex size-5 shrink-0 items-center justify-center rounded text-[var(--eos-faint)] outline-none hover:bg-accent hover:text-foreground"
+                      >
+                        <ChevronRight className={cn("size-3.5 transition-transform", isExpanded && "rotate-90")} />
+                      </AriaButton>
+                    )}
                     <span className="shrink-0 text-caption text-[var(--eos-faint)] tabular-nums">{tag.count}</span>
                   </div>
                 )}
