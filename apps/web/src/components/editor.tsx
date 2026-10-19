@@ -177,7 +177,7 @@ export function Editor({ id }: { id: string }) {
             {result?.ok ? (
               <footer className="flex items-center gap-1.5 px-4 py-2.5 text-xs text-muted-foreground">
                 <CircleCheck className="size-3.5 text-[var(--eos-green)]" />{" "}
-                Valid {result.type}
+                Valid
               </footer>
             ) : result ? (
               <footer className="flex flex-col gap-1.5 border-t border-border bg-[color-mix(in_srgb,var(--eos-red)_7%,transparent)] px-4 pt-3 pb-3.5">
