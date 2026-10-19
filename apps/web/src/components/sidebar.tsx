@@ -80,7 +80,7 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
 
 /** One row style for every sidebar item: links (Starred, Deleted) and the Settings button. */
 const NAV_ITEM =
-  "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-body text-muted-foreground transition-colors max-md:h-10 hover:bg-accent/30 hover:text-foreground [&_svg]:size-4 [&_svg]:shrink-0"
+  "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-body text-muted-foreground outline-none transition-colors max-md:h-10 hover:bg-accent/30 hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--eos-line-active)] [&_svg]:size-4 [&_svg]:shrink-0"
 
 function NavItem({
   href,

@@ -37,11 +37,18 @@ export function SettingsDialog() {
               type="button"
               onClick={() => setUi({ settingsTab: id })}
               className={cn(
-                "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-body text-muted-foreground hover:bg-accent/30 hover:text-foreground max-md:h-9",
+                "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-body text-muted-foreground outline-none hover:bg-accent/30 hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--eos-line-active)] max-md:h-9",
                 tab === id && "bg-accent font-medium text-foreground",
               )}
             >
-              <Icon className="size-4 max-md:hidden" /> {label}
+              <Icon className="size-4 max-md:hidden" />
+              {/* The hidden medium-weight copy reserves the selected width, so selecting a tab never shifts the others. */}
+              <span className="grid">
+                <span className="col-start-1 row-start-1">{label}</span>
+                <span aria-hidden className="invisible col-start-1 row-start-1 font-medium">
+                  {label}
+                </span>
+              </span>
             </button>
           ))}
         </nav>
