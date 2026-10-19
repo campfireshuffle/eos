@@ -31,8 +31,12 @@ export function toggleSidebar() {
   group?.setAttribute("data-animating", "")
   clearTimeout(animationEnd)
   animationEnd = setTimeout(() => group?.removeAttribute("data-animating"), SIDEBAR_ANIMATION_MS + 50)
-  if (panel.isCollapsed()) panel.expand()
-  else panel.collapse()
+  // Flip the state first: the shell's padding, gutter and corner animate off it in the same motion.
+  // (onResize alone would only report "collapsed" once the panel reaches zero, a second stage.)
+  const collapsing = !panel.isCollapsed()
+  setUi({ sidebarCollapsed: collapsing })
+  if (collapsing) panel.collapse()
+  else panel.expand()
 }
 
 export const SIDEBAR_ANIMATION_MS = 220

@@ -123,7 +123,7 @@ export function Editor({ id }: { id: string }) {
 
   if (diagram === null) {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center gap-3 bg-card text-body text-muted-foreground md:rounded-tl-xl">
+      <main className="flex flex-1 flex-col items-center justify-center gap-3 bg-card text-body text-muted-foreground md:rounded-tl-xl md:group-data-[collapsed=true]/shell:rounded-tl-none transition-[border-radius] duration-200">
         This diagram doesn’t exist.
         <Button variant="outline" asChild>
           <a href={homeHref()}>Back to diagrams</a>
@@ -132,7 +132,7 @@ export function Editor({ id }: { id: string }) {
     )
   }
   if (!diagram || source === null)
-    return <main className="flex-1 bg-card md:rounded-tl-xl" />
+    return <main className="flex-1 bg-card md:rounded-tl-xl md:group-data-[collapsed=true]/shell:rounded-tl-none transition-[border-radius] duration-200" />
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-2 max-md:h-svh">
@@ -196,7 +196,7 @@ export function Editor({ id }: { id: string }) {
           minSize={mobile ? "120px" : "280px"}
           className="flex"
         >
-          <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card md:rounded-t-xl">
+          <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card md:rounded-t-xl md:group-data-[collapsed=true]/shell:rounded-tl-none transition-[border-radius] duration-200">
             <PanelHeader title="Source">
               {(history.canUndo || history.canRedo) && (
                 <>

@@ -75,7 +75,7 @@ function Shell({ route, children }: { route: Route; children: ReactNode }) {
   return (
     // No right/bottom gutter: the content pane runs to the window edges; the top gap stays.
     // The left gap belongs to the sidebar, so it goes when the sidebar is collapsed.
-    <div className={cn("eos-shell h-svh pt-2", collapsed ? "pl-0" : "pl-2")}>
+    <div data-collapsed={collapsed} className={cn("eos-shell group/shell h-svh pt-2", collapsed ? "pl-0" : "pl-2")}>
       <ResizablePanelGroup orientation="horizontal" {...layout}>
         <ResizablePanel
           id="sidebar"
@@ -85,7 +85,10 @@ function Shell({ route, children }: { route: Route; children: ReactNode }) {
           maxSize="420px"
           collapsible
           collapsedSize="0px"
-          onResize={(size) => setUi({ sidebarCollapsed: size.inPixels < 1 })}
+          onResize={(size) => {
+            // During a toggle animation the button has already set the end state; ignore the in-between sizes.
+            if (!document.querySelector("[data-animating]")) setUi({ sidebarCollapsed: size.inPixels < 1 })
+          }}
         >
           {/* Keeps its width while the panel animates, so it slides out of view instead of re-wrapping. */}
           <div className="h-full w-full min-w-[180px] overflow-hidden">{sidebar}</div>
