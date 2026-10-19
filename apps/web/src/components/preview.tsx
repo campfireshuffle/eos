@@ -27,15 +27,21 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
   // The last scale actually applied, and the current mode, for use inside render callbacks.
   const applied = useRef<number | null>(null)
   const modeRef = useRef<"fit" | number>("fit")
+  // The source last handed to Pele, and the source the current natural size was measured from.
+  const sourceRef = useRef(source)
+  const measuredSource = useRef<string | null>(null)
 
   const measure = () => {
     const svg = host.current?.querySelector("svg")
     onSvg(svg ?? null)
     const vb = svg?.viewBox.baseVal
     if (!vb || vb.width <= 0) return
+    const edited = measuredSource.current !== null && measuredSource.current !== sourceRef.current
+    measuredSource.current = sourceRef.current
     setNatural((prev) => {
-      if (prev && (prev.w !== vb.width || prev.h !== vb.height) && modeRef.current === "fit" && applied.current) {
-        // Editing changed the diagram's size: keep the zoom level instead of re-fitting.
+      // Editing changed the diagram's size: keep the zoom level instead of re-fitting.
+      // A re-render of the same source (e.g. once web fonts load) re-fits as usual.
+      if (edited && prev && (prev.w !== vb.width || prev.h !== vb.height) && modeRef.current === "fit" && applied.current) {
         setMode(applied.current)
       }
       return prev && prev.w === vb.width && prev.h === vb.height ? prev : { w: vb.width, h: vb.height }
@@ -44,6 +50,7 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
 
   useEffect(() => {
     if (!valid) return
+    sourceRef.current = source
     if (!mounted.current) mounted.current = mount(host.current!, source, { zoom: false, responsive: false, onRender: measure })
     else mounted.current.update(source)
     measure()

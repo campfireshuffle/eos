@@ -6,7 +6,7 @@ Eos is a local-first Mermaid editor. All diagrams stay in the browser: there is 
 
 ## Goals
 
-- **One source of truth per diagram:** a `LoroDoc`. Everything else (library index, thumbnails) is derived from it and can be rebuilt.
+- **One source of truth per diagram:** a `LoroDoc`. Everything else (the library index) is derived from it and can be rebuilt.
 - **Edits never conflict.** The user, the in-tab WebMCP agent, and other open tabs all write to the same doc, and the CRDT merges them.
 - **Undo is per tab.** ⌘Z reverts edits made in this tab, by the user or by the agent working in it, and never edits from another tab.
 - **History is shared and attributed.** Every change records who made it (user, agent, or which tab), and the history panel shows that instead of using toasts.
@@ -45,13 +45,12 @@ flowchart LR
   Undo <--> DiagramDoc
   DiagramDoc -- "source" --> Pele["Pele renderer"]
   Pele --> Preview
-  Pele --> Thumbs
+  Pele --> Cards["Library cards"]
 
   subgraph IDB["IndexedDB (eos)"]
     Snap["snapshots"]
     Log["updates log"]
     Index["diagrams index"]
-    Thumbs["thumbnails cache"]
     Settings["settings"]
   end
 
@@ -159,8 +158,6 @@ interface EosDB {
       byTag: TagPath;              // multiEntry over tagPrefixes
     };
   };
-  /** Rendered library-card SVGs; a cache, safe to clear. */
-  thumbnails: { key: DiagramId; value: ThumbnailRow };
   /** Singleton app settings. */
   settings: { key: "app"; value: AppSettings };
 }
@@ -175,15 +172,9 @@ interface DiagramIndexRow {
   updatedAt: number;      // ms; from last change timestamp
   titleKey: string;       // title folded for sorting (lowercased, NFKD, diacritics stripped)
   starred: 0 | 1;         // mirrored from workspace.starred; number because IDB can't index booleans
-  sourcePreview: string;  // first ~200 chars, for search
+  sourcePreview: string;  // first ~200 chars
+  sourceText: string;     // full source, for search (Orama, title boosted)
   deletedAt?: number;     // soft delete → "Deleted"
-}
-
-interface ThumbnailRow {
-  id: DiagramId;
-  svg: string;            // Pele output, sanitised, theme vars left as var(--…)
-  sourceHash: string;     // hash of the normalised source it was rendered from
-  renderer: string;       // Pele version; a mismatch counts as a cache miss
 }
 ```
 
@@ -248,7 +239,7 @@ function matches(row: DiagramIndexRow, q: LibraryQuery) {
 }
 ```
 
-**Strategy:** load every `diagrams` row into memory at startup (the rows are small now that thumbnails are stored separately: roughly 400 B each, about 2 MB at 5k diagrams). Filter and sort in JS, using `Intl.Collator` on `titleKey` for Title. Keep the in-memory copy current from local writes and from `eos:library` messages. At expected scale this takes well under a frame, and it avoids the IndexedDB limitation that blocks doing this in the database: a `multiEntry` index cannot be compound, so there is no `[tagPrefix, updatedAt]` index over an array field.
+**Strategy:** load every `diagrams` row into memory at startup (roughly 400 B each plus the diagram source). Filter and sort in JS, using `Intl.Collator` on `titleKey` for Title. Keep the in-memory copy current from local writes and from `eos:library` messages. At expected scale this takes well under a frame, and it avoids the IndexedDB limitation that blocks doing this in the database: a `multiEntry` index cannot be compound, so there is no `[tagPrefix, updatedAt]` index over an array field.
 
 Indexes are still useful for the first paint, before every row has loaded, and for direct lookups:
 - `byUpdatedAt`, `byCreatedAt`, `byTitleKey`: the first screen of an unfiltered grid comes from a cursor, and the rest streams in.
@@ -263,10 +254,7 @@ The last-used `sort` is saved in `settings.library.sort`. Chips are view state o
 
 ### Thumbnails
 
-Library cards are rendered live with Pele, but the rendered SVG is cached in `thumbnails`:
-- A card shows the cached SVG at once if both `sourceHash` and `renderer` match. Otherwise it shows a skeleton and Pele renders the card when it scrolls into view (`IntersectionObserver`), at most 2 at a time, during idle time.
-- Theme colours stay as CSS variables in the SVG, so changing the theme (§8) does not invalidate the cache.
-- The cache is kept separate from `diagrams` so loading the whole index stays cheap. Rows for deleted diagrams are removed, and nothing else depends on the cache, so clearing it is always safe.
+Library cards render live with Pele. A typical diagram renders in well under a millisecond (about 2 ms for a 200-node flowchart), so there is no SVG cache.
 
 ## 3. Peers and actors
 
@@ -454,7 +442,7 @@ Overrides are sanitised before use. Only `--*` keys are accepted. `customCss` is
 | Event | Doc | IndexedDB | Broadcast |
 | --- | --- | --- | --- |
 | New diagram | `new LoroDoc()`, set meta, commit `user` | put snapshot + index row | `index` |
-| Keystroke | `text.insert/delete` (auto-commit on debounce) | append `updates`; thumbnail invalidated by `sourceHash` | `update` |
+| Keystroke | `text.insert/delete` (auto-commit on debounce) | append `updates` | `update` |
 | Agent tool | `agentEdit()` | append `updates` | `update` |
 | Other tab edit | `import(bytes)` | — | — |
 | Undo | `undo.undo()` | append `updates` | `update` |

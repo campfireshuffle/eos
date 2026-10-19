@@ -17,10 +17,6 @@ export interface EosDB extends DBSchema {
     value: DiagramIndexRow
     indexes: { byUpdatedAt: number; byTag: string }
   }
-  thumbnails: {
-    key: DiagramId
-    value: { id: DiagramId; svg: string; sourceHash: string; renderer: string }
-  }
   settings: { key: "app"; value: AppSettings }
 }
 
@@ -30,15 +26,17 @@ export type Database = IDBPDatabase<EosDB>
 export const WORKSPACE_ID = "__workspace"
 
 export function openEosDB(name = "eos"): Promise<Database> {
-  return openDB<EosDB>(name, 1, {
-    upgrade(db) {
+  return openDB<EosDB>(name, 2, {
+    upgrade(db, oldVersion) {
+      // v1 had a thumbnails cache; Pele renders cards fast enough that it was never used.
+      if (oldVersion === 1) (db as unknown as IDBPDatabase).deleteObjectStore("thumbnails")
+      if (oldVersion >= 1) return
       db.createObjectStore("snapshots", { keyPath: "id" })
       const updates = db.createObjectStore("updates", { autoIncrement: true })
       updates.createIndex("byDiagram", "id")
       const diagrams = db.createObjectStore("diagrams", { keyPath: "id" })
       diagrams.createIndex("byUpdatedAt", "updatedAt")
       diagrams.createIndex("byTag", "tagPrefixes", { multiEntry: true })
-      db.createObjectStore("thumbnails", { keyPath: "id" })
       db.createObjectStore("settings")
     },
   })

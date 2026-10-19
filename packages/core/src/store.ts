@@ -353,12 +353,11 @@ export class Eos {
 
   async deleteAll({ reseed = false } = {}) {
     for (const [id, p] of this.open) (await p).dispose(), this.open.delete(id)
-    const tx = this.db.transaction(["snapshots", "updates", "diagrams", "thumbnails"], "readwrite")
+    const tx = this.db.transaction(["snapshots", "updates", "diagrams"], "readwrite")
     await Promise.all([
       tx.objectStore("snapshots").clear(),
       tx.objectStore("updates").clear(),
       tx.objectStore("diagrams").clear(),
-      tx.objectStore("thumbnails").clear(),
     ])
     await tx.done
     for (const key of this.workspace.starred.keys()) this.workspace.starred.delete(key)

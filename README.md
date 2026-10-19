@@ -1,53 +1,63 @@
-# Eos
+<p align="center">
+  <img src="apps/web/public/icon-512.png" width="112" alt="Eos icon">
+</p>
 
-A local-first Mermaid editor. Diagrams render with [Pele](https://pele.run), live in your browser's IndexedDB, and can be driven by AI agents over [WebMCP](https://github.com/webmachinelearning/webmcp).
+<h1 align="center">Eos</h1>
 
-**[eos.lil.run](https://eos.lil.run)**
+<p align="center">A local-first Mermaid editor your agents can use too.</p>
 
-- **Local-first.** No account, no server. Each diagram is a [Loro](https://loro.dev) CRDT document persisted to IndexedDB, synced across tabs, with undo/redo and history.
-- **Fast previews.** Pele renders every library thumbnail and the editor preview live.
-- **Agent-ready.** Every action in the UI is also a WebMCP tool, so an agent can do anything you can. Destructive tools ask you first.
-- **Themeable.** Paste CSS variables in Settings › Theming.
+<p align="center">
+  <a href="https://eos.lil.run"><b>eos.lil.run</b></a>
+</p>
 
-## Layout
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/editor-dark.png">
+    <img src="assets/editor-light.png" width="860" alt="The Eos editor: Mermaid source on the left, a live Pele-rendered flowchart on the right, and a tag sidebar">
+  </picture>
+</p>
 
-```
-apps/web          Vite + React app, deployed to Cloudflare Workers with cf
-packages/core     Data layer: Loro docs, IndexedDB, library queries, share links
-packages/webmcp   WebMCP tool definitions over the core API
-packages/ui       shadcn/ui components
-docs/             Design notes (data model, WebMCP tools)
-```
+Write Mermaid, see it render instantly with [Pele](https://pele.run), and keep every diagram in your browser.
+No account, no server. Tag and star diagrams, fuzzy-search them, roll back to any version, and share a
+diagram as a link.
+
+Every button in the app is also a [WebMCP](https://github.com/webmachinelearning/webmcp) tool, so an agent
+in your browser can create, edit, organise and theme diagrams just like you. It asks before deleting anything.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/home-dark.png">
+    <img src="assets/home-light.png" width="860" alt="The Eos library: a grid of rendered diagrams grouped by date, with tags and stars">
+  </picture>
+</p>
+
+## Use
+
+Open [eos.lil.run](https://eos.lil.run). Diagrams are saved to IndexedDB as [Loro](https://loro.dev) CRDT
+documents, sync across tabs and can be backed up from Settings.
 
 ## Develop
 
-Requires Node 22.13+ and pnpm 12.
+Needs Node 22.13+ and pnpm 12.
 
 ```sh
 pnpm install
-pnpm dev          # http://localhost:5173
+pnpm dev     # http://localhost:5173
 pnpm test
-pnpm typecheck
-pnpm build
 ```
-
-Add shadcn components with `pnpm dlx shadcn@latest add <name> -c apps/web`.
 
 ## Deploy
 
-Eos deploys with the [`cf` CLI](https://developers.cloudflare.com/cf/) (beta) and the Cloudflare Vite plugin.
+Deploys to Cloudflare with the [`cf` CLI](https://developers.cloudflare.com/cf/).
 
 ```sh
 pnpm --filter @eos/web exec cf auth login   # once
 pnpm deploy
 ```
 
-`apps/web/cloudflare.config.ts` serves the client build as a single-page app on the `eos.lil.run` custom domain. Check a build without deploying with `pnpm --filter @eos/web deploy:check`.
+See [docs/data-model.md](docs/data-model.md) for how storage, history and the agent tools work.
 
 ## Credits
 
-Built on [Pele](https://github.com/obsidianmd/pele) by kepano (MIT), [Loro](https://loro.dev), [CodeMirror](https://codemirror.net), [@pierre/trees](https://trees.software) (Apache-2.0), [shadcn/ui](https://ui.shadcn.com) and [Lucide](https://lucide.dev).
-
-## License
-
-MIT
+Built on [Pele](https://github.com/obsidianmd/pele), [Loro](https://loro.dev), [CodeMirror](https://codemirror.net),
+[Orama](https://orama.com), [@pierre/trees](https://trees.software) and [shadcn/ui](https://ui.shadcn.com). MIT licensed.

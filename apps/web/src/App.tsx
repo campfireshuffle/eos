@@ -28,7 +28,7 @@ export function App() {
     <TooltipProvider delayDuration={400}>
       <Shell route={route}>
         {route.name === "home" && <Home route={route} />}
-        {route.name === "diagram" && <Editor id={route.id} />}
+        {route.name === "diagram" && <Editor key={route.id} id={route.id} />}
       </Shell>
       <SettingsDialog />
       <ConfirmDialog />

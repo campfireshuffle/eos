@@ -79,12 +79,11 @@ export async function compact(db: Database, id: DiagramId, doc: LoroDoc) {
 }
 
 export async function deleteDocData(db: Database, id: DiagramId) {
-  const tx = db.transaction(["snapshots", "updates", "diagrams", "thumbnails"], "readwrite")
+  const tx = db.transaction(["snapshots", "updates", "diagrams"], "readwrite")
   await tx.objectStore("snapshots").delete(id)
   const keys = await tx.objectStore("updates").index("byDiagram").getAllKeys(id)
   await Promise.all(keys.map((k) => tx.objectStore("updates").delete(k)))
   await tx.objectStore("diagrams").delete(id)
-  await tx.objectStore("thumbnails").delete(id)
   await tx.done
 }
 
