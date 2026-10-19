@@ -60,4 +60,4 @@ See [docs/data-model.md](docs/data-model.md) for how storage, history and the ag
 ## Credits
 
 Built on [Pele](https://github.com/obsidianmd/pele), [Loro](https://loro.dev), [CodeMirror](https://codemirror.net),
-[Orama](https://orama.com), [@pierre/trees](https://trees.software) and [shadcn/ui](https://ui.shadcn.com). MIT licensed.
+[Orama](https://orama.com), [React Aria](https://react-aria.adobe.com) and [shadcn/ui](https://ui.shadcn.com). MIT licensed.
