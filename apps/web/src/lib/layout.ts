@@ -26,6 +26,14 @@ export function toggleSidebar() {
   }
   const panel = sidebarPanel.current
   if (!panel) return
+  // Animate only this toggle (see app.css); dragging the divider stays instant.
+  const group = document.querySelector<HTMLElement>("[data-slot=resizable-panel-group]")
+  group?.setAttribute("data-animating", "")
+  clearTimeout(animationEnd)
+  animationEnd = setTimeout(() => group?.removeAttribute("data-animating"), SIDEBAR_ANIMATION_MS + 50)
   if (panel.isCollapsed()) panel.expand()
   else panel.collapse()
 }
+
+export const SIDEBAR_ANIMATION_MS = 220
+let animationEnd: ReturnType<typeof setTimeout> | undefined

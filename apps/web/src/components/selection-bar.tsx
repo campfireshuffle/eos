@@ -28,13 +28,13 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
         role="toolbar"
         aria-label="Selection"
         className={cn(
-          "flex items-center gap-1 rounded-full border border-[var(--eos-line-hover)] py-1.5 pr-1.5 pl-4 text-body",
+          "flex max-w-[calc(100vw-2rem)] items-center gap-1 rounded-full border border-[var(--eos-line-hover)] py-1.5 pr-1.5 pl-4 text-body",
           "bg-[color-mix(in_srgb,var(--eos-raised)_62%,transparent)] backdrop-blur-xl backdrop-saturate-150",
           "shadow-[0_12px_40px_-8px_rgb(0_0_0/0.35),inset_0_1px_0_color-mix(in_srgb,var(--eos-body)_6%,transparent)]",
           count && "pointer-events-auto",
         )}
       >
-        <span className="pr-2 tabular-nums">{count} selected</span>
+        <span className="pr-2 whitespace-nowrap tabular-nums">{count} selected</span>
         <div className="mx-1 h-4 w-px bg-[var(--eos-line-hover)]" />
         {deleted ? (
           <>
@@ -47,7 +47,7 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
                 clearSelection()
               }}
             >
-              <RotateCcw /> Restore
+              <RotateCcw /> <span className="max-sm:sr-only">Restore</span>
             </Button>
             <Button
               variant="ghost"
@@ -60,7 +60,7 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
                 clearSelection()
               }}
             >
-              <Trash2 /> Delete forever
+              <Trash2 /> <span className="max-sm:sr-only">Delete forever</span>
             </Button>
           </>
         ) : (
@@ -71,7 +71,7 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
               className="rounded-full"
               onClick={() => ids.forEach((id) => void eos.setStarred(id, true))}
             >
-              <Star /> Star
+              <Star /> <span className="max-sm:sr-only">Star</span>
             </Button>
             <TagMenu ids={ids} />
             <Button
@@ -84,7 +84,7 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
                 clearSelection()
               }}
             >
-              <Trash2 /> Delete
+              <Trash2 /> <span className="max-sm:sr-only">Delete</span>
             </Button>
           </>
         )}

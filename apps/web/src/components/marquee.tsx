@@ -27,7 +27,8 @@ export function Marquee({
   }, [])
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (e.button !== 0) return
+    // On touch, dragging empty space scrolls; selection starts with a long press on a card.
+    if (e.button !== 0 || e.pointerType === "touch") return
     const target = e.target as HTMLElement
     if (target.closest("[data-card-id], a, button, input, select, textarea, [role=menu]")) return
     const el = root.current!

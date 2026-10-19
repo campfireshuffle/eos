@@ -5,6 +5,7 @@ import { decodeShare } from "@eos/core"
 import { ResizablePanel, ResizablePanelGroup } from "@workspace/ui/components/resizable"
 import { Sheet, SheetContent, SheetTitle } from "@workspace/ui/components/sheet"
 import { TooltipProvider } from "@workspace/ui/components/tooltip"
+import { cn } from "@workspace/ui/lib/utils"
 
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ResizeHandle } from "@/components/resize-handle"
@@ -44,6 +45,7 @@ export function App() {
 function Shell({ route, children }: { route: Route; children: ReactNode }) {
   const mobile = useIsMobile()
   const mobileNavOpen = useUi((s) => s.mobileNavOpen)
+  const collapsed = useUi((s) => s.sidebarCollapsed)
   const layout = useDefaultLayout({ id: "eos-shell", storage: localStorage })
   const sidebar = <RouteSidebar route={route} />
 
@@ -72,7 +74,8 @@ function Shell({ route, children }: { route: Route; children: ReactNode }) {
 
   return (
     // No right/bottom gutter: the content pane runs to the window edges; the top gap stays.
-    <div className="h-svh pt-2 pl-2">
+    // The left gap belongs to the sidebar, so it goes when the sidebar is collapsed.
+    <div className={cn("eos-shell h-svh pt-2", collapsed ? "pl-0" : "pl-2")}>
       <ResizablePanelGroup orientation="horizontal" {...layout}>
         <ResizablePanel
           id="sidebar"
@@ -84,9 +87,16 @@ function Shell({ route, children }: { route: Route; children: ReactNode }) {
           collapsedSize="0px"
           onResize={(size) => setUi({ sidebarCollapsed: size.inPixels < 1 })}
         >
-          {sidebar}
+          {/* Keeps its width while the panel animates, so it slides out of view instead of re-wrapping. */}
+          <div className="h-full w-full min-w-[180px] overflow-hidden">{sidebar}</div>
         </ResizablePanel>
-        <ResizeHandle />
+        {/* Collapsed: no gutter, just an invisible 8px strip to drag the sidebar back open. */}
+        <ResizeHandle
+          className={cn(
+            "transition-[width] duration-200",
+            collapsed && "aria-[orientation=vertical]:w-0 before:absolute before:inset-y-0 before:left-0 before:w-2 before:content-['']",
+          )}
+        />
         <ResizablePanel id="content" minSize="360px" className="flex min-w-0">
           {children}
         </ResizablePanel>

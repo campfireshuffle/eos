@@ -1,35 +1,84 @@
-import { Star } from "lucide-react"
+import { Check, Star } from "lucide-react"
 import { memo, useEffect, useRef, useState } from "react"
 
 import { renderSvg, type DiagramIndexRow } from "@eos/core"
 
 import { useEos } from "@/lib/eos"
 import { diagramHref } from "@/lib/router"
-import { clearSelection, startCardDrag, toggleSelected, useSelection } from "@/lib/selection"
+import { clearSelection, getSelection, startCardDrag, toggleSelected, useSelection } from "@/lib/selection"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { Pill } from "./pill"
 
+/** Hold this long on a card (touch) to start selecting, like Photos and Files. */
+const LONG_PRESS_MS = 450
+const coarsePointer = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches
+
 export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramIndexRow }) {
   const selected = useSelection().has(row.id)
+  const press = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null)
+  const longPressed = useRef(false)
+  const lastPointer = useRef<string>("mouse")
+
+  const cancelPress = () => {
+    if (press.current) clearTimeout(press.current.timer)
+    press.current = null
+  }
+
   return (
     <a
       href={diagramHref(row.id)}
       data-card-id={row.id}
-      draggable
+      // On touch, a long press selects instead of starting a native drag.
+      draggable={!coarsePointer}
       onDragStart={(e) => startCardDrag(e, row.id)}
+      onPointerDown={(e) => {
+        lastPointer.current = e.pointerType
+        longPressed.current = false
+        if (e.pointerType !== "touch") return
+        cancelPress()
+        press.current = {
+          x: e.clientX,
+          y: e.clientY,
+          timer: setTimeout(() => {
+            press.current = null
+            longPressed.current = true
+            toggleSelected(row.id)
+            navigator.vibrate?.(10)
+          }, LONG_PRESS_MS),
+        }
+      }}
+      onPointerMove={(e) => {
+        // Moving the finger means scrolling, not a long press.
+        if (press.current && Math.hypot(e.clientX - press.current.x, e.clientY - press.current.y) > 10) cancelPress()
+      }}
+      onPointerUp={cancelPress}
+      onPointerCancel={cancelPress}
+      onContextMenu={(e) => lastPointer.current === "touch" && e.preventDefault()}
       onClick={(e) => {
-        if (e.metaKey || e.ctrlKey || e.shiftKey) {
+        if (longPressed.current) {
+          // The long press already selected the card; don't also open it.
+          e.preventDefault()
+          longPressed.current = false
+          return
+        }
+        if (e.metaKey || e.ctrlKey || e.shiftKey || (lastPointer.current === "touch" && getSelection().size > 0)) {
+          // ⌘/⇧-click, or a tap while selecting on touch, adds or removes the card.
           e.preventDefault()
           toggleSelected(row.id)
         } else clearSelection()
       }}
       aria-selected={selected}
       className={cn(
-        "group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors select-none hover:border-[var(--eos-line-active)]",
+        "group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors select-none [-webkit-touch-callout:none] hover:border-[var(--eos-line-active)]",
         selected && "border-[var(--eos-champagne)] ring-1 ring-[var(--eos-champagne)] hover:border-[var(--eos-champagne)]",
       )}
     >
+      {selected && (
+        <span className="absolute top-2.5 right-2.5 z-10 flex size-6 items-center justify-center rounded-full bg-[var(--eos-champagne)] text-[var(--eos-ink)] shadow-sm">
+          <Check className="size-3.5" strokeWidth={3} />
+        </span>
+      )}
       <Thumbnail id={row.id} updatedAt={row.updatedAt} />
       <div className="flex flex-col gap-1.5 border-t border-border px-3.5 pt-3 pb-3.5">
         <div className="flex items-center gap-2">

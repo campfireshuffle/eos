@@ -48,7 +48,7 @@ export function TagMenu({ ids }: { ids: string[] }) {
     <Popover>
       <PopoverTrigger asChild>
         <Button variant="ghost" size="sm" className="rounded-full">
-          <Tags /> Tags
+          <Tags /> <span className="max-sm:sr-only">Tags</span>
         </Button>
       </PopoverTrigger>
       <PopoverContent side="top" align="center" sideOffset={10} className="w-64 gap-1 p-1.5">
