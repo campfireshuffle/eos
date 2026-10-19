@@ -104,6 +104,8 @@ export function TagTree({
       <Tree
         aria-label="Tags"
         items={sorted}
+        // Rows are cached per item; redraw them when the active tag changes so the highlight follows the URL.
+        dependencies={[selected]}
         expandedKeys={expandedKeys}
         onExpandedChange={(keys: Set<Key>) => setCollapsed(new Set(withChildren.filter((p) => !keys.has(p))))}
         onAction={(key) => navigate(homeHref({ tag: String(key), sort: sort as never, group: group as never }))}

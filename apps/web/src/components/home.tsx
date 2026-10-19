@@ -1,5 +1,5 @@
 import { Plus, Search } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef } from "react"
 
 import type { LibrarySort } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
@@ -22,13 +22,16 @@ import { SidebarToggle } from "./sidebar-toggle"
 
 export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   const eos = useEos()
-  const [query, setQuery] = useState("")
+  // Everything about the view lives in the URL, so back/forward and reload restore it.
+  const query = route.q
+  // Typing replaces the current history entry rather than adding one per keystroke.
+  const setQuery = (q: string) => navigate(homeHref({ ...route, q }), { replace: true })
   const rows = useLibrary({ query, starred: route.starred, deleted: route.deleted, tags: route.tag ? [route.tag] : [], sort: route.sort })
   const tags = useTags()
   // Back/forward returns to where you were. Phones scroll the page; desktop scrolls this pane.
   const mobile = useIsMobile()
   const scroller = useRef<HTMLDivElement>(null)
-  useScrollRestoration(mobile ? null : scroller, rows !== undefined, [location.hash, mobile])
+  useScrollRestoration(mobile ? null : scroller, rows !== undefined, [homeHref({ ...route, q: "" }), mobile])
   const emoji = route.tag ? findEmoji(tags ?? [], route.tag) : null
   useEffect(() => clearSelection(), [route.tag, route.starred, route.deleted])
 
@@ -65,12 +68,12 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
           {/* Filter chips take their own row on narrow screens; the view controls stay right-aligned. */}
           <div className="flex min-w-0 flex-1 basis-full flex-wrap items-center gap-2 empty:hidden sm:basis-0">
             {route.starred && (
-              <Pill removeHref={homeHref({ tag: route.tag, sort: route.sort, group: route.group })} removeLabel="Remove Starred filter">
+              <Pill removeHref={homeHref({ ...route, starred: false })} removeLabel="Remove Starred filter">
                 Starred
               </Pill>
             )}
             {route.tag && (
-              <Pill icon={emoji} removeHref={homeHref({ starred: route.starred, sort: route.sort, group: route.group })} removeLabel={`Remove ${route.tag} filter`}>
+              <Pill icon={emoji} removeHref={homeHref({ ...route, tag: null })} removeLabel={`Remove ${route.tag} filter`}>
                 {route.tag}
               </Pill>
             )}
