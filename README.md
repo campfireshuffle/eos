@@ -47,15 +47,6 @@ pnpm dev     # http://localhost:5173
 pnpm test
 ```
 
-## Deploy
-
-Deploys to Cloudflare with the [`cf` CLI](https://developers.cloudflare.com/cf/).
-
-```sh
-pnpm --filter @eos/web exec cf auth login   # once
-pnpm deploy
-```
-
 See [docs/data-model.md](docs/data-model.md) for how storage, history and the agent tools work.
 
 ## Credits
