@@ -25,6 +25,8 @@ export interface DiagramIndexRow {
   titleKey: string
   starred: 0 | 1
   sourcePreview: string
+  /** Full source for search. Missing on rows written before search indexed it. */
+  sourceText?: string
   deletedAt?: number
 }
 

@@ -1,4 +1,4 @@
-import { Bot, Copy, Database, Download, Heart, Info, Monitor, Moon, Palette, RotateCcw, Star, Sun } from "lucide-react"
+import { ArrowUpRight, Bot, Copy, Database, Download, Heart, Info, Monitor, Moon, Palette, RotateCcw, Star, Sun } from "lucide-react"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 
 import type { AppSettings, ThemeMode } from "@eos/core"
@@ -104,7 +104,17 @@ function Theming() {
       </section>
 
       <section className="flex min-h-0 flex-1 flex-col gap-3">
-        <h3 className="text-sm font-medium">Diagram theme</h3>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-medium">Diagram theme</h3>
+          <a
+            href="https://pele.run/theming"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground"
+          >
+            Pele theming docs <ArrowUpRight className="size-3.5" />
+          </a>
+        </div>
         <CssBox value={diagramCss} onChange={setDiagramCss} label="Diagram theme CSS" />
       </section>
 

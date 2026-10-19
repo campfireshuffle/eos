@@ -116,4 +116,13 @@ describe("share links", () => {
     expect(await decodeShare(encoded)).toEqual({ title: "T", source: "flowchart TD\n  A-->B", tags: ["x"] })
     expect(await decodeShare("garbage")).toBeNull()
   })
+
+  it("fuzzy-searches titles first, then contents", async () => {
+    const eos = await Eos.create({ dbName: `search-${Math.random()}`, seed: false })
+    const body = await eos.createDiagram({ title: "Notes", source: "flowchart TD\n  Checkout --> Payment" })
+    const title = await eos.createDiagram({ title: "Checkout flow", source: "flowchart TD\n  A --> B" })
+    await eos.createDiagram({ title: "Unrelated", source: "pie\n  \"a\": 1" })
+    expect((await eos.listDiagrams({ query: "checkout" })).map((r) => r.id)).toEqual([title, body])
+    expect((await eos.listDiagrams({ query: "chekout" })).map((r) => r.id)).toContain(title)
+  })
 })

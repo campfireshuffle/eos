@@ -17,6 +17,7 @@ import {
   type DiagramDoc,
 } from "./docs"
 import { SAMPLES } from "./samples"
+import { searchRows } from "./search"
 import type { SharePayload } from "./share"
 import { buildTagTree, normalizeTag, normalizeTags, tagMatches, tagPrefixes } from "./tags"
 import type {
@@ -78,6 +79,7 @@ export class Eos {
     persistDoc(db, WORKSPACE_ID, doc, (bytes) => eos.broadcast({ type: "update", id: WORKSPACE_ID, bytes }))
     eos.settingsCache = withDefaults(await db.get("settings", "app"))
     eos.listenToOtherTabs()
+    await eos.backfillSearchText()
     if (options.seed !== false && (await db.count("diagrams")) === 0) {
       for (const s of SAMPLES) await eos.createDiagram(s, { kind: "system", reason: "seed" })
     }
@@ -104,8 +106,9 @@ export class Eos {
     rows = rows.filter((r) => (filter.deleted ? !!r.deletedAt : filter.includeDeleted || !r.deletedAt))
     if (filter.starred) rows = rows.filter((r) => r.starred === 1)
     for (const tag of filter.tags ?? []) rows = rows.filter((r) => r.tags.some((t) => tagMatches(t, tag)))
-    const q = filter.query?.trim().toLowerCase()
-    if (q) rows = rows.filter((r) => r.titleKey.includes(q) || r.sourcePreview.toLowerCase().includes(q))
+    const q = filter.query?.trim()
+    // A search ranks by relevance (title first, then contents) instead of the sort order.
+    if (q) return searchRows(rows, q)
     const sort = filter.sort ?? "modified"
     rows.sort((a, b) =>
       sort === "title"
@@ -451,9 +454,20 @@ export class Eos {
       titleKey: meta.title.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase(),
       starred: this.workspace.starred.get(id) ? 1 : 0,
       sourcePreview: source.slice(0, 200),
+      sourceText: source,
       ...(deletedAt ? { deletedAt } : {}),
     }
     await this.db.put("diagrams", row)
+  }
+
+  /** Rows written before search covered full contents only have a preview; fill them in once. */
+  private async backfillSearchText() {
+    const rows = await this.db.getAll("diagrams")
+    for (const row of rows) {
+      if (row.sourceText !== undefined) continue
+      const doc = await loadDoc(this.db, row.id)
+      await this.db.put("diagrams", { ...row, sourceText: doc.getText("source").toString() })
+    }
   }
 
   private async patchIndex(id: DiagramId, patch: Partial<DiagramIndexRow>) {
