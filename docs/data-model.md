@@ -451,7 +451,7 @@ Overrides are sanitised before use. Only `--*` keys are accepted. `customCss` is
 
 ## 10. WebMCP tools
 
-**Principle:** an agent can do anything a person can do, through a small set of deep tools: one per kind of job, with optional fields rather than extra tools. Agents with tool search and code mode chain calls themselves, so fewer, clearer tools mean fewer wrong picks. Reads, ordinary writes and permanent deletes are separate tools because harnesses approve by `readOnlyHint`/`destructiveHint`, which apply to a whole tool.
+**Principle:** an agent can do anything a person can do, through a small set of deep tools: one per kind of job, with optional fields rather than extra tools. Agents with tool search and code mode chain calls themselves, so fewer, clearer tools mean fewer wrong picks. Reads, ordinary writes and permanent deletes are separate tools because harnesses approve by annotations, which apply to a whole tool. Reads set `readOnlyHint` (and `untrustedContentHint` when they return people's text); permanent deletes set `consequentialHint`, which Chrome reads, and `destructiveHint`, MCP's name for it. Every tool checks its input against its schema and returns `invalid_input` rather than throwing.
 
 - **Writes are attributed to the agent** (`{ kind: "agent", tool, changes }`), shown apart from yours in the History panel, and kept off your undo stack (§4).
 - **Results are typed.** `{ ok: true, … }` or `{ ok: false, code, message }` with codes like `not_found`, `invalid_input`, `parse_error`, `stale`, `person_edited`, `user_declined`.

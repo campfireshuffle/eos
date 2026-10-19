@@ -52,6 +52,8 @@ describe("webmcp tools", () => {
     expect(ro).toEqual(["get_library", "get_diagram", "get_view", "get_settings", "export"])
     const destructive = list.filter((t) => t.annotations?.destructiveHint).map((t) => t.name)
     expect(destructive).toEqual(["delete_tag", "import_backup", "delete_all_data"])
+    // Chrome reads consequentialHint; destructiveHint alone is ignored there.
+    expect(list.filter((t) => t.annotations?.consequentialHint).map((t) => t.name)).toEqual(destructive)
   })
 
   it("creates, edits in one change, refuses stale edits and undoes only its own work", async () => {
@@ -122,6 +124,38 @@ describe("webmcp tools", () => {
     expect((await call("update_diagram", { id, deleted: true })).code).toBe("user_declined")
     expect((await call("delete_tag", { path: "x" })).code).toBe("user_declined")
     expect((await eos.listDiagrams()).length).toBe(1)
+  })
+
+  it("rejects bad input with a clear error instead of throwing", async () => {
+    const { call } = await setup()
+    const { id } = await call("create_diagram", { title: "T", source: "flowchart TD\n  A-->B", open: false })
+    expect(await call("update_diagram", { id, title: 42 })).toMatchObject({ ok: false, code: "invalid_input", message: "input.title must be string, not number" })
+    expect((await call("set_view", { library: { tag: "x" } })).message).toMatch(/input.library isn't a field/)
+    expect((await call("set_view", { zoom: "huge" })).code).toBe("invalid_input")
+    expect((await call("get_diagram", {})).message).toBe("input.id is required")
+    expect((await call("export", { format: "svg" })).code).toBe("invalid_input")
+    expect((await call("update_diagram", { id, revert: "bogus" })).code).toBe("not_found")
+    expect((await call("get_diagram", { id, version: "bogus" })).code).toBe("not_found")
+    expect((await call("import_backup", { data: "not json", mode: "merge" })).code).toBe("invalid_input")
+    expect((await call("import_backup", { data: "{}", mode: "replace" })).code).toBe("invalid_input")
+    expect((await call("update_tag", { path: "x", emoji: null })).ok).toBe(true)
+  })
+
+  it("returns starred as a boolean and one change list per history entry", async () => {
+    const { call } = await setup()
+    const { id } = await call("create_diagram", { title: "S", starred: true, open: false })
+    expect((await call("get_library")).diagrams[0].starred).toBe(true)
+    const { history } = await call("get_diagram", { id, history: true })
+    expect(history[0].actor.changes).toBeUndefined()
+    expect(history[0].changes).toContain("created")
+  })
+
+  it("goes home after the open diagram is wiped", async () => {
+    const { call, bridge } = await setup()
+    const { id } = await call("create_diagram", { title: "Gone" })
+    bridge.getView = () => ({ route: { name: "diagram", id } })
+    await call("delete_all_data")
+    expect(bridge.goHome).toHaveBeenCalled()
   })
 
   it("reads and changes the theme", async () => {

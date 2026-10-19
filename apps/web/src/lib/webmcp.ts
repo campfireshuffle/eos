@@ -21,6 +21,8 @@ export function connectWebMcp(eos: Eos): () => void {
     confirm: askConfirm,
     download: (name, data) => download(name, data),
     toPng: svgMarkupToPng,
+    // Two frames covers React's render plus the preview's layout pass that applies zoom.
+    settled: () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
     getTheme: () => ({
       resolvedMode: document.documentElement.classList.contains("dark") ? "dark" : "light",
       appCss: eos.getSettings().theme.customCss ?? currentAppCss(),
