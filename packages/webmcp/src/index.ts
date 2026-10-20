@@ -249,7 +249,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
         includeTags: z.optional(z.boolean().check(z.describe("For link: include the diagram's tags"))),
         download: z.optional(z.boolean()),
       },
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
       execute: async ({ format, id, source, includeTags, download }) => {
         if (format === "backup") {
           const data = await eos.exportBackup()
