@@ -11,9 +11,12 @@ const wasm = ((wasmModule as unknown as { default?: typeof wasmModule }).default
 export default defineConfig({
   plugins: [react(), tailwindcss(), wasm(), cloudflare()],
   resolve: {
-    alias: {
-      "@": resolve(import.meta.dirname, "./src"),
-    },
+    alias: [
+      { find: "@", replacement: resolve(import.meta.dirname, "./src") },
+      // loro-crdt's "browser" build fetches and compiles its wasm synchronously, freezing the
+      // page while it downloads; the bundler build lets vite-plugin-wasm load it asynchronously.
+      { find: /^loro-crdt$/, replacement: "loro-crdt/bundler" },
+    ],
   },
   server: { port: 5173, strictPort: true },
   build: { target: "es2022" },
