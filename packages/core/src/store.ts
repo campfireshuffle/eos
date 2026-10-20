@@ -666,10 +666,9 @@ export class Eos {
   async purge(ids: Ids) {
     try {
       await this.each(ids, async (id) => {
-        const deleted = deleteDocData(this.db, id)
-        // Closed after the delete is queued (see close). One that turns out to be live again just reopens.
+        // Closed only once it's gone: one restored meanwhile stays open, and keeps saving what's typed in it.
+        if (!(await deleteDocData(this.db, id))) return
         await this.close(id)
-        if (!(await deleted)) return
         this.workspace.starred.delete(id)
         this.emit("library")
         this.broadcast({ type: "close", id })

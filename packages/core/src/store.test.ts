@@ -249,14 +249,21 @@ describe("Eos store", () => {
   })
 
   it("doesn't purge a diagram restored while the purge was being confirmed", async () => {
-    const eos = await fresh()
+    const name = `restored-${n++}`
+    const eos = await Eos.create({ dbName: name, seed: false })
     const id = await eos.createDiagram({ title: "back", source: "kept" })
     await eos.deleteDiagram(id)
-    // Another tab or an agent restores it while "Delete forever" is waiting on its confirm.
+    // Another tab or an agent restores it while "Delete forever" is waiting on its confirm, and it's edited.
     await eos.restoreDiagram(id)
+    const binding = await eos.bindSource(id)
+    binding.edit([{ from: 4, to: 4, insert: " and typed" }])
     await eos.purge(id)
     expect((await eos.listDiagrams()).map((r) => r.id)).toEqual([id])
-    expect(await eos.getSource(id)).toBe("kept")
+    // Still open, so typing carries on and is saved.
+    binding.edit([{ from: 14, to: 14, insert: " on" }])
+    await new Promise((r) => setTimeout(r, 50))
+    const later = await Eos.create({ dbName: name, seed: false })
+    expect(await later.getSource(id)).toBe("kept and typed on")
   })
 
   it("collapses a burst of edits into one history entry", async () => {
