@@ -38,7 +38,7 @@ import { formatWhen, HistoryMenu } from "./history-menu"
 import { ExportMenu, useExportActions } from "./export-menu"
 import { Preview } from "./preview"
 import { ResizeHandle } from "./resize-handle"
-import { PageHeader, Panel } from "./page"
+import { EmptyPage, Page, PageHeader, Panel } from "./page"
 
 export function Editor({ id }: { id: string }) {
   const [copied, copy] = useCopy()
@@ -146,18 +146,18 @@ export function Editor({ id }: { id: string }) {
 
   if (diagram === null) {
     return (
-      <Panel as="main" className="flex flex-1 flex-col items-center justify-center gap-3 text-body text-muted-foreground">
+      <EmptyPage>
         This diagram doesn’t exist.
         <Button variant="outline" asChild>
           <a href={homeHref()}>Back to diagrams</a>
         </Button>
-      </Panel>
+      </EmptyPage>
     )
   }
-  if (!diagram || source === null) return <Panel as="main" className="flex-1" />
+  if (!diagram || source === null) return <EmptyPage />
 
   return (
-    <main className="flex min-w-0 flex-1 flex-col gap-2 max-md:h-svh">
+    <Page className="max-md:h-svh">
       <PageHeader
         // Also committed on leaving, when the diagram may already be gone.
         title={<TitleInput value={title} onCommit={(t) => void eos.renameDiagram(id, t).catch(() => {})} />}
@@ -286,7 +286,7 @@ export function Editor({ id }: { id: string }) {
           </Panel>
         </ResizablePanel>
       </ResizablePanelGroup>
-    </main>
+    </Page>
   )
 }
 

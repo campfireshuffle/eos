@@ -10,7 +10,7 @@ import { cn } from "@workspace/ui/lib/utils"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ResizeHandle } from "@/components/resize-handle"
 import { Home } from "@/components/home"
-import { Panel } from "@/components/page"
+import { EmptyPage } from "@/components/page"
 import { SettingsDialog } from "@/components/settings-dialog"
 import { Sidebar } from "@/components/sidebar"
 import { useDiagram, useEos, useSettings } from "@/lib/eos"
@@ -45,7 +45,7 @@ export function App() {
       <Shell route={route}>
         {route.name === "home" && <Home route={route} />}
         {route.name === "diagram" && (
-          <Suspense fallback={<Panel className="flex-1" />}>
+          <Suspense fallback={<EmptyPage />}>
             <EditorRoute key={route.id} id={route.id} />
           </Suspense>
         )}

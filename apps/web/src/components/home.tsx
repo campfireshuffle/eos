@@ -18,7 +18,7 @@ import { DiagramCard } from "./diagram-card"
 import { Marquee } from "./marquee"
 import { SelectionBar } from "./selection-bar"
 import { Pill } from "./pill"
-import { PageHeader, Panel } from "./page"
+import { Page, PageHeader, PageTitle, Panel } from "./page"
 
 export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   const eos = useEos()
@@ -76,10 +76,10 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   }
 
   return (
-    <main className="relative flex min-w-0 flex-1 flex-col gap-2">
+    <Page className="relative">
       {/* Sticks to the top on phones, where the page itself scrolls. */}
-      <div className="z-20 bg-background max-md:sticky max-md:top-0">
-        <PageHeader title={route.deleted ? "Deleted" : "Diagrams"}>
+      <div className="max-md:sticky max-md:top-0 max-md:z-20 max-md:bg-background">
+        <PageHeader title={<PageTitle>{route.deleted ? "Deleted" : "Diagrams"}</PageTitle>}>
           <div className="relative w-[280px] max-md:hidden">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -185,6 +185,6 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
         </Marquee>
       </Panel>
       <SelectionBar deleted={route.deleted} />
-    </main>
+    </Page>
   )
 }
