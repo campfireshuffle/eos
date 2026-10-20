@@ -6,7 +6,7 @@ import { renderSvg, type DiagramIndexRow } from "@eos/core"
 
 import { useEos } from "@/lib/eos"
 import { diagramHref } from "@/lib/router"
-import { clearSelection, getSelection, startCardDrag, toggleSelected, useSelected } from "@/lib/selection"
+import { getSelection, startCardDrag, toggleSelected, useSelected } from "@/lib/selection"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { Pill } from "./pill"
@@ -19,7 +19,7 @@ export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramInde
   const selected = useSelected(row.id)
   const longPressed = useRef(false)
   const lastPointer = useRef<string>("mouse")
-  // Touch only: on desktop the card drags natively and ⌘/⇧-click selects.
+  // Touch only: on desktop the card drags natively and a right-click selects.
   const { longPressProps } = useLongPress({
     isDisabled: !coarsePointer,
     threshold: LONG_PRESS_MS,
@@ -44,7 +44,17 @@ export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramInde
         lastPointer.current = e.pointerType
         longPressed.current = false
       }}
-      onContextMenu={(e) => lastPointer.current === "touch" && e.preventDefault()}
+      // A right-click is the desktop's long press. On touch the long press itself selects, so only the menu is stopped.
+      onContextMenu={(e) => {
+        e.preventDefault()
+        if (lastPointer.current !== "touch") toggleSelected(row.id)
+      }}
+      onKeyDown={(e) => {
+        // Space selects from the keyboard; Enter opens, or toggles while selecting, as a click does.
+        if (e.key !== " " || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return
+        e.preventDefault()
+        toggleSelected(row.id)
+      }}
       onClick={(e) => {
         if (longPressed.current) {
           // The long press already selected the card; don't also open it.
@@ -52,11 +62,11 @@ export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramInde
           longPressed.current = false
           return
         }
-        if (e.metaKey || e.ctrlKey || e.shiftKey || (lastPointer.current === "touch" && getSelection().size > 0)) {
-          // ⌘/⇧-click, or a tap while selecting on touch, adds or removes the card.
-          e.preventDefault()
-          toggleSelected(row.id)
-        } else clearSelection()
+        // ⌘/Ctrl/⇧-click is the browser's (a new tab or window), selecting or not. Otherwise, while
+        // selecting, a click or tap adds or removes the card instead of opening it.
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || getSelection().size === 0) return
+        e.preventDefault()
+        toggleSelected(row.id)
       }}
       className={cn(
         "group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors select-none [-webkit-touch-callout:none] hover:border-[var(--eos-line-active)]",

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react"
 
-/** Library card selection (marquee / ⌘-click / ⇧-click) and the drag payload. */
+/** Library card selection (right-click or long press, then clicks; marquee; ⌘A) and the drag payload. */
 export const DIAGRAM_MIME = "application/x-eos-diagrams"
 
 let selected = new Set<string>()

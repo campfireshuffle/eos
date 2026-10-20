@@ -4,7 +4,7 @@ import { clearSelection, getSelection, setSelection } from "@/lib/selection"
 
 /**
  * Drag on empty space to rubber-band select cards ([data-card-id]).
- * Hold ⇧ or ⌘ to add to the current selection. Esc clears it.
+ * Hold ⇧ or ⌘ to add to the current selection. ⌘A selects every card shown, and Esc clears it.
  */
 export function Marquee({
   children,
@@ -26,12 +26,21 @@ export function Marquee({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // Esc in a dialog or menu closes that, and leaves the selection alone.
-      if (e.key === "Escape" && !(e.target as Element).closest?.("[role=dialog], [role=alertdialog], [role=menu]")) clearSelection()
+      const target = e.target as HTMLElement
+      // Keys in a dialog or menu are its own (Esc closes it), and leave the selection alone.
+      if (target.closest?.("[role=dialog], [role=alertdialog], [role=menu]")) return
+      if (e.key === "Escape") clearSelection()
+      // ⌘A in a text field selects its text.
+      const typing = target.isContentEditable || target.closest?.("input, textarea, select")
+      if (e.key.toLowerCase() === "a" && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && !typing) {
+        e.preventDefault()
+        // Every card rendered, scrolled into view or not; one row can show under several groups.
+        setSelection([...root.current!.querySelectorAll<HTMLElement>("[data-card-id]")].map((card) => card.dataset.cardId!))
+      }
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [])
+  }, [root])
 
   const onPointerDown = (e: React.PointerEvent) => {
     // On touch, dragging empty space scrolls; selection starts with a long press on a card.

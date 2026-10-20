@@ -35,10 +35,7 @@ test("Enter in the Tags menu toggles the tag typed, not the first that contains 
   const page = await viewing(context, "archive/work")
   const ids = await page.locator("[data-card-id]").evaluateAll((cards) => cards.map((c) => (c as HTMLElement).dataset.cardId!))
   await tool(page, "create_diagram", { title: "C", tags: ["work"], open: false })
-  await page
-    .locator("[data-card-id]")
-    .first()
-    .click({ modifiers: ["ControlOrMeta"] })
+  await page.locator("[data-card-id]").first().click({ button: "right" })
   await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Tags" }).click()
   // As someone might type it: with a #, which saving drops.
   await page.getByPlaceholder("Find or create a tag").fill("#work")

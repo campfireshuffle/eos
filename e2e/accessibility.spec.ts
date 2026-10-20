@@ -68,8 +68,8 @@ for (const colorScheme of ["light", "dark"] as const) {
 
       await page.goto("/#/")
       const cards = page.locator("[data-card-id]")
-      await cards.nth(0).click({ modifiers: ["ControlOrMeta"] })
-      await cards.nth(1).click({ modifiers: ["ControlOrMeta"] })
+      await cards.nth(0).click({ button: "right" })
+      await cards.nth(1).click()
       await expect(page.getByText("2 selected")).toBeVisible()
       await audit(page)
 
@@ -160,7 +160,7 @@ test.describe("keyboard", () => {
     await expect(star).not.toBeFocused()
 
     await card.focus()
-    await page.keyboard.press("ControlOrMeta+Enter")
+    await page.keyboard.press("Space")
     await expect(page.getByText("1 selected")).toBeVisible()
     await focusNext(page)
     await expect(star).toBeFocused()
@@ -241,7 +241,7 @@ test.describe("touch", () => {
     await withAgentTools(context)
     await library(page)
     await page.locator("[data-card-id]").first().focus()
-    await page.keyboard.press("ControlOrMeta+Enter")
+    await page.keyboard.press("Space")
     await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Tags" }).tap()
     const search = page.getByPlaceholder("Find or create a tag")
     await expect(search).toBeVisible()
