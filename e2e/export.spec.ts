@@ -1,8 +1,21 @@
 import { randomBytes } from "node:crypto"
+import { readFile } from "node:fs/promises"
 
-import { expect, test } from "@playwright/test"
+import { expect, test, type Page } from "@playwright/test"
 
-import { newDiagram, openEditor, withAgentTools } from "./helpers"
+import { cursorAtEndOf, newDiagram, openEditor, tool, withAgentTools } from "./helpers"
+
+/** Downloads `item` from the Export menu and returns the file's text. */
+async function exported(page: Page, item: string) {
+  const [file] = await Promise.all([
+    page.waitForEvent("download"),
+    (async () => {
+      await page.getByRole("button", { name: "Export" }).click()
+      await page.getByRole("menuitem", { name: item }).click()
+    })(),
+  ])
+  return readFile(await file.path(), "utf8")
+}
 
 test("a diagram too big for a share link says so instead of copying nothing", async ({ context }) => {
   await withAgentTools(context)
@@ -18,4 +31,23 @@ test("a diagram too big for a share link says so instead of copying nothing", as
   await page.getByRole("button", { name: "Export" }).click()
   await page.getByRole("menuitem", { name: "Copy share link" }).click()
   await expect(page.getByRole("alertdialog")).toContainText("This diagram is too large to share as a link.")
+})
+
+test("while a past version is shown, the source export is of that version too", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const old = "flowchart LR\n  OLD1 --> OLD2"
+  const id = await newDiagram(page, old)
+  await openEditor(page, id)
+  await cursorAtEndOf(page, 1)
+  await page.keyboard.type(" --> NEW3")
+  // The person's edit is listed apart from the agent's that created the diagram.
+  const versions = async () =>
+    (await tool<{ history: { version: string }[] }>(page, "get_diagram", { id, history: true })).history.map((h) => h.version)
+  await expect.poll(async () => (await versions()).length).toBe(2)
+  await tool(page, "set_view", { diagramId: id, previewVersion: (await versions()).at(-1) })
+  await expect(page.getByText("Viewing the version from")).toBeVisible()
+  await expect(page.locator(".pele-preview svg")).not.toContainText("NEW3")
+  expect(await exported(page, "SVG .svg")).not.toContain("NEW3")
+  expect(await exported(page, "Mermaid source .mmd")).toBe(old)
 })

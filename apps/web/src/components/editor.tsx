@@ -132,7 +132,8 @@ export function Editor({ id }: { id: string }) {
   const redo = () => void eos.redo(id).catch(() => {})
 
   const title = diagram?.meta.title ?? ""
-  const actions = useExportActions(title, source ?? "", () => svgRef.current)
+  // Exports are of the version shown, like the preview they're drawn from.
+  const actions = useExportActions(title, shown ?? "", () => svgRef.current)
 
   useShortcuts(actions)
   const mobile = useIsMobile()
