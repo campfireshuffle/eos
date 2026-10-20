@@ -91,7 +91,7 @@ export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramInde
 })
 
 /**
- * Renders the diagram live with Pele while the card is within about a screen of view, and
+ * Renders the diagram live with Pele while the card is within half a screen of view, and
  * drops it again further out, so scrolling a long library doesn't keep every SVG in the page.
  */
 function Thumbnail({ id, source, updatedAt }: { id: string; source: string | undefined; updatedAt: number }) {
@@ -103,10 +103,11 @@ function Thumbnail({ id, source, updatedAt }: { id: string; source: string | und
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    // On desktop the library scrolls inside its pane, which a rootMargin doesn't reach past; scrollMargin does.
+    // On desktop the library scrolls inside its pane, which a rootMargin doesn't reach past; scrollMargin
+    // does (in browsers without it, cards render as they scroll into view).
     const io = new IntersectionObserver((entries) => setVisible(entries.at(-1)!.isIntersecting), {
-      rootMargin: "100% 0px",
-      scrollMargin: "100% 0px",
+      rootMargin: "50% 0px",
+      scrollMargin: "50% 0px",
     })
     io.observe(el)
     return () => io.disconnect()
@@ -126,14 +127,7 @@ function Thumbnail({ id, source, updatedAt }: { id: string; source: string | und
   }, [eos, id, source, updatedAt, visible])
 
   const text = source ?? loaded
-  const svg = useMemo(() => {
-    if (!visible || text === null) return null
-    try {
-      return renderSvg(text, `t-${id.slice(0, 8)}-`)
-    } catch {
-      return ""
-    }
-  }, [id, text, visible])
+  const svg = useMemo(() => (visible && text !== null ? thumbnailSvg(id, text) : null), [id, text, visible])
 
   return (
     <div
@@ -146,6 +140,28 @@ function Thumbnail({ id, source, updatedAt }: { id: string; source: string | und
       {svg === "" ? <span className="text-caption text-[var(--eos-faint)]">Can’t render</span> : null}
     </div>
   )
+}
+
+/** Thumbnails rendered lately, by diagram and source, so a card scrolled back into view shows at once. */
+const rendered = new Map<string, string>()
+const RENDERED_MAX = 100
+
+/** The diagram's thumbnail SVG, or "" if it can't be rendered. */
+function thumbnailSvg(id: string, source: string): string {
+  const key = `${id}\n${source}`
+  let svg = rendered.get(key)
+  if (svg === undefined) {
+    try {
+      svg = renderSvg(source, `t-${id.slice(0, 8)}-`)
+    } catch {
+      svg = ""
+    }
+  }
+  // Most recently used last, so the first key is the one to drop.
+  rendered.delete(key)
+  rendered.set(key, svg)
+  if (rendered.size > RENDERED_MAX) rendered.delete(rendered.keys().next().value!)
+  return svg
 }
 
 function relativeTime(ms: number): string {
