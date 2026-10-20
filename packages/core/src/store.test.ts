@@ -208,6 +208,23 @@ describe("durability", () => {
     expect(await later.getSource(id)).toBe("ABCDE")
   })
 
+  it("saves a change that failed to save when the page goes away", async () => {
+    const name = `failed-last-${n++}`
+    const eos = await Eos.create({ dbName: name, seed: false })
+    const id = await eos.createDiagram({ source: "A" })
+    await settle()
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    failWrites("add", "updates", { once: true })
+    await eos.setSource(id, "AB") // fails to save, and no edit follows
+    await settle()
+    expect(error).toHaveBeenCalledOnce()
+    error.mockRestore()
+    ;(eos as unknown as { saveNow(): void }).saveNow() // what pagehide and hiding the tab run
+    await settle()
+    const later = await Eos.create({ dbName: name, seed: false })
+    expect(await later.getSource(id)).toBe("AB")
+  })
+
   it("saves the stars and tag emoji a backup brings in", async () => {
     const a = await fresh()
     const id = await a.createDiagram({ source: "x", tags: ["work"] })

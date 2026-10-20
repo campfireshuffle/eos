@@ -106,6 +106,7 @@ export class Eos {
   static async create(options: { dbName?: string; seed?: boolean } & OpenHooks = {}): Promise<Eos> {
     const db = await openEosDB(options.dbName, options)
     const doc = await loadDoc(db, WORKSPACE_ID)
+    // Only a commit runs this callback, and only eos's methods commit the workspace, so eos is set by then.
     const persisted = persistDoc(db, WORKSPACE_ID, doc, (bytes) => eos.broadcast({ type: "update", id: WORKSPACE_ID, bytes }))
     const eos = new Eos(db, { doc, starred: doc.getMap("starred"), tagEmoji: doc.getMap("tagEmoji"), persisted })
     eos.settingsCache = withDefaults(await db.get("settings", "app"))
@@ -655,15 +656,19 @@ export class Eos {
     this.indexTimers.set(id, { timer: setTimeout(run, INDEX_MS), run })
   }
 
-  /** When the page goes away: refreshes pending index rows, and retries a failed write instead of waiting for the next edit. */
+  /**
+   * When the page goes away: retries a failed write instead of waiting for the next edit,
+   * then refreshes pending index rows. The docs go first, as the index can be rebuilt from them.
+   */
   private saveNow() {
-    this.flushIndex()
     this.workspace.persisted.retry()
-    for (const opened of this.open.values())
-      void opened.then(
+    const opened = [...this.open.values()].map((p) =>
+      p.then(
         (d) => d.persisted.retry(),
         () => {}
       )
+    )
+    void Promise.all(opened).then(() => this.flushIndex())
   }
 
   /** Runs a pending index refresh now (before closing a diagram, or when the page goes away). */

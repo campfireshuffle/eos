@@ -90,6 +90,8 @@ export function persistDoc(db: Database, id: DiagramId, doc: LoroDoc, onLocalUpd
     queue(async () => {
       await db.add("updates", { id, bytes, at: Date.now() })
       const count = await db.countFromIndex("updates", "byDiagram", id)
+      // Stopped mid-write (by a delete): a snapshot now would write the diagram back.
+      if (stopped) return
       if (count > COMPACT_AFTER) await compact(db, id, doc)
     })
   })
