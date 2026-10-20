@@ -7,6 +7,8 @@ import { setUi, useUi } from "@/lib/ui-state"
 
 const MIN = 0.1
 const MAX = 8
+// Fit shrinks big diagrams to the pane but won't blow small ones up past 200%.
+const FIT_MAX = 2
 
 /**
  * Live Pele render with our own zoom: "fit" scales the diagram to the pane,
@@ -19,27 +21,46 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
   const mounted = useRef<Mounted | null>(null)
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
   const [mode, setMode] = useState<"fit" | number>("fit")
+  // The most a fitted preview may zoom to. Each edit caps it at the current fit, so an edit can shrink the
+  // diagram to fit but never zooms it back in (typing would otherwise bounce the zoom as nodes come and go).
+  // Choosing fit again, or a new pane size, lifts it.
+  const [fitCap, setFitCap] = useState(FIT_MAX)
   // w/h: the content area (for fitting). ow/oh: the outer size, which a scrollbar appearing doesn't change.
   const [box, setBox] = useState({ w: 0, h: 0, ow: 0, oh: 0 })
   const zoomRequest = useUi((s) => s.zoomRequest)
   // Ignore zoom requests made before this preview mounted (e.g. on another diagram).
   const handled = useRef(zoomRequest?.n ?? 0)
 
-  // The last scale actually applied, and the current mode, for use inside render callbacks.
+  // The last scale actually applied, for use inside render callbacks.
   const applied = useRef<number | null>(null)
-  const modeRef = useRef<"fit" | number>("fit")
-  // A point that should stay under the cursor or fingers across the next zoom change.
-  const anchor = useRef<{ fx: number; fy: number; x: number; y: number } | null>(null)
+  // A diagram point (in natural units) that should stay at (x, y) on screen across the next zoom or render.
+  const anchor = useRef<{ nx: number; ny: number; x: number; y: number } | null>(null)
+  /** The diagram point currently at (x, y) on screen. */
+  const pointAt = (x: number, y: number) => {
+    const r = host.current?.querySelector("svg")?.getBoundingClientRect()
+    const s = applied.current
+    return r && r.width && r.height && s ? { nx: (x - r.left) / s, ny: (y - r.top) / s, x, y } : null
+  }
+  /**
+   * Before Pele draws a new layout (an edit, or a re-layout for a new width), keep the diagram point at the
+   * pane's centre there. Otherwise the scroll offset stays put in pixels while the diagram and its gutters
+   * change size around it, which can leave the diagram all but out of view.
+   * Relies on Pele's update rendering synchronously (as of 1.6.0), so the old diagram is what's measured here.
+   */
+  const holdCentre = () => {
+    const r = scroller.current?.getBoundingClientRect()
+    if (r && !anchor.current) anchor.current = pointAt(r.left + r.width / 2, r.top + r.height / 2)
+  }
   // The diagram point a zoom gesture is anchored to. While the cursor stays put, every step reuses it
   // instead of re-measuring, so whole-pixel scroll rounding can't accumulate into drift.
-  const zoomGesture = useRef<{ fx: number; fy: number; x: number; y: number; at: number } | null>(null)
+  const zoomGesture = useRef<{ nx: number; ny: number; x: number; y: number; at: number } | null>(null)
   /** Zooms to `next`, keeping the diagram point under (x, y) in place. */
   const zoomAt = (next: number, x: number, y: number) => {
     const g = zoomGesture.current
     const now = performance.now()
     if (!g || Math.abs(g.x - x) > 2 || Math.abs(g.y - y) > 2 || now - g.at > 600) {
-      const r = host.current?.querySelector("svg")?.getBoundingClientRect()
-      zoomGesture.current = r && r.width && r.height ? { fx: (x - r.left) / r.width, fy: (y - r.top) / r.height, x, y, at: now } : null
+      const p = pointAt(x, y)
+      zoomGesture.current = p && { ...p, at: now }
     } else g.at = now
     if (zoomGesture.current) anchor.current = { ...zoomGesture.current, x, y }
     setMode(Math.min(MAX, Math.max(MIN, next)))
@@ -47,9 +68,8 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
   const zoomAtRef = useRef(zoomAt)
   zoomAtRef.current = zoomAt
 
-  // The source last handed to Pele, and the source the current natural size was measured from.
+  // The source last handed to Pele.
   const sourceRef = useRef(source)
-  const measuredSource = useRef<string | null>(null)
 
   // Bumped on every Pele render: each render is a fresh <svg> that needs the zoom size applied again,
   // even when its natural size and the scale are unchanged (e.g. a re-layout after a resize).
@@ -61,8 +81,6 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
     setRenders((n) => n + 1)
     const vb = svg?.viewBox.baseVal
     if (!vb || vb.width <= 0) return
-    const edited = measuredSource.current !== null && measuredSource.current !== sourceRef.current
-    measuredSource.current = sourceRef.current
     // A resize that switched Pele to a different layout: fade the new one in so it doesn't read as a flicker.
     if (relayout.current) {
       relayout.current = false
@@ -71,14 +89,7 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
         host.current?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: "ease-out" })
     }
     laidOutSize.current = { w: vb.width, h: vb.height }
-    setNatural((prev) => {
-      // Editing changed the diagram's size: keep the zoom level instead of re-fitting.
-      // A re-render of the same source (e.g. once web fonts load) re-fits as usual.
-      if (edited && prev && (prev.w !== vb.width || prev.h !== vb.height) && modeRef.current === "fit" && applied.current) {
-        setMode(applied.current)
-      }
-      return prev && prev.w === vb.width && prev.h === vb.height ? prev : { w: vb.width, h: vb.height }
-    })
+    setNatural((prev) => (prev && prev.w === vb.width && prev.h === vb.height ? prev : { w: vb.width, h: vb.height }))
   }
 
   /**
@@ -102,7 +113,11 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
     if (!mounted.current) {
       laidOutFor.current = layoutWidth()
       mounted.current = mount(host.current!, source, renderOptions(laidOutFor.current))
-    } else mounted.current.update(source)
+    } else {
+      if (mode === "fit") setFitCap(scale)
+      holdCentre()
+      mounted.current.update(source)
+    }
     measure()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, valid])
@@ -117,6 +132,7 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
       if (!mounted.current || w === laidOutFor.current) return
       laidOutFor.current = w
       relayout.current = true
+      holdCentre()
       mounted.current.update(sourceRef.current, renderOptions(w))
     }, 150)
     return () => clearTimeout(t)
@@ -142,12 +158,12 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
     }
   }, [])
 
+  // A new pane size may leave room to zoom a fitted diagram back in.
+  useEffect(() => setFitCap(FIT_MAX), [box.ow, box.oh])
+
   const pad = 48
-  // Fit shrinks big diagrams to the pane but won't blow small ones up past 200%.
-  const FIT_MAX = 2
-  const fit = natural && box.w ? Math.min((box.w - pad) / natural.w, (box.h - pad) / natural.h, FIT_MAX) : 1
+  const fit = natural && box.w ? Math.min((box.w - pad) / natural.w, (box.h - pad) / natural.h, fitCap) : 1
   const scale = mode === "fit" ? fit : mode
-  modeRef.current = mode
   const scaleRef = useRef(scale)
   scaleRef.current = scale
 
@@ -163,14 +179,15 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
     })
     applied.current = scale
     setUi({ zoomScale: scale })
-    // Scroll so the anchored diagram point lands back under the cursor or fingers.
+    // Scroll so the anchored diagram point lands back where it was: under the cursor or fingers, or at the
+    // pane's centre. The gutters keep part of the diagram in view at either end of the scroll range.
     const a = anchor.current
     const el = scroller.current
     if (a && el) {
       anchor.current = null
       const r = svg.getBoundingClientRect()
-      el.scrollLeft += r.left + a.fx * r.width - a.x
-      el.scrollTop += r.top + a.fy * r.height - a.y
+      el.scrollLeft += r.left + a.nx * scale - a.x
+      el.scrollTop += r.top + a.ny * scale - a.y
     }
   }, [scale, natural, source, renders])
 
@@ -184,7 +201,10 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
       cy = r.top + r.height / 2
     if (zoomRequest.action === "in") zoomAt(clamp(scale * 1.25), cx, cy)
     if (zoomRequest.action === "out") zoomAt(clamp(scale * 0.8), cx, cy)
-    if (zoomRequest.action === "fit") setMode("fit")
+    if (zoomRequest.action === "fit") {
+      setFitCap(FIT_MAX)
+      setMode("fit")
+    }
     if (zoomRequest.action === "actual") zoomAt(1, cx, cy)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoomRequest])
