@@ -29,14 +29,18 @@ export async function searchIndex(all: DiagramIndexRow[], stale: () => boolean =
     )
   }
   return async (rows, query) => {
-    const byId = new Map(rows.map((r) => [r.id, r]))
+    const position = new Map(rows.map((r, i) => [r.id, i]))
     const result = (await search(db, {
       term: query,
       properties: ["title", "source"],
       boost: { title: TITLE_BOOST },
       tolerance: query.length > 3 ? 1 : 0,
       limit: all.length,
-    })) as { hits: { document: { id: string } }[] }
-    return result.hits.map((h) => byId.get(h.document.id)).filter((r) => r !== undefined)
+    })) as { hits: { score: number; document: { id: string } }[] }
+    // Equal scores keep the order the rows came in (the library's sort), not the index's.
+    return result.hits
+      .filter((h) => position.has(h.document.id))
+      .sort((a, b) => b.score - a.score || position.get(a.document.id)! - position.get(b.document.id)!)
+      .map((h) => rows[position.get(h.document.id)!]!)
   }
 }
