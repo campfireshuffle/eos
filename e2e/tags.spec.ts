@@ -30,3 +30,21 @@ test("deleting a tag above the one being viewed goes back to the whole library",
   await expect(page).toHaveURL(/#\/$/)
   await expect(page.getByText("No diagrams match.")).toBeHidden()
 })
+
+test("Enter in the Tags menu toggles the tag typed, not the first that contains it", async ({ context }) => {
+  const page = await viewing(context, "archive/work")
+  const ids = await page.locator("[data-card-id]").evaluateAll((cards) => cards.map((c) => (c as HTMLElement).dataset.cardId!))
+  await tool(page, "create_diagram", { title: "C", tags: ["work"], open: false })
+  await page
+    .locator("[data-card-id]")
+    .first()
+    .click({ modifiers: ["ControlOrMeta"] })
+  await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Tags" }).click()
+  await page.getByPlaceholder("Find or create a tag").fill("work")
+  await page.keyboard.press("Enter")
+  const tagged = async () =>
+    (await tool<{ diagrams: { id: string; tags: string[] }[] }>(page, "get_library")).diagrams.find(
+      (d) => ids.includes(d.id) && d.tags.includes("work")
+    )
+  await expect.poll(tagged).toBeTruthy()
+})
