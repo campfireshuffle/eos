@@ -7,6 +7,7 @@ import { openEosDB, WORKSPACE_ID, type Database, type OpenHooks } from "./db"
 import {
   actorOrigin,
   commit,
+  compact,
   decodeVersion,
   DETAILS,
   deleteDocData,
@@ -107,8 +108,11 @@ export class Eos {
     persistDoc(db, WORKSPACE_ID, doc, (bytes) => eos.broadcast({ type: "update", id: WORKSPACE_ID, bytes }))
     eos.settingsCache = withDefaults(await db.get("settings", "app"))
     eos.listenToOtherTabs()
-    // Save a pending index refresh if the tab is closed mid-typing.
+    // Save a pending index refresh if the tab is closed mid-typing, or hidden: a mobile
+    // browser may discard a hidden tab without a pagehide.
     if (typeof addEventListener === "function") addEventListener("pagehide", () => eos.flushIndex())
+    if (typeof document !== "undefined")
+      document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && eos.flushIndex())
     await eos.backfillSearchText()
     if (options.seed !== false && (await db.count("diagrams")) === 0) {
       for (const s of SAMPLES) await eos.createDiagram(s, { kind: "system", reason: "seed" })
@@ -184,8 +188,7 @@ export class Eos {
     setTags(meta, normalizeTags(input.tags ?? []))
     doc.getText("source").insert(0, input.source ?? "flowchart TD\n  A[Start] --> B[End]\n")
     commit(doc, actor)
-    await this.db.put("snapshots", { id, bytes: doc.export({ mode: "snapshot" }), savedAt: Date.now() })
-    await this.writeIndex(id, doc)
+    await compact(this.db, id, doc, this.indexRow(id, doc))
     this.emit("library")
     this.broadcast({ type: "index", id })
     return id
@@ -468,19 +471,24 @@ export class Eos {
   async importBackup(data: string | Backup, mode: "merge" | "replace") {
     const { settings, workspace, diagrams } = typeof data === "string" ? readBackup(data) : data
     if (mode === "replace") await this.deleteAll({ reseed: false })
-    if (workspace) this.workspace.doc.import(workspace)
+    // Imported ops aren't local updates, so persistDoc never saves them: each import
+    // below saves its doc whole.
+    if (workspace) {
+      this.workspace.doc.import(workspace)
+      await compact(this.db, WORKSPACE_ID, this.workspace.doc)
+    }
     for (const { bytes, ...item } of diagrams) {
       // Something may be opening the diagram right now (e.g. an editor rebinding after the
       // wipe above); an open that failed because it wasn't there yet just means "not open".
       const d = await this.open.get(item.id)?.catch(() => undefined)
       if (d) {
         d.doc.import(bytes)
+        await compact(this.db, item.id, d.doc)
         await this.afterChange(item.id, d)
       } else {
         const existing = await loadDoc(this.db, item.id)
         existing.import(bytes)
-        await this.db.put("snapshots", { id: item.id, bytes: existing.export({ mode: "snapshot" }), savedAt: Date.now() })
-        await this.writeIndex(item.id, existing, item.deletedAt ?? undefined)
+        await compact(this.db, item.id, existing, this.indexRow(item.id, existing, item.deletedAt ?? undefined))
       }
     }
     if (settings) await this.updateSettings(settings as Partial<AppSettings>)
@@ -649,16 +657,16 @@ export class Eos {
 
   private async afterChange(id: DiagramId, d: DiagramDoc) {
     const row = await this.db.get("diagrams", id)
-    await this.writeIndex(id, d.doc, row?.deletedAt)
+    await this.db.put("diagrams", this.indexRow(id, d.doc, row?.deletedAt))
     this.emit("library", `diagram:${id}`)
     this.broadcast({ type: "index", id })
   }
 
-  private async writeIndex(id: DiagramId, doc: LoroDoc, deletedAt?: number) {
+  private indexRow(id: DiagramId, doc: LoroDoc, deletedAt?: number): DiagramIndexRow {
     const d = { text: doc.getText("source"), meta: doc.getMap("meta") }
     const meta = metaOf(d)
     const source = sourceOf(d)
-    const row: DiagramIndexRow = {
+    return {
       id,
       title: meta.title,
       tags: meta.tags,
@@ -671,7 +679,6 @@ export class Eos {
       sourceText: source,
       ...(deletedAt ? { deletedAt } : {}),
     }
-    await this.db.put("diagrams", row)
   }
 
   /** Rows written before search covered full contents only have a preview; fill them in once. */

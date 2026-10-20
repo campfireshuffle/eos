@@ -183,8 +183,10 @@ interface DiagramIndexRow {
 
 ### Write path
 
-1. `doc.subscribeLocalUpdates(bytes => …)` fires after each local commit. Batch the update bytes and write them in one transaction about every 300 ms (and on `pagehide`). The same transaction appends each blob to `updates` and upserts the `diagrams` row.
-2. Updates that arrive from other tabs (§5) are **not** persisted by the receiving tab. The tab that wrote them already did, so the log never holds duplicates. Importing an update twice is harmless anyway, because Loro dedupes by op id.
+1. `doc.subscribeLocalUpdates(bytes => …)` fires after each local commit, and each update is appended to `updates` as it comes, one write after another (`persistDoc` in `docs.ts`). If a write fails, the log is missing an update that every later one builds on, so the next write saves a full snapshot instead (see Compaction).
+2. The `diagrams` row is rewritten separately, after each change. While someone is typing it waits for a 300 ms pause, and a pending rewrite runs at once on `pagehide` or when the tab is hidden. A new diagram's snapshot and row are written in one transaction, so neither exists without the other.
+3. Imported ops (a backup restored or merged) aren't local updates, so `subscribeLocalUpdates` never sees them. The import saves each doc it changes as a full snapshot.
+4. Updates that arrive from other tabs (§5) are **not** persisted by the receiving tab. The tab that wrote them already did, so the log never holds duplicates. Importing an update twice is harmless anyway, because Loro dedupes by op id.
 
 ### Read path
 
@@ -203,9 +205,9 @@ async function openDiagram(id: DiagramId): Promise<LoroDoc> {
 
 ### Compaction
 
-Compact a diagram once its log has more than 200 entries, checked after each write (`persistDoc` in `docs.ts`).
+Compact a diagram once its log has more than 200 entries, checked after each write (`persistDoc` in `docs.ts`). The same step saves a doc after a failed write and after an import, and, given the index row, saves a new diagram.
 
-To compact, in one `readwrite` transaction over `snapshots` + `updates`:
+To compact, in one `readwrite` transaction over `snapshots` + `updates` (+ the `diagrams` row, when given):
 
 ```ts
 await tx.objectStore("snapshots").put({ id, bytes: doc.export({ mode: "snapshot" }), savedAt: Date.now() }) // full history kept
@@ -400,16 +402,8 @@ async function encodeShare(p: SharePayload): Promise<string> {
 
 ## 7. Storage persistence
 
-```ts
-async function ensurePersisted(): Promise<boolean> {
-  if (!navigator.storage?.persist) return false
-  if (await navigator.storage.persisted()) return true
-  return navigator.storage.persist()
-}
-```
-
-- Call `ensurePersisted()` once, after the first diagram is created. Browsers grant this more readily after user engagement (Firefox shows a prompt, while Chromium decides heuristically).
-- Store the result in `settings.app.persist`. If the request was denied, show a one-line note in Settings (not a modal), for example "Browser may clear diagrams under storage pressure — export important ones." There is still no storage-management UI.
+- `Eos.requestPersistence()` calls `navigator.storage.persist()`. The app calls it once per page load, on the first change to the library (`main.tsx`). The sample diagrams are seeded before it starts listening, so they don't count. Browsers grant this more readily after user engagement (Firefox shows a prompt, while Chromium decides heuristically, and refuses early requests).
+- The result isn't stored or shown anywhere. `Eos.storageUsage()` reports whether storage is persisted, but there is no storage-management UI.
 
 ## 8. Settings record
 
@@ -426,7 +420,6 @@ interface AppSettings {
     /** Optional raw CSS appended after overrides, scoped to the Pele renderer root. */
     customCss?: string
   }
-  persist: "granted" | "denied" | "unknown"
   lastOpenedId?: DiagramId
   library: { sort: LibrarySort }
   agent: { webmcpEnabled: boolean }

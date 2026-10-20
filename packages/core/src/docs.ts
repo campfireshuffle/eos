@@ -1,7 +1,7 @@
 import { LoroDoc, LoroList, type LoroMap, type LoroText } from "loro-crdt"
 
 import type { Database } from "./db"
-import type { Actor, DiagramId, DiagramMeta, HistoryEntry, TagPath } from "./types"
+import type { Actor, DiagramId, DiagramIndexRow, DiagramMeta, HistoryEntry, TagPath } from "./types"
 
 /** Compact the update log into a snapshot once it grows past this many rows. */
 const COMPACT_AFTER = 200
@@ -58,28 +58,50 @@ export async function loadDoc(db: Database, id: DiagramId): Promise<LoroDoc> {
 /** Appends every local change to the update log; compacts when it gets long. */
 export function persistDoc(db: Database, id: DiagramId, doc: LoroDoc, onLocalUpdate?: (bytes: Uint8Array) => void): () => void {
   let pending = Promise.resolve()
+  /** A write failed, so the log is missing an update that every later one builds on. */
+  let gap = false
   const unsubscribe = doc.subscribeLocalUpdates((bytes) => {
     onLocalUpdate?.(bytes)
     // Each write waits for the previous one; a failed write is logged and the
     // queue carries on, so one bad write (quota, a closed connection) can't
-    // silently stop every later change from saving.
+    // silently stop every later change from saving. The write after a failure
+    // saves the whole doc, which fills the gap.
     pending = pending
       .then(async () => {
+        if (gap) {
+          await compact(db, id, doc)
+          gap = false
+          return
+        }
         await db.add("updates", { id, bytes, at: Date.now() })
         const count = await db.countFromIndex("updates", "byDiagram", id)
         if (count > COMPACT_AFTER) await compact(db, id, doc)
       })
-      .catch((error) => console.error(`Couldn't save a change to diagram ${id}`, error))
+      .catch((error) => {
+        gap = true
+        console.error(`Couldn't save a change to diagram ${id}`, error)
+      })
   })
   return unsubscribe
 }
 
-export async function compact(db: Database, id: DiagramId, doc: LoroDoc) {
-  const tx = db.transaction(["snapshots", "updates"], "readwrite")
-  await tx.objectStore("snapshots").put({ id, bytes: doc.export({ mode: "snapshot" }), savedAt: Date.now() })
-  const keys = await tx.objectStore("updates").index("byDiagram").getAllKeys(id)
-  await Promise.all(keys.map((k) => tx.objectStore("updates").delete(k)))
-  await tx.done
+/**
+ * Saves the whole doc as its snapshot and clears its update log. With `row`, its library
+ * index row is written in the same transaction, so neither is saved without the other.
+ */
+export async function compact(db: Database, id: DiagramId, doc: LoroDoc, row?: DiagramIndexRow) {
+  const tx = db.transaction(["snapshots", "updates", "diagrams"], "readwrite")
+  const updates = tx.objectStore("updates")
+  // Awaited with tx.done, so a failed write rejects once instead of leaving done unhandled.
+  await Promise.all([
+    tx.objectStore("snapshots").put({ id, bytes: doc.export({ mode: "snapshot" }), savedAt: Date.now() }),
+    updates
+      .index("byDiagram")
+      .getAllKeys(id)
+      .then((keys) => Promise.all(keys.map((k) => updates.delete(k)))),
+    row && tx.objectStore("diagrams").put(row),
+    tx.done,
+  ])
 }
 
 export async function deleteDocData(db: Database, id: DiagramId) {

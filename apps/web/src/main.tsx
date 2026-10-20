@@ -42,7 +42,13 @@ try {
     onVersionChange: () => location.reload(),
   })
   clearTimeout(slow)
-  void eos.requestPersistence()
+  // Ask for persistent storage once there's something of the person's to keep: browsers
+  // prompt for, or refuse, a request made on first visit. The seeded samples are already
+  // in by now, so they don't count.
+  const off = eos.subscribe("library", () => {
+    off()
+    void eos.requestPersistence()
+  })
   try {
     connectWebMcp(eos)
   } catch (error) {

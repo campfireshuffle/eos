@@ -1,9 +1,10 @@
 import "fake-indexeddb/auto"
 
 import { LoroDoc } from "loro-crdt"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { fromBase64, toBase64 } from "./base64"
+import type { Database } from "./db"
 import { decodeShare, encodeShare } from "./share"
 import { Eos, UnknownVersionError } from "./store"
 import type { TextChange } from "./types"
@@ -166,6 +167,102 @@ describe("Eos store", () => {
     const b = await fresh()
     await b.importBackup(backup, "merge")
     expect(await b.getSource(id)).toBe("z")
+  })
+})
+
+describe("durability", () => {
+  const settle = () => new Promise((r) => setTimeout(r, 50))
+  const dbOf = (eos: Eos) => (eos as unknown as { db: Database }).db
+  /** Aborts writes to `store`, as a full disk would: just the next one, or every one until the returned restore. */
+  function failWrites(method: "add" | "put", store: string, { once = false } = {}) {
+    const original = IDBObjectStore.prototype[method]
+    const restore = () => (IDBObjectStore.prototype[method] = original)
+    IDBObjectStore.prototype[method] = function (this: IDBObjectStore, ...args: Parameters<IDBObjectStore["put"]>) {
+      const request = original.apply(this, args)
+      if (this.name === store) {
+        this.transaction.abort()
+        if (once) restore()
+      }
+      return request
+    }
+    return restore
+  }
+
+  it("keeps every later edit after one change fails to save", async () => {
+    const name = `failed-write-${n++}`
+    const eos = await Eos.create({ dbName: name, seed: false })
+    const id = await eos.createDiagram({ source: "A" })
+    await eos.setSource(id, "AB")
+    await settle()
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    failWrites("add", "updates", { once: true })
+    await eos.setSource(id, "ABC") // fails to save
+    await settle()
+    await eos.setSource(id, "ABCD")
+    await eos.setSource(id, "ABCDE")
+    await settle()
+    expect(error).toHaveBeenCalledOnce()
+    error.mockRestore()
+    const later = await Eos.create({ dbName: name, seed: false })
+    expect(await later.getSource(id)).toBe("ABCDE")
+  })
+
+  it("saves the stars and tag emoji a backup brings in", async () => {
+    const a = await fresh()
+    const id = await a.createDiagram({ source: "x", tags: ["work"] })
+    await a.setStarred(id, true)
+    await a.setTagEmoji("work", "🔥")
+    const backup = await a.exportBackup()
+    for (const mode of ["replace", "merge"] as const) {
+      const name = `backup-workspace-${mode}-${n++}`
+      await (await Eos.create({ dbName: name, seed: false })).importBackup(backup, mode)
+      await settle()
+      const later = await Eos.create({ dbName: name, seed: false })
+      expect((await later.listTags()).map((t) => t.emoji)).toEqual(["🔥"])
+      await later.renameDiagram(id, "Renamed") // rewrites the index row from the saved stars
+      expect((await later.listDiagrams())[0]?.starred).toBe(1)
+    }
+  })
+
+  it("saves what a backup merges into a diagram that's open", async () => {
+    const name = `backup-open-${n++}`
+    const eos = await Eos.create({ dbName: name, seed: false })
+    const id = await eos.createDiagram({ source: "base" })
+    // A backup of the same diagram, edited elsewhere. Exporting opens the diagram here.
+    const backup = JSON.parse(await eos.exportBackup()) as { diagrams: { snapshot: string }[] }
+    const elsewhere = LoroDoc.fromSnapshot(fromBase64(backup.diagrams[0]!.snapshot))
+    elsewhere.getText("source").insert(4, " + edit from elsewhere")
+    elsewhere.commit()
+    backup.diagrams[0]!.snapshot = toBase64(elsewhere.export({ mode: "snapshot" }))
+    await eos.importBackup(JSON.stringify(backup), "merge")
+    await settle()
+    const later = await Eos.create({ dbName: name, seed: false })
+    expect(await later.getSource(id)).toBe("base + edit from elsewhere")
+  })
+
+  it("saves a new diagram whole or not at all", async () => {
+    const eos = await fresh()
+    const restore = failWrites("put", "diagrams")
+    try {
+      await expect(eos.createDiagram({ source: "x" })).rejects.toThrow()
+    } finally {
+      restore()
+    }
+    expect(await dbOf(eos).count("snapshots")).toBe(0)
+  })
+
+  it("imports a backup's diagram whole or not at all", async () => {
+    const a = await fresh()
+    const id = await a.createDiagram({ source: "x" })
+    const backup = await a.exportBackup()
+    const eos = await fresh()
+    const restore = failWrites("put", "diagrams")
+    try {
+      await expect(eos.importBackup(backup, "merge")).rejects.toThrow()
+    } finally {
+      restore()
+    }
+    expect(await dbOf(eos).get("snapshots", id)).toBeUndefined()
   })
 })
 
