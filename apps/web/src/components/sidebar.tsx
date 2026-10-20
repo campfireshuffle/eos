@@ -46,7 +46,7 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
         label="Starred"
         count={counts?.starred}
         active={!!home?.starred}
-        onDropIds={(ids) => ids.forEach((id) => void eos.setStarred(id, true))}
+        onDropIds={(ids) => void eos.batch(() => Promise.all(ids.map((id) => eos.setStarred(id, true))))}
       />
 
       {!!counts?.deleted && (

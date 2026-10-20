@@ -43,7 +43,7 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
               size="sm"
               className="rounded-full"
               onClick={async () => {
-                await Promise.all(ids.map((id) => eos.restoreDiagram(id)))
+                await eos.batch(() => Promise.all(ids.map((id) => eos.restoreDiagram(id))))
                 clearSelection()
               }}
             >
@@ -56,7 +56,7 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
               onClick={async () => {
                 const what = count === 1 ? "this diagram" : `${count} diagrams`
                 if (!(await askConfirm(`Permanently delete ${what}? This can’t be undone.`, "Delete forever"))) return
-                await Promise.all(ids.map((id) => eos.purge(id)))
+                await eos.batch(() => Promise.all(ids.map((id) => eos.purge(id))))
                 clearSelection()
               }}
             >
@@ -65,7 +65,12 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
           </>
         ) : (
           <>
-            <Button variant="ghost" size="sm" className="rounded-full" onClick={() => ids.forEach((id) => void eos.setStarred(id, true))}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="rounded-full"
+              onClick={() => void eos.batch(() => Promise.all(ids.map((id) => eos.setStarred(id, true))))}
+            >
               <Star /> <span className="max-sm:sr-only">Star</span>
             </Button>
             <TagMenu ids={ids} />
@@ -75,7 +80,7 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
               className="rounded-full text-destructive hover:text-destructive"
               onClick={async () => {
                 if (!(await askConfirm(`Move ${count === 1 ? "this diagram" : `${count} diagrams`} to Deleted?`))) return
-                await Promise.all(ids.map((id) => eos.deleteDiagram(id)))
+                await eos.batch(() => Promise.all(ids.map((id) => eos.deleteDiagram(id))))
                 clearSelection()
               }}
             >
