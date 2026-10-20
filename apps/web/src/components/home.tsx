@@ -12,7 +12,7 @@ import { useHistoryEntry } from "@/lib/history"
 import { diagramHref, homeHref, navigate, parseRoute, type LibraryGroup, type Route } from "@/lib/router"
 import { useIsMobile } from "@/lib/layout"
 import { useScrollRestoration } from "@/lib/scroll-restore"
-import { clearSelection } from "@/lib/selection"
+import { clearSelection, getSelection, setSelection } from "@/lib/selection"
 
 import { CardHint, DiagramCard } from "./diagram-card"
 import { Marquee } from "./marquee"
@@ -68,6 +68,12 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   useScrollRestoration(mobile ? null : scroller, rows !== undefined, [homeHref({ ...route, q: "" }), mobile])
   const emoji = route.tag ? findEmoji(tags ?? [], route.tag) : null
   useEffect(() => clearSelection(), [route.tag, route.starred, route.deleted])
+  // Cards a search or edit hides leave the selection, so the bar only acts on what's shown.
+  useEffect(() => {
+    if (!rows) return
+    const shown = new Set(rows.map((r) => r.id))
+    setSelection([...getSelection()].filter((id) => shown.has(id)))
+  }, [rows])
 
   const create = async () => {
     const id = await eos.createDiagram({ tags: route.tag ? [route.tag] : [] })

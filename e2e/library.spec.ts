@@ -114,6 +114,38 @@ test.describe("selecting", () => {
     await expect(card(page, "Pear crumble").getByText("Selected", { exact: true })).toBeAttached()
   })
 
+  test("a search drops the cards it hides from the selection", async ({ context }) => {
+    const page = await library(context)
+    const all = await page.locator("[data-card-id]").count()
+    await page.keyboard.press("ControlOrMeta+a")
+    await expect(page.getByText(`${all} selected`)).toBeVisible()
+    await page.getByRole("textbox", { name: "Search diagrams" }).first().fill("pear")
+    await expect(page.locator("[data-card-id]")).toHaveCount(1)
+    await expect(selectionCount(page)).toHaveText("1 selected")
+
+    // Unselecting the last card shown leaves selecting, so the next click opens.
+    await card(page, "Pear crumble").click()
+    await expect(selectionCount(page)).toHaveText("0 selected")
+    await card(page, "Pear crumble").click()
+    await expect(page).toHaveURL(/#\/d\//)
+  })
+
+  test("untagging cards in that tag's view drops them from the selection", async ({ context }) => {
+    const page = await library(context)
+    await page.evaluate(() => (location.hash = "/?tag=apple"))
+    await expect(page.locator("[data-card-id]")).toHaveCount(2)
+    await card(page, "Apple pie").click({ button: "right" })
+    await expect(page.getByText("1 selected")).toBeVisible()
+    await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Tags" }).click()
+    await page.getByRole("checkbox", { name: "apple" }).click()
+    await expect(page.locator("[data-card-id]")).toHaveCount(1)
+    await expect(selectionCount(page)).toHaveText("0 selected")
+
+    await page.keyboard.press("Escape")
+    await card(page, "Apple crumble").click()
+    await expect(page).toHaveURL(/#\/d\//)
+  })
+
   test("⌘A in the search box selects its text, not the cards", async ({ context }) => {
     const page = await library(context)
     const search = page.getByRole("textbox", { name: "Search diagrams" }).first()
