@@ -18,7 +18,7 @@ import { Popover, PopoverAnchor, PopoverContent } from "@workspace/ui/components
 import { cn } from "@workspace/ui/lib/utils"
 
 import { useEos } from "@/lib/eos"
-import { homeHref, navigate } from "@/lib/router"
+import { homeHref, navigate, parseRoute } from "@/lib/router"
 import { DIAGRAM_MIME } from "@/lib/selection"
 import { askConfirm } from "@/lib/ui-state"
 
@@ -56,9 +56,17 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
   const [picker, setPicker] = useState<Anchored | null>(null)
   const [menu, setMenu] = useState<Anchored | null>(null)
 
+  // A library open at a tag that's moved or deleted follows it, rather than filtering by a tag nothing has.
+  // Read from the URL, not `selected`: on a diagram's page that's the diagram's tag, and the page stays put.
+  const follow = (from: TagPath, to: TagPath | null) => {
+    const route = parseRoute(location.hash)
+    if (route.name !== "home" || !route.tag || !isWithin(route.tag, from)) return
+    navigate(homeHref({ ...route, tag: to && to + route.tag.slice(from.length) }), { replace: true })
+  }
+
   const moveTo = (from: TagPath, parent: TagPath | null) => {
     const to = parent ? `${parent}/${nameOf(from)}` : nameOf(from)
-    if (to !== from && !(parent && isWithin(parent, from))) void eos.renameTag(from, to)
+    if (to !== from && !(parent && isWithin(parent, from))) void eos.renameTag(from, to).then(() => follow(from, to))
   }
 
   const { dragAndDropHooks } = useDragAndDrop({
@@ -210,7 +218,8 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
               // Back on the row first, so the confirm returns focus there rather than to this menu's vanished button.
               menu.from.focus()
               setMenu(null)
-              if (await askConfirm(`Remove “${tag}” from every diagram? Nested tags are removed too.`)) void eos.deleteTag(tag)
+              if (await askConfirm(`Remove “${tag}” from every diagram? Nested tags are removed too.`))
+                void eos.deleteTag(tag).then(() => follow(tag, null))
             }}
           />
         )}
