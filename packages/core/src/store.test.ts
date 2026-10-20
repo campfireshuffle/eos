@@ -8,7 +8,7 @@ import { openEosDB, type Database } from "./db"
 import { compact, loadDoc } from "./docs"
 import { decodeShare, encodeShare } from "./share"
 import { Eos, UnknownVersionError } from "./store"
-import type { TextChange } from "./types"
+import type { Actor, DiagramIndexRow, TextChange } from "./types"
 
 let n = 0
 const fresh = () => Eos.create({ dbName: `test-${n++}`, seed: false })
@@ -440,6 +440,144 @@ describe("editor binding", () => {
     expect(await eos.redo(id)).toBe(true)
     expect(ed.state.text).toBe(await eos.getSource(id))
     expect(ed.state.text).toContain("B --> C")
+  })
+})
+
+describe("library events and reads", () => {
+  /** Long enough for every tab to hear the others, and for typing's index refresh (300ms) to run. */
+  const settle = (ms = 50) => new Promise((r) => setTimeout(r, ms))
+  const openCount = (eos: Eos) => (eos as unknown as { open: Map<string, unknown> }).open.size
+  /** How many times each topic fires on `eos`. */
+  function count(eos: Eos, ...topics: Parameters<Eos["subscribe"]>[0][]) {
+    const counts: Record<string, number> = Object.fromEntries(topics.map((t) => [t, 0]))
+    for (const t of topics) eos.subscribe(t, () => counts[t]!++)
+    return counts
+  }
+  async function tabs(diagrams: number) {
+    const name = `events-${n++}`
+    const eos = await Eos.create({ dbName: name, seed: false })
+    const ids: string[] = []
+    for (let i = 0; i < diagrams; i++) ids.push(await eos.createDiagram({ title: `d${i}`, tags: ["work/x", "home"] }))
+    const other = await Eos.create({ dbName: name, seed: false })
+    // Other tests' tabs share the channel; let their last messages land first.
+    await settle(400)
+    return { name, eos, other, ids }
+  }
+
+  it("sends one library event, here and in other tabs, for a change to many diagrams", async () => {
+    const { eos, other, ids } = await tabs(5)
+    const here = count(eos, "library")
+    const there = count(other, "library")
+    await eos.renameTag("work", "job")
+    await settle()
+    expect([here.library, there.library]).toEqual([1, 1])
+    await eos.deleteTag("home")
+    await settle()
+    expect([here.library, there.library]).toEqual([2, 2])
+    await eos.batch(() => Promise.all(ids.map((id) => eos.deleteDiagram(id))))
+    await settle()
+    expect([here.library, there.library]).toEqual([3, 3])
+    expect((await other.listDiagrams({ deleted: true })).every((r) => r.tags.join() === "job/x")).toBe(true)
+  })
+
+  it("leaves the library alone while another tab types, until its index row changes", async () => {
+    const { eos, other, ids } = await tabs(1)
+    const id = ids[0]!
+    const counts = count(other, "library", `diagram:${id}`)
+    const binding = await eos.bindSource(id)
+    for (const ch of "abc") binding.edit([{ from: 0, to: 0, insert: ch }])
+    await settle()
+    expect(counts).toEqual({ library: 0, [`diagram:${id}`]: 3 })
+    await settle(400)
+    expect(counts.library).toBe(1)
+    // Stars and tag emoji live in the workspace, so its changes do refresh the library.
+    await eos.setTagEmoji("home", "🏠")
+    await settle()
+    expect(counts.library).toBe(2)
+    expect((await other.listTags()).find((t) => t.path === "home")?.emoji).toBe("🏠")
+  })
+
+  it("reads the rows once until they change, here or in another tab", async () => {
+    const { eos, other, ids } = await tabs(3)
+    const [a, b, c] = ids as [string, string, string]
+    const first = await eos.listDiagrams({ sort: "title" })
+    // Shared by every list, and the same objects until a row changes.
+    expect(await eos.listDiagrams({ sort: "title" })).toEqual(first)
+    expect((await eos.listDiagrams({ sort: "title" }))[0]).toBe(first[0])
+    await eos.renameDiagram(a, "renamed")
+    const renamed = await eos.listDiagrams({ sort: "title" })
+    expect(renamed.find((r) => r.id === a)?.title).toBe("renamed")
+    expect(renamed.find((r) => r.id === b)).toBe(first.find((r) => r.id === b))
+    expect(await eos.counts()).toEqual({ all: 3, starred: 0, deleted: 0 })
+    // Changes another tab makes come in with its index and close messages.
+    await other.deleteDiagram(b)
+    await settle()
+    expect(await eos.counts()).toEqual({ all: 2, starred: 0, deleted: 1 })
+    await other.purge(b)
+    await other.setStarred(c, true)
+    await settle()
+    expect(await eos.counts()).toEqual({ all: 2, starred: 1, deleted: 0 })
+    expect((await eos.listTags()).find((t) => t.path === "home")?.count).toBe(2)
+  })
+
+  it("searches the same as an index built for each query", async () => {
+    const eos = await fresh()
+    const words = ["checkout", "payment", "billing", "invoice", "auth", "login", "queue", "worker"]
+    for (let i = 0; i < 40; i++) {
+      const pick = (k: number) => words[(i * k) % words.length]!
+      await eos.createDiagram({
+        title: `${pick(3)} ${pick(5)} ${i}`,
+        source: `flowchart TD\n  A[${pick(7)}] --> B[${pick(2)}]\n`,
+        tags: [`t${i % 3}`],
+      })
+    }
+    const { create, insertMultiple, search } = await import("@orama/orama")
+    /** What listDiagrams did before the index was kept: build one over just these rows. */
+    const reference = async (rows: DiagramIndexRow[], term: string) => {
+      const db = create({ schema: { id: "string", title: "string", source: "string" } as const })
+      await insertMultiple(
+        db,
+        rows.map((r) => ({ id: r.id, title: r.title, source: r.sourceText ?? r.sourcePreview }))
+      )
+      const result = await search(db, {
+        term,
+        properties: ["title", "source"],
+        boost: { title: 3 },
+        tolerance: term.length > 3 ? 1 : 0,
+        limit: rows.length,
+      })
+      return result.hits.map((h) => h.document.id)
+    }
+    const all = await eos.listDiagrams()
+    for (const q of ["checkout", "chekout", "bill", "a", "auth login", "worker 7", "nothing"]) {
+      expect((await eos.listDiagrams({ query: q })).map((r) => r.id)).toEqual(await reference(all, q))
+      // Filtered, it finds the same diagrams.
+      const tagged = all.filter((r) => r.tags.includes("t1"))
+      expect(new Set((await eos.listDiagrams({ query: q, tags: ["t1"] })).map((r) => r.id))).toEqual(new Set(await reference(tagged, q)))
+    }
+    // Kept until the library changes.
+    const id = await eos.createDiagram({ title: "zebra crossing" })
+    expect((await eos.listDiagrams({ query: "zebra" })).map((r) => r.id)).toEqual([id])
+  })
+
+  it("retags and backs up diagrams without opening them, and other tabs see the change", async () => {
+    const { name, eos, other, ids } = await tabs(3)
+    await other.getSource(ids[0]!) // open in the other tab
+    const agent: Actor = { kind: "agent", tool: "update_tag", changes: ["tags"] }
+    await eos.renameTag("work", "job", agent)
+    expect(openCount(eos)).toBe(0)
+    await settle()
+    expect((await other.getDiagram(ids[0]!))?.meta.tags).toEqual(["job/x", "home"])
+    // Saved, credited to the agent, and on nobody's undo stack.
+    const later = await Eos.create({ dbName: name, seed: false })
+    const d = (await later.getDiagram(ids[1]!))!
+    expect(d.meta.tags).toEqual(["job/x", "home"])
+    expect((await later.history(ids[1]!))[0]?.actor).toEqual(agent)
+    expect(await later.canUndo(ids[1]!, "agent")).toEqual({ canUndo: false, canRedo: false })
+    const fresh2 = await Eos.create({ dbName: name, seed: false })
+    const backup = JSON.parse(await fresh2.exportBackup()) as { diagrams: unknown[] }
+    expect(backup.diagrams).toHaveLength(3)
+    expect(openCount(fresh2)).toBe(0)
   })
 })
 
