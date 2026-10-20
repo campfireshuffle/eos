@@ -31,7 +31,8 @@ const theme = EditorView.theme(
     ".cm-scroller": { fontFamily: "var(--font-mono)", lineHeight: "1.72", padding: "14px 0" },
     ".cm-content": { caretColor: "var(--eos-body)" },
     ".cm-gutters": { backgroundColor: "transparent", border: "none", color: "var(--eos-faint)", paddingLeft: "12px" },
-    ".cm-lineNumbers .cm-gutterElement": { minWidth: "22px", paddingRight: "14px" },
+    // Room for two digits, so the code doesn't shift right when a diagram reaches line 10.
+    ".cm-lineNumbers .cm-gutterElement": { padding: "0 14px 0 5px", minWidth: "calc(2ch + 19px)" },
     ".cm-activeLine": { backgroundColor: "transparent" },
     "&.cm-focused": { outline: "none" },
     ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: "var(--eos-selection) !important" },
