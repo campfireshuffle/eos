@@ -10,8 +10,19 @@ function Tooltip({ ...props }: React.ComponentProps<typeof TooltipPrimitive.Root
   return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
 }
 
-function TooltipTrigger({ ...props }: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
+function TooltipTrigger({ onFocus, ...props }: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
+  return (
+    <TooltipPrimitive.Trigger
+      data-slot="tooltip-trigger"
+      onFocus={(e) => {
+        onFocus?.(e)
+        // Only keyboard focus opens it. Focus a closing menu hands back to its button isn't the
+        // person pointing at it, and would leave the tooltip up wherever the pointer went.
+        if (!e.currentTarget.matches(":focus-visible")) e.preventDefault()
+      }}
+      {...props}
+    />
+  )
 }
 
 function TooltipContent({ className, sideOffset = 0, children, ...props }: React.ComponentProps<typeof TooltipPrimitive.Content>) {

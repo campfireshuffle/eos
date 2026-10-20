@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises"
 
 import { expect, test, type Page } from "@playwright/test"
 
-import { cursorAtEndOf, newDiagram, openEditor, tool, withAgentTools } from "./helpers"
+import { cursorAtEndOf, focusNext, newDiagram, openEditor, tool, withAgentTools } from "./helpers"
 
 /** Downloads `item` from the Export menu and returns the file's text. */
 async function exported(page: Page, item: string) {
@@ -107,4 +107,30 @@ test.describe("in dark mode", () => {
     expect(agent["--pele-fg"]).not.toBe("#1f1f1f")
     expect(agent).toEqual(colours(await exported(page, "SVG .svg")))
   })
+})
+
+test("the Version history tooltip doesn't stay up after picking a version, but still shows on keyboard focus", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const id = await newDiagram(page, "flowchart LR\n  OLD1 --> OLD2")
+  await openEditor(page, id)
+  await cursorAtEndOf(page, 1)
+  await page.keyboard.type(" --> NEW3")
+  await expect.poll(async () => (await tool<{ history: unknown[] }>(page, "get_diagram", { id, history: true })).history.length).toBe(2)
+  const button = page.getByRole("button", { name: "Version history" })
+  await button.click()
+  await page.locator("[data-slot=popover-content] button").last().click()
+  await expect(page.getByText("Viewing the version from")).toBeVisible()
+  await page.mouse.move(5, 5)
+  // "Never appears" needs a wait: longer than the tooltip's 400ms delay.
+  await page.waitForTimeout(800)
+  await expect(page.getByRole("tooltip")).toHaveCount(0)
+  // Focus from the keyboard still shows it.
+  await page.keyboard.press("Escape")
+  await button.focus()
+  // Safari's Tab skips buttons; Option+Tab reaches them (see focusNext).
+  const webkit = page.context().browser()?.browserType().name() === "webkit"
+  await page.keyboard.press(webkit ? "Alt+Shift+Tab" : "Shift+Tab")
+  await focusNext(page)
+  await expect(page.getByRole("tooltip", { name: "Version history" })).toBeVisible()
 })
