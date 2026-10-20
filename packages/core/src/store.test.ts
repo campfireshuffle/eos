@@ -77,6 +77,15 @@ describe("Eos store", () => {
       await eos.undo(id, "agent")
       expect(await eos.getSource(id)).toBe("flowchart TD\n  A --> B\n  B --> C\n")
     }, 10_000)
+
+    it("keeps the person's undo when the agent restores the version it's already at", async () => {
+      const eos = await fresh()
+      const id = await eos.createDiagram({ source: "one" })
+      await eos.setSource(id, "two")
+      await eos.restoreVersion(id, (await eos.getDiagram(id))!.version, agent)
+      expect(await eos.undo(id)).toBe(true)
+      expect(await eos.getSource(id)).toBe("one")
+    })
   })
 
   it("rejects a version the diagram doesn't have, changing nothing", async () => {
@@ -832,6 +841,18 @@ describe("backup import", () => {
     await eos.importBackup(backup, "merge")
     expect((await eos.getDiagram(id))?.starred).toBe(false)
     expect((await eos.listTags()).map((t) => t.emoji)).toEqual(["🔥"])
+  })
+
+  it("doesn't bring back the emoji of a tag deleted since the backup when merging", async () => {
+    const eos = await fresh()
+    const id = await eos.createDiagram({ source: "x", tags: ["work"] })
+    await eos.setTagEmoji("work", "🚀")
+    const backup = await eos.exportBackup()
+    await eos.deleteTag("work")
+    await eos.importBackup(backup, "merge")
+    expect((await eos.getDiagram(id))?.meta.tags).toEqual([])
+    await eos.addTags(id, ["work"])
+    expect((await eos.listTags()).map((t) => t.emoji)).toEqual([null])
   })
 
   it("brings back only the stars of diagrams the backup has when replacing the library", async () => {

@@ -417,7 +417,7 @@ export class Eos {
     const d = await this.openDiagram(id)
     const frontiers = frontiersOf(d, version) // checked first, so an unknown version clears nothing
     // The restore reverses edits still on the other actor's stack; undoing one would apply its reversal twice.
-    ;(actor.kind === "agent" ? d.undo : d.agentUndo).clear()
+    if (version !== encodeVersion(d.doc)) (actor.kind === "agent" ? d.undo : d.agentUndo).clear()
     await this.mutate(id, actor, (e) => e.doc.revertTo(frontiers))
   }
 
@@ -577,6 +577,7 @@ export class Eos {
       const rows = await this.db.getAll("diagrams")
       const had = new Set(rows.map((r) => r.id))
       const hadTags = new Set(rows.flatMap((r) => r.tagPrefixes))
+      let tagEmoji: Record<string, Value> = {}
       // Imported ops aren't local updates, so persistDoc neither saves nor broadcasts them:
       // each import below saves its doc whole and sends the ops to other tabs itself.
       if (workspace) {
@@ -590,8 +591,7 @@ export class Eos {
         const backup = new LoroDoc()
         backup.import(workspace)
         for (const { id } of diagrams) if (!had.has(id) && backup.getMap("starred").get(id)) this.workspace.starred.set(id, true)
-        for (const [tag, emoji] of Object.entries(backup.getMap("tagEmoji").toJSON() as Record<string, Value>))
-          if (!hadTags.has(tag)) this.workspace.tagEmoji.set(tag, emoji)
+        tagEmoji = backup.getMap("tagEmoji").toJSON() as Record<string, Value>
         backup.free()
         commit(this.workspace.doc, { kind: "import", source: "backup" })
       }
@@ -617,6 +617,10 @@ export class Eos {
         }
         this.broadcast({ type: "update", id: item.id, bytes })
       }
+      // Emoji only for the tags the backup brought back, so a tag deleted since doesn't get its emoji again.
+      const tags = new Set((await this.db.getAll("diagrams")).flatMap((r) => r.tagPrefixes))
+      for (const [tag, emoji] of Object.entries(tagEmoji)) if (tags.has(tag) && !hadTags.has(tag)) this.workspace.tagEmoji.set(tag, emoji)
+      commit(this.workspace.doc, { kind: "import", source: "backup" })
       if (settings?.theme) await this.updateSettings({ theme: { ...this.settingsCache.theme, ...settings.theme } })
     })
   }
