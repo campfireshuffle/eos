@@ -1,5 +1,5 @@
 import { Plus, Search } from "lucide-react"
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { findEmoji, type LibrarySort } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
@@ -8,7 +8,8 @@ import { NativeSelect, NativeSelectOption } from "@workspace/ui/components/nativ
 
 import { useEos, useLibrary, useTags } from "@/lib/eos"
 import { groupRows } from "@/lib/grouping"
-import { diagramHref, homeHref, navigate, type LibraryGroup, type Route } from "@/lib/router"
+import { useHistoryEntry } from "@/lib/history"
+import { diagramHref, homeHref, navigate, parseRoute, type LibraryGroup, type Route } from "@/lib/router"
 import { useIsMobile } from "@/lib/layout"
 import { useScrollRestoration } from "@/lib/scroll-restore"
 import { clearSelection } from "@/lib/selection"
@@ -23,9 +24,43 @@ import { SidebarToggle } from "./sidebar-toggle"
 export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   const eos = useEos()
   // Everything about the view lives in the URL, so back/forward and reload restore it.
-  const query = route.q
-  // Typing replaces the current history entry rather than adding one per keystroke.
-  const setQuery = (q: string) => navigate(homeHref({ ...route, q }), { replace: true })
+  // The search box shows what's typed at once and the URL follows at most every 150ms,
+  // as Safari throws once a page rewrites its URL more than 100 times in 10 seconds.
+  const [query, setQuery] = useState(route.q)
+  const entry = useHistoryEntry()
+  // The URL's search as last written or read, and the history entry it belongs to.
+  const synced = useRef({ entry, q: route.q })
+  const typed = useRef(route.q)
+  const throttle = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const write = () => {
+    const q = typed.current
+    // Only into the entry the typing started in: once that's been left, its URL is the one to show.
+    if ((history.state as { eosKey?: string } | null)?.eosKey !== synced.current.entry || q === synced.current.q) return false
+    synced.current.q = q
+    // Typing replaces the current history entry rather than adding one per keystroke.
+    const now = parseRoute(location.hash)
+    if (now.name === "home") navigate(homeHref({ ...now, q }), { replace: true })
+    return true
+  }
+  // Writes now, then once more at the end of each 150ms that brought more typing.
+  const tick = () => void (throttle.current = write() ? setTimeout(tick, 150) : undefined)
+  const type = (q: string) => {
+    setQuery(q)
+    typed.current = q
+    if (!throttle.current) tick()
+  }
+  // A search set elsewhere (back/forward, an agent, a link) shows in the box; our own write coming back changes nothing.
+  useEffect(() => {
+    if (entry === synced.current.entry && route.q === synced.current.q) return
+    synced.current = { entry, q: route.q }
+    typed.current = route.q
+    clearTimeout(throttle.current)
+    throttle.current = undefined
+    setQuery(route.q)
+  }, [entry, route.q])
+  useEffect(() => () => clearTimeout(throttle.current), [])
+  // Leaving the box, e.g. to open a result, saves typing still due so back returns to it.
+  const flush = () => void write()
   const rows = useLibrary({ query, starred: route.starred, deleted: route.deleted, tags: route.tag ? [route.tag] : [], sort: route.sort })
   const tags = useTags()
   // Back/forward returns to where you were. Phones scroll the page; desktop scrolls this pane.
@@ -53,8 +88,9 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => type(e.target.value)}
               onFocus={() => eos.prepareSearch()}
+              onBlur={flush}
               placeholder="Search"
               aria-label="Search diagrams"
               className="pl-8"
@@ -68,8 +104,9 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
           <Search className="pointer-events-none absolute top-1/2 left-6.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => type(e.target.value)}
             onFocus={() => eos.prepareSearch()}
+            onBlur={flush}
             placeholder="Search"
             aria-label="Search diagrams"
             className="pl-8"
