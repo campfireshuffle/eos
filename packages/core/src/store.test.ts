@@ -36,6 +36,49 @@ describe("Eos store", () => {
     expect(await eos.getSource(id)).toBe("two")
   })
 
+  describe("undo after a restore", () => {
+    const agent: Actor = { kind: "agent", tool: "update_diagram", changes: ["source"] }
+    const pause = () => new Promise((r) => setTimeout(r, 900)) // so the next edit starts a new burst
+
+    it("lets the person undo past their own restore", async () => {
+      const eos = await fresh()
+      const id = await eos.createDiagram({ source: "flowchart TD\n  A --> B\n" })
+      const v1 = (await eos.getDiagram(id))!.version
+      await pause()
+      await eos.setSource(id, "flowchart TD\n  A --> C\n  C --> D\n")
+      await pause()
+      await eos.restoreVersion(id, v1)
+      await pause()
+      expect(await eos.undo(id)).toBe(true)
+      expect(await eos.getSource(id)).toBe("flowchart TD\n  A --> C\n  C --> D\n")
+      expect(await eos.undo(id)).toBe(true)
+      expect(await eos.getSource(id)).toBe("flowchart TD\n  A --> B\n")
+    }, 10_000)
+
+    it("doesn't apply a reversal twice when the person undoes after the agent restores", async () => {
+      const eos = await fresh()
+      const id = await eos.createDiagram({ source: "flowchart TD\n  A --> B\n" })
+      const v1 = (await eos.getDiagram(id))!.version
+      await pause()
+      await eos.setSource(id, "flowchart TD\n  A --> C\n  C --> D\n")
+      await pause()
+      await eos.restoreVersion(id, v1, agent)
+      await eos.undo(id)
+      expect(await eos.getSource(id)).toBe("flowchart TD\n  A --> B\n")
+    }, 10_000)
+
+    it("doesn't apply a reversal twice when the agent undoes after the person restores", async () => {
+      const eos = await fresh()
+      const id = await eos.createDiagram({ source: "flowchart TD\n  A --> B\n  B --> C\n" })
+      const v1 = (await eos.getDiagram(id))!.version
+      await eos.setSource(id, "flowchart TD\n  A --> B\n", agent)
+      await pause()
+      await eos.restoreVersion(id, v1)
+      await eos.undo(id, "agent")
+      expect(await eos.getSource(id)).toBe("flowchart TD\n  A --> B\n  B --> C\n")
+    }, 10_000)
+  })
+
   it("rejects a version the diagram doesn't have, changing nothing", async () => {
     const eos = await fresh()
     const id = await eos.createDiagram({ source: "one" })

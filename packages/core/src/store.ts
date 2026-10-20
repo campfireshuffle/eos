@@ -414,7 +414,11 @@ export class Eos {
   }
 
   async restoreVersion(id: DiagramId, version: string, actor: Actor = USER) {
-    await this.mutate(id, actor, (d) => d.doc.revertTo(frontiersOf(d, version)))
+    const d = await this.openDiagram(id)
+    const frontiers = frontiersOf(d, version) // checked first, so an unknown version clears nothing
+    // The restore reverses edits still on the other actor's stack; undoing one would apply its reversal twice.
+    ;(actor.kind === "agent" ? d.undo : d.agentUndo).clear()
+    await this.mutate(id, actor, (e) => e.doc.revertTo(frontiers))
   }
 
   // ── Organisation ───────────────────────────────────────────────────────────
