@@ -6,7 +6,7 @@ import { renderSvg, type DiagramIndexRow } from "@eos/core"
 
 import { useEos } from "@/lib/eos"
 import { diagramHref } from "@/lib/router"
-import { clearSelection, getSelection, startCardDrag, toggleSelected, useSelection } from "@/lib/selection"
+import { clearSelection, getSelection, startCardDrag, toggleSelected, useSelected } from "@/lib/selection"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { Pill } from "./pill"
@@ -16,7 +16,7 @@ const LONG_PRESS_MS = 450
 const coarsePointer = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches
 
 export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramIndexRow }) {
-  const selected = useSelection().has(row.id)
+  const selected = useSelected(row.id)
   const longPressed = useRef(false)
   const lastPointer = useRef<string>("mouse")
   // Touch only: on desktop the card drags natively and ⌘/⇧-click selects.
