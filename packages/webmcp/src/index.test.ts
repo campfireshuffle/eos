@@ -159,6 +159,15 @@ describe("webmcp tools", () => {
     expect((await eos.listDiagrams()).length).toBe(1)
   })
 
+  it("can't turn confirmations off by importing a backup", async () => {
+    const { call, eos } = await setup(false)
+    await call("create_diagram", { title: "Keep me", open: false })
+    const data = JSON.stringify({ v: 1, diagrams: [], settings: { agent: { confirmDestructive: false } } })
+    expect((await call("import_backup", { data, mode: "merge" })).ok).toBe(true)
+    expect((await call("delete_all_data")).code).toBe("user_declined")
+    expect((await eos.listDiagrams()).length).toBe(1)
+  })
+
   it("reports busy, not a no, when another dialog is already open", async () => {
     const { call, eos } = await setup("busy")
     const { id } = await call("create_diagram", { title: "Keep me", open: false })

@@ -1,4 +1,5 @@
 import { LoroDoc, LoroList, type LoroMap, type LoroText } from "loro-crdt"
+import * as z from "zod/mini"
 
 import type { Database } from "./db"
 import type { Actor, DiagramId, DiagramIndexRow, DiagramMeta, HistoryEntry, TagPath } from "./types"
@@ -18,11 +19,12 @@ export function sourceOf(d: { text: LoroText }): string {
   return d.text.toString()
 }
 
+/** A diagram's meta. Docs can come from a backup made anywhere, so anything malformed reads as missing. */
 export function metaOf(d: { meta: LoroMap }): DiagramMeta {
-  const json = d.meta.toJSON() as Partial<DiagramMeta>
+  const json = d.meta.toJSON() as Record<string, unknown>
   return {
     title: typeof json.title === "string" ? json.title : "Untitled",
-    tags: Array.isArray(json.tags) ? (json.tags as TagPath[]) : [],
+    tags: Array.isArray(json.tags) ? json.tags.filter((t): t is TagPath => typeof t === "string") : [],
     createdAt: typeof json.createdAt === "number" ? json.createdAt : 0,
   }
 }
@@ -164,9 +166,10 @@ export function historyOf(doc: LoroDoc, limit = 50): HistoryEntry[] {
   for (const c of changes) {
     let actor: Actor = { kind: "user" }
     try {
-      if (c.message) actor = JSON.parse(c.message) as Actor
+      // Older changes may carry free-form messages, and a backup can carry anything; treat those as the user's.
+      if (c.message) actor = ActorSchema.safeParse(JSON.parse(c.message)).data ?? actor
     } catch {
-      // Older changes may carry free-form messages; treat them as the user's.
+      // Not JSON: a free-form message.
     }
     const entry: HistoryEntry = { version: `${c.peer}:${c.counter + c.length - 1}`, actor, at: (c.timestamp ?? 0) * 1000 }
     if (actor.kind === "agent") entry.changes = actor.changes ?? []
@@ -180,6 +183,14 @@ export function historyOf(doc: LoroDoc, limit = 50): HistoryEntry[] {
   }
   return entries.reverse().slice(0, limit)
 }
+
+/** A commit message, as commit writes it. */
+const ActorSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("user") }),
+  z.object({ kind: z.literal("agent"), tool: z.string(), changes: z.optional(z.array(z.string())) }),
+  z.object({ kind: z.literal("import"), source: z.enum(["share-link", "backup"]) }),
+  z.object({ kind: z.literal("system"), reason: z.string() }),
+])
 
 /** Agent edits group together whichever tool made them; they never group with the person's edits. */
 function sameActor(a: Actor, b: Actor): boolean {

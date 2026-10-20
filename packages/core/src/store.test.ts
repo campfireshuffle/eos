@@ -454,6 +454,61 @@ describe("backup import", () => {
     await expect(eos.importBackup(damaged, "replace")).rejects.toThrow(/damaged/)
     expect((await eos.listDiagrams()).map((d) => d.title)).toEqual(["Keep me"])
   })
+
+  it("rejects snapshots Loro can't read before replacing anything", async () => {
+    const eos = await fresh()
+    await eos.createDiagram({ title: "Keep me" })
+    const junk = toBase64(new TextEncoder().encode("not a loro snapshot"))
+    await expect(eos.importBackup(JSON.stringify({ v: 1, diagrams: [{ id: "x", snapshot: junk }] }), "replace")).rejects.toThrow(/damaged/)
+    await expect(eos.importBackup(JSON.stringify({ v: 1, workspace: junk, diagrams: [] }), "replace")).rejects.toThrow(/damaged/)
+    expect((await eos.listDiagrams()).map((d) => d.title)).toEqual(["Keep me"])
+  })
+
+  it("brings in the theme but never agent settings", async () => {
+    const eos = await fresh()
+    const backup = { v: 1, diagrams: [], settings: { theme: { mode: "dark" }, agent: { confirmDestructive: false, webmcpEnabled: false } } }
+    await eos.importBackup(JSON.stringify(backup), "merge")
+    expect(eos.getSettings()).toEqual({
+      theme: { mode: "dark", customCss: null, diagramCss: null },
+      agent: { webmcpEnabled: true, confirmDestructive: true },
+    })
+    expect(JSON.parse(await eos.exportBackup()).settings).toEqual({ theme: eos.getSettings().theme })
+  })
+
+  /** A backup of one diagram whose doc `tamper` has changed. */
+  async function tamperedBackup(tamper: (doc: LoroDoc) => void) {
+    const a = await fresh()
+    const id = await a.createDiagram({ title: "Tampered", source: "a" })
+    const backup = JSON.parse(await a.exportBackup())
+    const doc = new LoroDoc()
+    doc.import(fromBase64(backup.diagrams[0].snapshot))
+    tamper(doc)
+    backup.diagrams[0].snapshot = toBase64(doc.export({ mode: "snapshot" }))
+    return { id, backup: JSON.stringify(backup) }
+  }
+
+  it("keeps only the string tags a backup's diagram carries", async () => {
+    const { id, backup } = await tamperedBackup((doc) => {
+      doc.getMap("meta").set("tags", ["ok", 1, { x: 1 }, ["nested"]])
+      doc.commit()
+    })
+    const eos = await fresh()
+    await eos.importBackup(backup, "merge")
+    expect((await eos.getDiagram(id))?.meta.tags).toEqual(["ok"])
+    expect((await eos.listDiagrams({ tags: ["ok"] })).map((d) => d.id)).toEqual([id])
+  })
+
+  it("reads commit messages that aren't an actor as the person's", async () => {
+    const { id, backup } = await tamperedBackup((doc) => {
+      for (const message of ["null", "[]", '{"kind":"system","reason":{"x":1}}', '{"kind":"agent","tool":7}', "free-form"]) {
+        doc.getText("source").insert(0, "x")
+        doc.commit({ message })
+      }
+    })
+    const eos = await fresh()
+    await eos.importBackup(backup, "merge")
+    expect((await eos.history(id)).map((e) => e.actor)).toEqual([{ kind: "user" }])
+  })
 })
 
 describe("base64", () => {
@@ -492,6 +547,20 @@ describe("share links", () => {
     const encoded = await encodeShare({ title: "T", source: "flowchart TD\n  A-->B", tags: ["x"] })
     expect(await decodeShare(encoded)).toEqual({ title: "T", source: "flowchart TD\n  A-->B", tags: ["x"] })
     expect(await decodeShare("garbage")).toBeNull()
+  })
+
+  it("refuses a link that inflates past the size cap or carries a huge title", async () => {
+    const deflate = async (json: object) => {
+      const bytes = new TextEncoder().encode(JSON.stringify(json))
+      const out = new Blob([bytes]).stream().pipeThrough(new CompressionStream("deflate-raw"))
+      return toBase64(new Uint8Array(await new Response(out).arrayBuffer()), "base64url")
+    }
+    const bomb = await deflate({ v: 1, title: "T", source: "a".repeat(5_000_000) })
+    expect(bomb.length).toBeLessThan(32_000)
+    expect(await decodeShare(bomb)).toBeNull()
+    expect(await decodeShare(await deflate({ v: 1, title: "T".repeat(1_001), source: "a" }))).toBeNull()
+    const largest = { title: "T".repeat(1_000), source: "a".repeat(50_000) }
+    expect(await decodeShare(await encodeShare(largest))).toEqual({ ...largest, tags: [] })
   })
 
   it("fuzzy-searches titles first, then contents", async () => {

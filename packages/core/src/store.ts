@@ -460,7 +460,7 @@ export class Eos {
     }
     return JSON.stringify({
       v: 1,
-      settings: this.settingsCache,
+      settings: { theme: this.settingsCache.theme },
       workspace: toBase64(this.workspace.doc.export({ mode: "snapshot" })),
       diagrams,
     })
@@ -498,7 +498,7 @@ export class Eos {
       }
       this.broadcast({ type: "update", id: item.id, bytes })
     }
-    if (settings) await this.updateSettings(settings as Partial<AppSettings>)
+    if (settings?.theme) await this.updateSettings({ theme: { ...this.settingsCache.theme, ...settings.theme } })
     this.emit("library")
   }
 
@@ -778,18 +778,28 @@ export function readBackup(data: string) {
   const parsed = BackupSchema.safeParse(json)
   if (!parsed.success) throw new Error(`This file isn't an Eos backup: ${z.prettifyError(parsed.error)}`)
   const { settings, workspace, diagrams } = parsed.data
+  /** The bytes, loaded into a throwaway doc first so bytes Loro can't read throw here. */
+  const decode = (base64: string) => {
+    const bytes = fromBase64(base64)
+    new LoroDoc().import(bytes)
+    return bytes
+  }
   try {
     return {
       settings,
-      workspace: workspace ? fromBase64(workspace) : null,
-      diagrams: diagrams.map(({ snapshot, ...item }) => ({ ...item, bytes: fromBase64(snapshot) })),
+      workspace: workspace ? decode(workspace) : null,
+      diagrams: diagrams.map(({ snapshot, ...item }) => ({ ...item, bytes: decode(snapshot) })),
     }
   } catch {
     throw new Error("This backup is damaged: a diagram's data can't be read")
   }
 }
 
-/** The backup file format (v1), as exportBackup writes it. Settings are partial; missing ones keep their current values. */
+/**
+ * The backup file format (v1), as exportBackup writes it. Settings are partial; missing ones keep their current values.
+ * Only the theme travels: agent settings are the person's say over what agents may do, and agents can import backups,
+ * so a backup never changes them (older backups that carry them have them dropped here).
+ */
 const BackupSchema = z.object({
   v: z.literal(1),
   settings: z.optional(
@@ -801,7 +811,6 @@ const BackupSchema = z.object({
           diagramCss: z.optional(z.nullable(z.string())),
         })
       ),
-      agent: z.optional(z.object({ webmcpEnabled: z.optional(z.boolean()), confirmDestructive: z.optional(z.boolean()) })),
     })
   ),
   workspace: z.optional(z.string()),

@@ -397,7 +397,7 @@ async function encodeShare(p: SharePayload): Promise<string> {
 ```
 
 - The payload is in the **hash**, so it is never sent to a server or written to server logs.
-- When Eos opens with `#/import`, it decodes the payload, validates it (size cap of 256 KB decompressed, schema check), and creates a new `DiagramId`. The `source`/`meta` writes are committed as `{ actor: { kind: "import", source: "share-link" } }`. Eos then persists the new diagram, navigates to it, and uses `history.replaceState` to clear the hash so a reload does not import again.
+- When Eos opens with `#/import`, it decodes the payload, validates it (size cap of 256 KB decompressed, stopping as soon as it passes that; titles up to 1,000 characters; schema check), opening a link that fails any of these the same way as a malformed one, and creates a new `DiagramId`. The `source`/`meta` writes are committed as `{ actor: { kind: "import", source: "share-link" } }`. Eos then persists the new diagram, navigates to it, and uses `history.replaceState` to clear the hash so a reload does not import again.
 - If the source is identical to an existing diagram's (compared by hash of the normalised source), Eos offers "Open existing" instead of creating a duplicate.
 - Links over ~8 KB are not reliably pasteable. Over that size, the export menu warns and offers "Download .mmd" instead.
 - Tags are included only if the sharer opts in, because tags can leak how the sharer organises their work.
@@ -428,7 +428,9 @@ interface AppSettings {
 }
 ```
 
-Overrides are sanitised before use. Only `--*` keys are accepted. `customCss` is injected through a constructable stylesheet scoped to `.pele-root`, and anything containing `@import` or `url(` with a remote origin is rejected.
+Theme CSS is sanitised before use: only custom-property declarations are kept (only `--pele-*` ones from `diagramCss`), and values that could load something (`url(`, `image-set(` and the like, or any backslash escape) are dropped, since the CSS can come from a backup or an agent.
+
+Backups carry only the theme. Agent settings are the person's say over what agents may do, and agents can import backups, so a backup never changes them; ones an older backup carries are dropped on import. Before an import touches anything, every snapshot in the file is decoded, so a damaged file fails with the library intact. Diagrams from a backup can hold anything, so tags that aren't strings are dropped and a commit message that isn't an actor reads as the person's.
 
 ## 9. Lifecycle summary
 

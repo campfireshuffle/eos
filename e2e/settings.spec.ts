@@ -28,3 +28,21 @@ test("the browser's theme colour follows the chosen mode, not only the system's"
   await page.getByRole("radio", { name: "System" }).click()
   await expect.poll(themeColors).toEqual(["rgb(241, 240, 236)", "rgb(241, 240, 236)"])
 })
+
+test("theme CSS drops values that could fetch something", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.goto("/#/")
+  await page.waitForFunction(() => "__tools" in window && "set_theme" in (window as unknown as { __tools: object }).__tools)
+  const fetches = [
+    "url(https://example.invalid/a)",
+    "URL(https://example.invalid/b)",
+    "\\75 rl(https://example.invalid/c)",
+    "image-set('https://example.invalid/d' 1x)",
+    "u/**/rl(https://example.invalid/e)",
+  ]
+  const appCss = `:root {\n${fetches.map((v, i) => `  --eos-x${i}: ${v};`).join("\n")}\n  --eos-primary: #ff0000;\n}`
+  await tool(page, "set_theme", { appCss, diagramCss: ".pele { --pele-surface: url(https://example.invalid/f); }" })
+  await expect(page.locator("#eos-theme-app")).toHaveJSProperty("textContent", ":root, .dark {\n  --eos-primary: #ff0000;\n}")
+  await expect(page.locator("#eos-theme-diagram")).toHaveJSProperty("textContent", "")
+})
