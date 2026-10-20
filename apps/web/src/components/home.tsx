@@ -8,6 +8,7 @@ import { NativeSelect, NativeSelectOption } from "@workspace/ui/components/nativ
 
 import { useEos, useLibrary, useTags } from "@/lib/eos"
 import { groupRows } from "@/lib/grouping"
+import { useHistoryEntry } from "@/lib/history"
 import { diagramHref, homeHref, navigate, parseRoute, type LibraryGroup, type Route } from "@/lib/router"
 import { useIsMobile } from "@/lib/layout"
 import { useScrollRestoration } from "@/lib/scroll-restore"
@@ -23,35 +24,43 @@ import { SidebarToggle } from "./sidebar-toggle"
 export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   const eos = useEos()
   // Everything about the view lives in the URL, so back/forward and reload restore it.
-  // The search box shows what's typed at once; the URL catches up when typing pauses,
+  // The search box shows what's typed at once and the URL follows at most every 150ms,
   // as Safari throws once a page rewrites its URL more than 100 times in 10 seconds.
   const [query, setQuery] = useState(route.q)
-  const written = useRef(route.q)
-  const pending = useRef<ReturnType<typeof setTimeout>>(undefined)
-  const writeQuery = (q: string) => {
-    clearTimeout(pending.current)
-    pending.current = undefined
-    written.current = q
+  const entry = useHistoryEntry()
+  // The URL's search as last written or read, and the history entry it belongs to.
+  const synced = useRef({ entry, q: route.q })
+  const typed = useRef(route.q)
+  const throttle = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const write = () => {
+    const q = typed.current
+    // Only into the entry the typing started in: once that's been left, its URL is the one to show.
+    if ((history.state as { eosKey?: string } | null)?.eosKey !== synced.current.entry || q === synced.current.q) return false
+    synced.current.q = q
     // Typing replaces the current history entry rather than adding one per keystroke.
     const now = parseRoute(location.hash)
-    if (now.name === "home" && now.q !== q) navigate(homeHref({ ...now, q }), { replace: true })
+    if (now.name === "home") navigate(homeHref({ ...now, q }), { replace: true })
+    return true
   }
+  // Writes now, then once more at the end of each 150ms that brought more typing.
+  const tick = () => void (throttle.current = write() ? setTimeout(tick, 150) : undefined)
   const type = (q: string) => {
     setQuery(q)
-    clearTimeout(pending.current)
-    pending.current = setTimeout(() => writeQuery(q), 300)
+    typed.current = q
+    if (!throttle.current) tick()
   }
   // A search set elsewhere (back/forward, an agent, a link) shows in the box; our own write coming back changes nothing.
   useEffect(() => {
-    if (route.q === written.current) return
-    written.current = route.q
-    clearTimeout(pending.current)
-    pending.current = undefined
+    if (entry === synced.current.entry && route.q === synced.current.q) return
+    synced.current = { entry, q: route.q }
+    typed.current = route.q
+    clearTimeout(throttle.current)
+    throttle.current = undefined
     setQuery(route.q)
-  }, [route.q])
-  useEffect(() => () => clearTimeout(pending.current), [])
-  // Leaving the box, e.g. to open a result, saves the search first so back returns to it.
-  const flush = () => pending.current && writeQuery(query)
+  }, [entry, route.q])
+  useEffect(() => () => clearTimeout(throttle.current), [])
+  // Leaving the box, e.g. to open a result, saves typing still due so back returns to it.
+  const flush = () => void write()
   const rows = useLibrary({ query, starred: route.starred, deleted: route.deleted, tags: route.tag ? [route.tag] : [], sort: route.sort })
   const tags = useTags()
   // Back/forward returns to where you were. Phones scroll the page; desktop scrolls this pane.
