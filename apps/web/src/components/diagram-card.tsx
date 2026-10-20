@@ -1,12 +1,12 @@
 import { Check, Star } from "lucide-react"
 import { memo, useEffect, useMemo, useRef, useState } from "react"
-import { useLongPress } from "react-aria"
+import { mergeProps, useLongPress } from "react-aria"
 
 import { renderSvg, type DiagramIndexRow } from "@eos/core"
 
 import { useEos } from "@/lib/eos"
 import { diagramHref } from "@/lib/router"
-import { clearSelection, getSelection, startCardDrag, toggleSelected, useSelected } from "@/lib/selection"
+import { getSelection, startCardDrag, toggleSelected, useSelected } from "@/lib/selection"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { Pill } from "./pill"
@@ -14,14 +14,23 @@ import { Pill } from "./pill"
 /** Hold this long on a card (touch) to start selecting, like Photos and Files. */
 const LONG_PRESS_MS = 450
 const coarsePointer = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches
+const CARD_HINT_ID = "eos-card-hint"
+
+/** How to select, which every card is described by. Render it once wherever cards are. */
+export function CardHint() {
+  return (
+    <span id={CARD_HINT_ID} hidden>
+      Press Space, right-click or long-press to select. While selecting, clicking a diagram adds or removes it.
+    </span>
+  )
+}
 
 export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramIndexRow }) {
   const selected = useSelected(row.id)
   const longPressed = useRef(false)
   const lastPointer = useRef<string>("mouse")
-  // Touch only: on desktop the card drags natively and ⌘/⇧-click selects.
+  // Touch only: on desktop the card drags natively and a right-click selects.
   const { longPressProps } = useLongPress({
-    isDisabled: !coarsePointer,
     threshold: LONG_PRESS_MS,
     onLongPress: (e) => {
       if (e.pointerType !== "touch") return
@@ -35,29 +44,43 @@ export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramInde
     <a
       href={diagramHref(row.id)}
       data-card-id={row.id}
+      aria-describedby={CARD_HINT_ID}
       // On touch, a long press selects instead of starting a native drag.
       draggable={!coarsePointer}
-      onDragStart={(e) => startCardDrag(e, row.id)}
-      {...longPressProps}
-      // Runs before React Aria's handler (capture), so a long press always starts fresh.
-      onPointerDownCapture={(e) => {
-        lastPointer.current = e.pointerType
-        longPressed.current = false
-      }}
-      onContextMenu={(e) => lastPointer.current === "touch" && e.preventDefault()}
-      onClick={(e) => {
-        if (longPressed.current) {
-          // The long press already selected the card; don't also open it.
-          e.preventDefault()
+      // Merged so React Aria's handlers don't replace ours. Left out on desktop, where a disabled press cancels every click.
+      {...mergeProps(coarsePointer ? longPressProps : {}, {
+        onDragStart: (e: React.DragEvent) => startCardDrag(e, row.id),
+        // Runs before React Aria's handler (capture), so a long press always starts fresh.
+        onPointerDownCapture: (e: React.PointerEvent) => {
+          lastPointer.current = e.pointerType
           longPressed.current = false
-          return
-        }
-        if (e.metaKey || e.ctrlKey || e.shiftKey || (lastPointer.current === "touch" && getSelection().size > 0)) {
-          // ⌘/⇧-click, or a tap while selecting on touch, adds or removes the card.
+        },
+        // A right-click is the desktop's long press. Where the long press itself selects (a touch press on a phone
+        // or tablet), only the menu is stopped; a touchscreen laptop has only this.
+        onContextMenu: (e: React.MouseEvent) => {
+          e.preventDefault()
+          if (lastPointer.current !== "touch" || !coarsePointer) toggleSelected(row.id)
+        },
+        onKeyDown: (e: React.KeyboardEvent) => {
+          // Space selects from the keyboard; Enter opens, or toggles while selecting, as a click does.
+          if (e.key !== " " || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return
           e.preventDefault()
           toggleSelected(row.id)
-        } else clearSelection()
-      }}
+        },
+        onClick: (e: React.MouseEvent) => {
+          if (longPressed.current) {
+            // The long press already selected the card; don't also open it.
+            e.preventDefault()
+            longPressed.current = false
+            return
+          }
+          // ⌘/Ctrl/⇧-click is the browser's (a new tab or window), selecting or not. Otherwise, while
+          // selecting, a click or tap adds or removes the card instead of opening it.
+          if (e.metaKey || e.ctrlKey || e.shiftKey || getSelection().size === 0) return
+          e.preventDefault()
+          toggleSelected(row.id)
+        },
+      })}
       className={cn(
         "group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors select-none [-webkit-touch-callout:none] hover:border-[var(--eos-line-active)]",
         selected && "border-[var(--eos-champagne)] ring-1 ring-[var(--eos-champagne)] hover:border-[var(--eos-champagne)]"

@@ -9,10 +9,7 @@ test("Esc cancels a confirm without dropping the selection", async ({ context })
   await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
   await tool(page, "create_diagram", { title: "Keep me", open: false })
 
-  await page
-    .locator("[data-card-id]")
-    .first()
-    .click({ modifiers: ["ControlOrMeta"] })
+  await page.locator("[data-card-id]").first().click({ button: "right" })
   await expect(page.getByText("1 selected")).toBeVisible()
   await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Delete" }).click()
   await expect(page.getByRole("alertdialog")).toBeVisible()
@@ -31,16 +28,134 @@ test("an agent's confirm doesn't replace one the person has open", async ({ cont
   await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
   await tool(page, "create_diagram", { title: "Keep me", open: false })
 
-  await page
-    .locator("[data-card-id]")
-    .first()
-    .click({ modifiers: ["ControlOrMeta"] })
+  await page.locator("[data-card-id]").first().click({ button: "right" })
   await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Delete" }).click()
   const dialog = page.getByRole("alertdialog")
   await expect(dialog).toContainText("Move this diagram to Deleted?")
 
   expect(await tool(page, "delete_all_data")).toMatchObject({ ok: false, code: "busy" })
   await expect(dialog).toContainText("Move this diagram to Deleted?")
+})
+
+/** The selection bar's count, which reads 0 while the bar is hidden. */
+const selectionCount = (page: Page) => page.getByText(/^\d+ selected$/)
+
+test.describe("selecting", () => {
+  const titles = ["Apple pie", "Apple crumble", "Pear crumble"]
+  /** A library with `titles` in it, each tagged with its first word. */
+  async function library(context: BrowserContext) {
+    await withAgentTools(context)
+    const page = await context.newPage()
+    await page.goto("/#/")
+    await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+    for (const title of titles) await tool(page, "create_diagram", { title, tags: [title.split(" ")[0].toLowerCase()], open: false })
+    for (const title of titles) await expect(card(page, title)).toBeVisible()
+    return page
+  }
+  const card = (page: Page, title: string) => page.locator("[data-card-id]", { hasText: title })
+
+  test("a right-click starts selecting, and then clicks add and remove cards instead of opening them", async ({ context }) => {
+    const page = await library(context)
+    await card(page, "Apple pie").click({ button: "right" })
+    await expect(page.getByText("1 selected")).toBeVisible()
+    await expect(page).toHaveURL(/#\/$/)
+
+    await card(page, "Pear crumble").click()
+    await expect(page.getByText("2 selected")).toBeVisible()
+    // A right-click while selecting toggles too, as a long press does.
+    await card(page, "Apple crumble").click({ button: "right" })
+    await expect(page.getByText("3 selected")).toBeVisible()
+    await card(page, "Apple crumble").click()
+    // ⌥-click isn't the browser's (WebKit would open the card in place), so it toggles like a plain click.
+    await card(page, "Pear crumble").click({ modifiers: ["Alt"] })
+    await expect(page.getByText("1 selected")).toBeVisible()
+    await expect(page).toHaveURL(/#\/$/)
+
+    // Unselecting the last card leaves selecting, so the next click opens.
+    await card(page, "Apple pie").click()
+    await expect(selectionCount(page)).toHaveText("0 selected")
+    await card(page, "Pear crumble").click()
+    await expect(page).toHaveURL(/#\/d\//)
+  })
+
+  test("⌘-click opens a new tab, selecting or not, and leaves the selection alone", async ({ context }) => {
+    const page = await library(context)
+    const opened = context.waitForEvent("page")
+    await card(page, "Apple pie").click({ modifiers: ["ControlOrMeta"] })
+    await opened
+    await expect(selectionCount(page)).toHaveText("0 selected")
+
+    await card(page, "Apple pie").click({ button: "right" })
+    const again = context.waitForEvent("page")
+    await card(page, "Pear crumble").click({ modifiers: ["ControlOrMeta"] })
+    await again
+    await expect(page.getByText("1 selected")).toBeVisible()
+    await expect(page).toHaveURL(/#\/$/)
+  })
+
+  test("⌘A selects every card shown, after the tag filter and search", async ({ context }) => {
+    const page = await library(context)
+    const all = await page.locator("[data-card-id]").count()
+    await page.keyboard.press("ControlOrMeta+a")
+    await expect(page.getByText(`${all} selected`)).toBeVisible()
+    await page.keyboard.press("Escape")
+
+    await page.evaluate(() => (location.hash = "/?tag=apple"))
+    await expect(page.locator("[data-card-id]")).toHaveCount(2)
+    await page.keyboard.press("ControlOrMeta+a")
+    await expect(page.getByText("2 selected")).toBeVisible()
+    await page.keyboard.press("Escape")
+
+    await page.evaluate(() => (location.hash = "/?q=crumble"))
+    await expect(page.locator("[data-card-id]")).toHaveCount(2)
+    await page.keyboard.press("ControlOrMeta+a")
+    await expect(page.getByText("2 selected")).toBeVisible()
+    await expect(card(page, "Apple crumble").getByText("Selected", { exact: true })).toBeAttached()
+    await expect(card(page, "Pear crumble").getByText("Selected", { exact: true })).toBeAttached()
+  })
+
+  test("⌘A in the search box selects its text, not the cards", async ({ context }) => {
+    const page = await library(context)
+    const search = page.getByRole("textbox", { name: "Search diagrams" }).first()
+    await search.fill("crumble")
+    await expect(page.locator("[data-card-id]")).toHaveCount(2)
+    await page.keyboard.press("ControlOrMeta+a")
+    await expect.poll(() => search.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd])).toEqual([0, 7])
+    await expect(selectionCount(page)).toHaveText("0 selected")
+  })
+})
+
+test.describe("selecting on touch", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+  test("a long press starts selecting, and then taps add and remove cards", async ({ context }) => {
+    await withAgentTools(context)
+    const page = await context.newPage()
+    await page.goto("/#/")
+    await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+    for (const title of ["One", "Two"]) await tool(page, "create_diagram", { title, open: false })
+    const one = page.locator("[data-card-id]", { hasText: "One" })
+    const two = page.locator("[data-card-id]", { hasText: "Two" })
+    await expect(two).toBeVisible()
+
+    // Playwright has no long press; a held touch pointer is one.
+    const box = (await one.boundingBox())!
+    const at = { clientX: box.x + 20, clientY: box.y + 20, pointerType: "touch", pointerId: 7, isPrimary: true, button: 0 }
+    await one.dispatchEvent("pointerdown", { ...at, buttons: 1 })
+    await page.waitForTimeout(600)
+    await one.dispatchEvent("pointerup", at)
+    await one.dispatchEvent("click", at)
+    await expect(page.getByText("1 selected")).toBeVisible()
+    await expect(page).toHaveURL(/#\/$/)
+
+    await two.tap()
+    await expect(page.getByText("2 selected")).toBeVisible()
+    await one.tap()
+    await two.tap()
+    await expect(selectionCount(page)).toHaveText("0 selected")
+    await one.tap()
+    await expect(page).toHaveURL(/#\/d\//)
+  })
 })
 
 test.describe("marquee", () => {
