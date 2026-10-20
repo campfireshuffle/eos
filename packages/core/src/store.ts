@@ -1057,7 +1057,8 @@ function frontiersOf(d: Editable, version: string): Frontiers {
  * The edits that turn the text at version `base` into `source`, each placed where that
  * spot of text is now. Loro cursors map positions from the old text to the current one,
  * so changes made since `base` elsewhere in the text are kept. A removed range is pinned on
- * its own first and last characters, so it never takes text typed since on either side of it.
+ * its own first and last characters, and an insertion on the character before it, so neither
+ * takes or lands past text typed since next to it.
  */
 function editsFromBase(d: Editable, base: string, source: string): TextChange[] {
   const old = d.doc.forkAt(frontiersOf(d, base)).getText("source")
@@ -1068,10 +1069,18 @@ function editsFromBase(d: Editable, base: string, source: string): TextChange[] 
     const now = d.doc.getCursorPos(old.getCursor(i)!)
     return now ? now.offset + (now.update ? 0 : char.length) : i + char.length
   }
+  const text = old.toString()
+  // An insertion goes right after the old character before it, so it stays next to what it
+  // followed even when text was added after that since (at the very start, before the first).
+  const insertAt = (i: number) => {
+    if (i === 0) return gapBefore(0)
+    const back = /[\udc00-\udfff]/.test(text[i - 1]!) && i > 1 ? 2 : 1
+    return gapAfter(i - back, text.slice(i - back, i))
+  }
   const edits: TextChange[] = []
   let pos = 0
-  for (const part of diffChars(old.toString(), source)) {
-    if (part.added) edits.push({ from: gapBefore(pos), to: gapBefore(pos), insert: part.value })
+  for (const part of diffChars(text, source)) {
+    if (part.added) edits.push({ from: insertAt(pos), to: insertAt(pos), insert: part.value })
     else {
       if (part.removed) {
         // By code point: a cursor can't sit on the second half of a surrogate pair.

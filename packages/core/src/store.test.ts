@@ -70,6 +70,10 @@ describe("Eos store", () => {
       ["hello", "hello!", "", "!"],
       ["abcd", "abXcd", "acd", "aXcd"],
       ["a😀b", "a😀Xb", "ab", "aXb"],
+      // An edit at the end of the old text stays there, before what the person added after it.
+      ["A --> B", "A --> B\nC --> D", "A --> Z", "A --> Z\nC --> D"],
+      ["ab", "abX", "abY", "abYX"],
+      ["a😀", "a😀X", "a😀Y", "a😀YX"],
     ] as const
     for (const [base, person, edit, merged] of cases) {
       const id = await eos.createDiagram({ source: base })
