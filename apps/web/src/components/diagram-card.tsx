@@ -90,7 +90,10 @@ export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramInde
   )
 })
 
-/** Renders the diagram live with Pele once the card scrolls into view. */
+/**
+ * Renders the diagram live with Pele while the card is within about a screen of view, and
+ * drops it again further out, so scrolling a long library doesn't keep every SVG in the page.
+ */
 function Thumbnail({ id, source, updatedAt }: { id: string; source: string | undefined; updatedAt: number }) {
   const eos = useEos()
   const ref = useRef<HTMLDivElement>(null)
@@ -100,7 +103,11 @@ function Thumbnail({ id, source, updatedAt }: { id: string; source: string | und
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    const io = new IntersectionObserver(([e]) => e.isIntersecting && (setVisible(true), io.disconnect()), { rootMargin: "200px" })
+    // On desktop the library scrolls inside its pane, which a rootMargin doesn't reach past; scrollMargin does.
+    const io = new IntersectionObserver((entries) => setVisible(entries.at(-1)!.isIntersecting), {
+      rootMargin: "100% 0px",
+      scrollMargin: "100% 0px",
+    })
     io.observe(el)
     return () => io.disconnect()
   }, [])
