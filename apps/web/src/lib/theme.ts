@@ -26,7 +26,8 @@ media().addEventListener("change", () => currentMode === "system" && applyMode("
 /** Applies light/dark mode plus the user's app and diagram CSS variable overrides. */
 export function applyTheme(theme: AppSettings["theme"]) {
   setStyle("eos-theme-app", theme.customCss ? sanitizeVars(theme.customCss, /^--/) : "")
-  setStyle("eos-theme-diagram", theme.diagramCss ? sanitizeVars(theme.diagramCss, /^--pele-/) : "")
+  // Thumbnails set their own --pele-bg default (app.css), which saved diagram CSS still overrides.
+  setStyle("eos-theme-diagram", theme.diagramCss ? sanitizeVars(theme.diagramCss, /^--pele-/, ":root, .dark, .pele-thumb") : "")
   applyMode(theme.mode)
 }
 
@@ -55,12 +56,12 @@ function parseVars(css: string): [string, string][] {
 }
 
 /** Keeps only custom-property declarations whose names match `allow` and whose values can't fetch anything. */
-export function sanitizeVars(css: string, allow: RegExp): string {
+export function sanitizeVars(css: string, allow: RegExp, selector = ":root, .dark"): string {
   const decls = parseVars(css)
     .filter(([name, value]) => allow.test(name) && !FETCHES.test(value))
     .map(([name, value]) => `${name}: ${value};`)
     .join("\n  ")
-  return decls ? `:root, .dark {\n  ${decls}\n}` : ""
+  return decls ? `${selector} {\n  ${decls}\n}` : ""
 }
 
 /**
