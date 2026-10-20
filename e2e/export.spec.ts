@@ -51,3 +51,19 @@ test("while a past version is shown, the source export is of that version too", 
   expect(await exported(page, "SVG .svg")).not.toContain("NEW3")
   expect(await exported(page, "Mermaid source .mmd")).toBe(old)
 })
+
+test("an exported SVG opens at the diagram's own size, whatever the preview's zoom", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const id = await newDiagram(page, "flowchart LR\n  A --> B")
+  await openEditor(page, id)
+  // Two nodes fit the pane zoomed in.
+  await expect.poll(async () => (await tool<{ view: { zoom: number } }>(page, "get_view")).view.zoom).toBeGreaterThan(1)
+  const viewer = await context.newPage()
+  await viewer.setContent(await exported(page, "SVG .svg"))
+  const size = await viewer.locator("svg").evaluate((svg) => {
+    const r = svg.getBoundingClientRect()
+    return { shown: [r.width, r.height], own: [+svg.getAttribute("width")!, +svg.getAttribute("height")!] }
+  })
+  expect(size.shown).toEqual(size.own)
+})
