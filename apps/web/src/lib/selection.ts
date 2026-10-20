@@ -58,8 +58,8 @@ export function startCardDrag(e: React.DragEvent, id: string) {
     padding: "4px 10px",
     borderRadius: "999px",
     font: "500 12px var(--font-sans)",
-    color: "var(--eos-ink)",
-    background: "var(--eos-ivory)",
+    color: "var(--eos-on-primary)",
+    background: "var(--eos-primary)",
   })
   document.body.append(ghost)
   // Sit below-right of the cursor so the row under it stays readable.
