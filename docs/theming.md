@@ -34,14 +34,14 @@ App CSS is a list of variable declarations. Only declarations are kept: selector
 | `--eos-raised`            | Hover and selected rows, inputs               | `#e9e7e2` | `#242424` |
 | `--eos-line`              | Borders and dividers                          | `#dddad3` | `#262626` |
 | `--eos-line-hover`        | Borders on hover                              | `#cbc7bf` | `#313131` |
-| `--eos-line-active`       | Focus rings, strong borders                   | `#aeaaa1` | `#3d3d3d` |
+| `--eos-line-active`       | Strong borders                                | `#aeaaa1` | `#3d3d3d` |
 | `--eos-body`              | Main text                                     | `#141413` | `#ebeae6` |
-| `--eos-muted`             | Secondary text                                | `#57564f` | `#8b8b88` |
-| `--eos-faint`             | Counts, hints, line numbers                   | `#87857e` | `#5a5a58` |
+| `--eos-muted`             | Secondary text, focus rings                   | `#57564f` | `#a3a3a0` |
+| `--eos-faint`             | Counts, hints, line numbers                   | `#696760` | `#8f8f8c` |
 | `--eos-primary`           | Primary buttons                               | `#141413` | `#fcf4e4` |
 | `--eos-on-primary`        | Text on primary buttons                       | `#fcf4e4` | `#0e0e0e` |
 | `--eos-champagne`         | Accent: stars, selection, drop targets, links | `#85652a` | `#e6cc9c` |
-| `--eos-red`               | Errors and delete actions                     | `#b3261e` | `#d14d41` |
+| `--eos-red`               | Errors and delete actions                     | `#b3261e` | `#ec8b7f` |
 | `--eos-green`             | Success, "Valid"                              | `#4f6b0a` | `#879a39` |
 | `--eos-selection`         | Selected text in the editor                   | `#cbc7bf` | `#3d3d3d` |
 | `--eos-syntax-keyword`    | Mermaid keywords                              | `#7a5a1c` | `#e6cc9c` |
@@ -49,7 +49,7 @@ App CSS is a list of variable declarations. Only declarations are kept: selector
 | `--eos-syntax-property`   | Properties                                    | `#964b1f` | `#d9a684` |
 | `--eos-syntax-definition` | Node and type names                           | `#1f5c92` | `#9fb6d9` |
 | `--eos-syntax-number`     | Numbers                                       | `#6d3f92` | `#c7a6d9` |
-| `--eos-syntax-comment`    | Comments                                      | `#8a887f` | `#6b6b69` |
+| `--eos-syntax-comment`    | Comments                                      | `#706e66` | `#858583` |
 
 Text sizes are variables too: `--eos-fs-caption`, `--eos-fs-body`, `--eos-fs-title` and `--eos-fs-heading` (12, 13, 15 and 18px on desktop; one step larger on phones).
 

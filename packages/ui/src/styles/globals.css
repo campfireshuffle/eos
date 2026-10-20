@@ -60,7 +60,7 @@
   --eos-line-active: #aeaaa1;
   --eos-body: #141413;
   --eos-muted: #57564f;
-  --eos-faint: #87857e;
+  --eos-faint: #696760;
   --eos-ivory: #fcf4e4;
   --eos-champagne: #85652a;
   --eos-red: #b3261e;
@@ -72,7 +72,7 @@
   --eos-syntax-property: #964b1f;
   --eos-syntax-definition: #1f5c92;
   --eos-syntax-number: #6d3f92;
-  --eos-syntax-comment: #8a887f;
+  --eos-syntax-comment: #706e66;
   --eos-selection: #cbc7bf;
 }
 
@@ -85,11 +85,11 @@
   --eos-line-hover: #313131;
   --eos-line-active: #3d3d3d;
   --eos-body: #ebeae6;
-  --eos-muted: #8b8b88;
-  --eos-faint: #5a5a58;
+  --eos-muted: #a3a3a0;
+  --eos-faint: #8f8f8c;
   --eos-ivory: #fcf4e4;
   --eos-champagne: #e6cc9c;
-  --eos-red: #d14d41;
+  --eos-red: #ec8b7f;
   --eos-green: #879a39;
   --eos-primary: #fcf4e4;
   --eos-on-primary: #0e0e0e;
@@ -98,7 +98,7 @@
   --eos-syntax-property: #d9a684;
   --eos-syntax-definition: #9fb6d9;
   --eos-syntax-number: #c7a6d9;
-  --eos-syntax-comment: #6b6b69;
+  --eos-syntax-comment: #858583;
   --eos-selection: #3d3d3d;
 }
 
@@ -121,7 +121,7 @@
   --destructive: var(--eos-red);
   --border: var(--eos-line);
   --input: var(--eos-line-hover);
-  --ring: var(--eos-line-active);
+  --ring: var(--eos-muted);
   --radius: 0.625rem;
 
   /* Pele diagram theme */
@@ -139,7 +139,7 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border outline-ring;
   }
   body {
     @apply bg-background text-body text-foreground;
