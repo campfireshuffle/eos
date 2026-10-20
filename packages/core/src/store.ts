@@ -44,7 +44,7 @@ import type {
 const USER: Actor = { kind: "user" }
 /** Origin of keystrokes from a bound editor. Starts with "user", so undo treats them as the person's. */
 const EDITOR_ORIGIN = "user:editor"
-/** Keystrokes closer together than this are one undo step; it's also how long the library index lags typing. */
+/** Keystrokes closer together than this are one undo step, and one burst of typing for ⌘Z. */
 const MERGE_MS = 800
 /** How long the library index waits for typing to pause. */
 const INDEX_MS = 300
