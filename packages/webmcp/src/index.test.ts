@@ -185,7 +185,7 @@ describe("webmcp tools", () => {
   })
 
   it("rejects bad input with a clear error instead of throwing", async () => {
-    const { call } = await setup()
+    const { call, bridge } = await setup()
     const { id } = await call("create_diagram", { title: "T", source: "flowchart TD\n  A-->B", open: false })
     expect(await call("update_diagram", { id, title: 42 })).toMatchObject({
       ok: false,
@@ -194,6 +194,9 @@ describe("webmcp tools", () => {
     })
     expect((await call("set_view", { library: { tag: "x" } })).message).toMatch(/input.library isn't a field/)
     expect((await call("set_view", { zoom: "huge" })).code).toBe("invalid_input")
+    // Filters on their own show the library rather than being ignored.
+    expect((await call("set_view", { filters: { starred: true } })).ok).toBe(true)
+    expect(bridge.setLibraryView).toHaveBeenCalledWith({ starred: true })
     // The library shows one tag at a time, so a second is refused rather than dropped.
     expect((await call("set_view", { filters: { tags: ["work", "q3"] } })).code).toBe("invalid_input")
     expect((await call("get_diagram", {})).message).toBe("input.id is required")

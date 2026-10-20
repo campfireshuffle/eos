@@ -327,7 +327,8 @@ function TitleInput({ value, onCommit }: { value: string; onCommit: (v: string) 
         typed.current = e.target.value
       }}
       onBlur={commit}
-      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+      // Not the Enter that confirms an IME candidate (Safari sends it as keyCode 229 just after composing).
+      onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229 && (e.target as HTMLInputElement).blur()}
       className="field-sizing-content max-w-full min-w-[4ch] rounded-md bg-transparent px-1.5 py-1 outline-none hover:bg-accent/50 focus:bg-accent focus-visible:ring-1 focus-visible:ring-ring"
     />
   )

@@ -193,13 +193,24 @@ export async function updateRow(
   return written
 }
 
-export async function deleteDocData(db: Database, id: DiagramId) {
+/**
+ * Deletes a diagram for good, but only if it's in Deleted: checked in the same transaction, so one
+ * restored meanwhile (by another tab or an agent, while a confirm was open) is kept. Returns
+ * whether it was deleted.
+ */
+export async function deleteDocData(db: Database, id: DiagramId): Promise<boolean> {
   const tx = db.transaction(["snapshots", "updates", "diagrams"], "readwrite")
+  const row = await tx.objectStore("diagrams").get(id)
+  if (!row?.deletedAt) {
+    await tx.done
+    return false
+  }
   await tx.objectStore("snapshots").delete(id)
   const keys = await tx.objectStore("updates").index("byDiagram").getAllKeys(id)
   await Promise.all(keys.map((k) => tx.objectStore("updates").delete(k)))
   await tx.objectStore("diagrams").delete(id)
   await tx.done
+  return true
 }
 
 export function encodeVersion(doc: LoroDoc): string {

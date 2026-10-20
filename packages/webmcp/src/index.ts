@@ -409,7 +409,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
     tool({
       name: "set_view",
       description:
-        'Change what the person sees. page: "library" (with optional filters) or "diagram" (with diagramId). previewVersion shows a past version of the open diagram read-only, or "latest" to go back. zoom changes the preview. settingsOpen shows or hides Settings.',
+        'Change what the person sees. page: "library" (with optional filters; filters on their own also show the library) or "diagram" (with diagramId). previewVersion shows a past version of the open diagram read-only, or "latest" to go back. zoom changes the preview. settingsOpen shows or hides Settings.',
       input: {
         page: z.optional(z.enum(["library", "diagram"])),
         diagramId: z.optional(z.string()),
@@ -426,7 +426,8 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
         settingsOpen: z.optional(z.boolean()),
       },
       execute: async (i) => {
-        if (i.page === "library") {
+        // Filters only apply to the library, so asking for them shows it.
+        if (i.page === "library" || (i.page === undefined && i.filters !== undefined)) {
           if (i.filters) ui.setLibraryView(i.filters)
           else ui.goHome()
         }

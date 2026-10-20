@@ -248,6 +248,17 @@ describe("Eos store", () => {
     expect((await eos.listDiagrams({ includeDeleted: true })).length).toBe(0)
   })
 
+  it("doesn't purge a diagram restored while the purge was being confirmed", async () => {
+    const eos = await fresh()
+    const id = await eos.createDiagram({ title: "back", source: "kept" })
+    await eos.deleteDiagram(id)
+    // Another tab or an agent restores it while "Delete forever" is waiting on its confirm.
+    await eos.restoreDiagram(id)
+    await eos.purge(id)
+    expect((await eos.listDiagrams()).map((r) => r.id)).toEqual([id])
+    expect(await eos.getSource(id)).toBe("kept")
+  })
+
   it("collapses a burst of edits into one history entry", async () => {
     const eos = await fresh()
     const id = await eos.createDiagram({ source: "a" })

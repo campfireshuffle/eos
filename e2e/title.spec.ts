@@ -23,3 +23,18 @@ test("a title still being typed is saved when the person or an agent leaves the 
   await tool(page, "set_view", { page: "library" })
   await expect.poll(() => storedTitle(page, id)).toBe("Second rename")
 })
+
+test("the Enter that confirms an IME candidate doesn't leave the title", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const id = await newDiagram(page, "flowchart LR\n  A --> B")
+  await openEditor(page, id)
+  const title = page.getByRole("textbox", { name: "Diagram title" })
+  await title.click()
+  // What browsers send for the Enter that picks a candidate: still composing (Safari: keyCode 229).
+  for (const init of [{ isComposing: true }, { keyCode: 229 }])
+    await title.evaluate((el, i) => el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, ...i })), init)
+  await expect(title).toBeFocused()
+  await page.keyboard.press("Enter")
+  await expect(title).not.toBeFocused()
+})

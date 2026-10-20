@@ -64,7 +64,8 @@ export function TagMenu({ ids }: { ids: string[] }) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key !== "Enter") return
+            // Not the Enter that confirms an IME candidate (see the title field).
+            if (e.key !== "Enter" || e.nativeEvent.isComposing || e.keyCode === 229) return
             e.preventDefault()
             if (canCreate) create()
             else {
