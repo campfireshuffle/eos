@@ -51,9 +51,15 @@ export function TagMenu({ ids }: { ids: string[] }) {
           <Tags /> <span className="max-sm:sr-only">Tags</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent side="top" align="center" sideOffset={10} className="w-64 gap-1 p-1.5">
+      <PopoverContent
+        side="top"
+        align="center"
+        sideOffset={10}
+        // Focusing the search on a touch screen raises the keyboard over the list; there, it waits for a tap.
+        onOpenAutoFocus={(e) => matchMedia("(pointer: coarse)").matches && e.preventDefault()}
+        className="max-h-[var(--radix-popover-content-available-height)] w-64 gap-1 p-1.5"
+      >
         <Input
-          autoFocus
           placeholder="Find or create a tag"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -65,14 +71,14 @@ export function TagMenu({ ids }: { ids: string[] }) {
           }}
           className="mb-1"
         />
-        <div className="flex max-h-64 flex-col overflow-y-auto">
+        <div className="flex max-h-64 min-h-0 flex-col overflow-y-auto">
           {matches.map((t) => {
             const state = stateOf(t.path)
             return (
               <button
                 key={t.path}
                 type="button"
-                role="menuitemcheckbox"
+                role="checkbox"
                 aria-checked={state === "all" ? true : state === "some" ? "mixed" : false}
                 onClick={() => toggle(t.path)}
                 className="flex h-8 items-center gap-2.5 rounded-md px-2 text-left text-body hover:bg-accent"

@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogTitle } from "@workspace/ui/components/dia
 import { cn } from "@workspace/ui/lib/utils"
 
 import { useEos, useSettings, useStorageUsage } from "@/lib/eos"
+import { useRestoreFocus } from "@/lib/restore-focus"
 import { useCopy } from "@/lib/use-copy"
 import { download } from "@/lib/files"
 import { currentAppCss, DEFAULT_DIAGRAM_CSS } from "@/lib/theme"
@@ -27,10 +28,14 @@ const TABS = [
 export function SettingsDialog() {
   const open = useUi((s) => s.settingsOpen)
   const tab = useUi((s) => s.settingsTab)
+  const restoreFocus = useRestoreFocus()
   return (
     <Dialog open={open} onOpenChange={(o) => setUi({ settingsOpen: o })}>
       {/* Sized to the window at every width; below 768px the section list becomes a row of tabs on top. */}
-      <DialogContent className="flex h-[min(640px,calc(100dvh-2rem))] w-[min(1040px,calc(100vw-2rem))] max-w-none gap-0 overflow-hidden p-0 max-md:flex-col sm:max-w-none">
+      <DialogContent
+        {...restoreFocus}
+        className="flex h-[min(640px,calc(100dvh-2rem))] w-[min(1040px,calc(100vw-2rem))] max-w-none gap-0 overflow-hidden p-0 max-md:flex-col sm:max-w-none"
+      >
         {/* On phones the close button sits at the right of this row, so the tabs scroll in the space to its left. */}
         <nav className="flex shrink-0 border-border bg-background/55 max-md:border-b max-md:py-2 max-md:pr-11 max-md:pl-2 md:w-[232px] md:flex-col md:border-r md:px-2.5 md:pt-[18px]">
           <DialogTitle className="px-2.5 pb-3 text-title font-semibold max-md:sr-only">Settings</DialogTitle>
@@ -39,9 +44,10 @@ export function SettingsDialog() {
               <button
                 key={id}
                 type="button"
+                aria-current={tab === id || undefined}
                 onClick={() => setUi({ settingsTab: id })}
                 className={cn(
-                  "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-body text-muted-foreground outline-none hover:bg-accent/30 hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--eos-line-active)] max-md:h-9 max-md:px-2",
+                  "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-body text-muted-foreground outline-none hover:bg-accent/30 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring max-md:h-9 max-md:px-2",
                   tab === id && "bg-accent font-medium text-foreground"
                 )}
               >

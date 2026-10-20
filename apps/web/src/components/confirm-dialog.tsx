@@ -9,18 +9,20 @@ import {
   AlertDialogTitle,
 } from "@workspace/ui/components/alert-dialog"
 
+import { useRestoreFocus } from "@/lib/restore-focus"
 import { setUi, useUi } from "@/lib/ui-state"
 
 /** In-page confirmation for destructive actions, including ones an agent requests, and alerts. */
 export function ConfirmDialog() {
   const confirm = useUi((s) => s.confirm)
+  const restoreFocus = useRestoreFocus()
   const answer = (ok: boolean) => {
     confirm?.resolve(ok)
     setUi({ confirm: null })
   }
   return (
     <AlertDialog open={!!confirm} onOpenChange={(open) => !open && answer(false)}>
-      <AlertDialogContent>
+      <AlertDialogContent {...restoreFocus}>
         <AlertDialogHeader>
           <AlertDialogTitle>{confirm?.title}</AlertDialogTitle>
           <AlertDialogDescription>{confirm?.message}</AlertDialogDescription>

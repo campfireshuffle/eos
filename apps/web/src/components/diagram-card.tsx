@@ -131,6 +131,7 @@ function Thumbnail({ id, source, updatedAt }: { id: string; source: string | und
   return (
     <div
       ref={ref}
+      aria-hidden={!!svg}
       // The SVG is sized to fit in app.css.
       className="pele-thumb relative flex aspect-[268/150] items-center justify-center overflow-hidden bg-background"
       dangerouslySetInnerHTML={svg ? { __html: svg } : undefined}

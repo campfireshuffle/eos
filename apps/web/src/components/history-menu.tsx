@@ -45,6 +45,7 @@ export function HistoryMenu({ id }: { id: string }) {
               <button
                 key={e.version}
                 type="button"
+                aria-current={active || undefined}
                 onClick={() => {
                   setUi({ preview: latest ? null : { id, version: e.version, at: e.at, label: actorLabel(e.actor) } })
                   setOpen(false)

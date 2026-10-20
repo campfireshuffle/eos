@@ -48,8 +48,8 @@ export function EmojiGrid({ current, onChoose }: { current: string | null; onCho
             key={e}
             type="button"
             onClick={() => onChoose(e)}
-            data-on={current === e}
-            className="flex size-[30px] items-center justify-center rounded-md text-title hover:bg-accent data-[on=true]:bg-accent"
+            aria-pressed={current === e}
+            className="flex size-[30px] items-center justify-center rounded-md text-title hover:bg-accent aria-pressed:bg-accent"
           >
             {e}
           </button>

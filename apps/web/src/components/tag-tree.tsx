@@ -35,7 +35,8 @@ const isWithin = (path: TagPath, ancestor: TagPath) => path === ancestor || path
 const DROP_HIGHLIGHT =
   "bg-[color-mix(in_srgb,var(--eos-champagne)_14%,transparent)] text-foreground shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--eos-champagne)_55%,transparent)]"
 
-type Anchored = { tag: TagPath; x: number; y: number }
+/** `from` gets focus back when the popover closes. */
+type Anchored = { tag: TagPath; x: number; y: number; from: HTMLElement }
 
 /**
  * The tag tree, built on React Aria's Tree (works with mouse, touch, keyboard and
@@ -90,7 +91,19 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
   const draggingNested = dragging.some((d) => d.includes("/"))
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div
+      className="flex min-h-0 flex-1 flex-col"
+      // The keyboard's way to a row's menu (React Aria's rows don't take key handlers, and
+      // macOS browsers don't turn these keys into a contextmenu event).
+      onKeyDown={(e) => {
+        if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return
+        const row = (e.target as Element).closest<HTMLElement>("[role=row]")
+        if (!row?.dataset.key) return
+        e.preventDefault()
+        const r = row.getBoundingClientRect()
+        setMenu({ tag: row.dataset.key, x: r.left, y: r.bottom, from: row })
+      }}
+    >
       <Tree
         aria-label="Tags"
         items={sorted}
@@ -109,7 +122,7 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
               textValue={tag.path}
               onContextMenu={(e) => {
                 e.preventDefault()
-                setMenu({ tag: tag.path, x: e.clientX, y: e.clientY })
+                setMenu({ tag: tag.path, x: e.clientX, y: e.clientY, from: e.currentTarget })
               }}
               className={({ isDropTarget, isDragging, isFocusVisible, isHovered }) =>
                 cn(
@@ -118,7 +131,7 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
                   tag.path === selected && "bg-accent font-medium text-foreground",
                   isDropTarget && DROP_HIGHLIGHT,
                   isDragging && "opacity-50",
-                  isFocusVisible && "ring-1 ring-[var(--eos-line-active)]"
+                  isFocusVisible && "ring-1 ring-ring ring-inset"
                 )
               }
             >
@@ -130,10 +143,11 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
                     <AriaButton
                       aria-label={`Change icon for ${tag.path}`}
                       onPress={(e) => {
-                        const r = (e.target as HTMLElement).getBoundingClientRect()
-                        setPicker({ tag: tag.path, x: r.left, y: r.bottom })
+                        const button = e.target as HTMLElement
+                        const r = button.getBoundingClientRect()
+                        setPicker({ tag: tag.path, x: r.left, y: r.bottom, from: button })
                       }}
-                      className="-mx-0.5 flex h-6 w-5 shrink-0 items-center justify-center rounded outline-none hover:bg-accent"
+                      className="-mx-0.5 flex h-6 w-5 shrink-0 items-center justify-center rounded outline-none hover:bg-accent data-[focus-visible]:ring-1 data-[focus-visible]:ring-ring"
                     >
                       {tag.emoji ?? "#"}
                     </AriaButton>
@@ -193,6 +207,8 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
             }
             onDelete={async () => {
               const tag = menu.tag
+              // Back on the row first, so the confirm returns focus there rather than to this menu's vanished button.
+              menu.from.focus()
               setMenu(null)
               if (await askConfirm(`Remove “${tag}” from every diagram? Nested tags are removed too.`)) void eos.deleteTag(tag)
             }}
@@ -240,7 +256,16 @@ function AnchoredPopover({
         <span className="pointer-events-none fixed size-px" style={{ left: shown?.x ?? 0, top: shown?.y ?? 0 }} />
       </PopoverAnchor>
       {/* Never taller than the space around the anchor (e.g. a phone in landscape); scroll inside instead. */}
-      <PopoverContent align="start" className={cn("max-h-[var(--radix-popover-content-available-height)] overflow-y-auto", className)}>
+      <PopoverContent
+        align="start"
+        onCloseAutoFocus={(e) => {
+          // Leave focus alone if it has already moved on, e.g. from this menu into the icon picker.
+          if (document.activeElement !== document.body) return
+          e.preventDefault()
+          shown?.from.focus()
+        }}
+        className={cn("max-h-[var(--radix-popover-content-available-height)] overflow-y-auto", className)}
+      >
         {at ? children : lastChildren.current}
       </PopoverContent>
     </Popover>

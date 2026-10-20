@@ -117,6 +117,17 @@ export function Editor({ id }: { id: string }) {
   if (result?.ok && shown !== null) lastValid.current = shown
 
   const errorLine = result && !result.ok ? result.error.line || null : null
+  const status = !result
+    ? ""
+    : result.ok
+      ? "Valid"
+      : `${result.error.line > 0 ? `Line ${result.error.line}, column ${result.error.column}: ` : ""}${result.error.message}`
+  // Read out once typing pauses, not on every keystroke; the footer itself keeps up as you type.
+  const [announced, setAnnounced] = useState(status)
+  useEffect(() => {
+    const t = setTimeout(() => setAnnounced(status), 1000)
+    return () => clearTimeout(t)
+  }, [status])
   const undo = () => void eos.undo(id).catch(() => {})
   const redo = () => void eos.redo(id).catch(() => {})
 
@@ -147,7 +158,7 @@ export function Editor({ id }: { id: string }) {
     )
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-2 max-md:h-svh">
+    <main className="flex min-w-0 flex-1 flex-col gap-2 max-md:h-svh">
       <div className="flex items-center gap-1.5 pt-1.5 pr-2 pl-1.5">
         <SidebarToggle />
         <HistoryNav />
@@ -228,6 +239,9 @@ export function Editor({ id }: { id: string }) {
             ) : (
               <div className="min-h-0 flex-1" />
             )}
+            <p role="status" className="sr-only">
+              {announced}
+            </p>
             {result?.ok ? (
               <footer className="flex items-center gap-1.5 px-4 py-2.5 text-caption text-muted-foreground">
                 <CircleCheck className="size-3.5 text-[var(--eos-green)]" /> Valid
@@ -240,8 +254,7 @@ export function Editor({ id }: { id: string }) {
                   onClick={() => editorRef.current?.focusLine(result.error.line, result.error.column)}
                 >
                   <TriangleAlert className="size-3.5 text-destructive" />
-                  {result.error.line > 0 ? `Line ${result.error.line}, column ${result.error.column}: ` : ""}
-                  {result.error.message}
+                  {status}
                 </button>
                 {result.error.snippet && (
                   <pre className="pl-[22px] font-mono text-caption whitespace-pre text-muted-foreground">{result.error.snippet}</pre>
@@ -275,7 +288,7 @@ export function Editor({ id }: { id: string }) {
           </section>
         </ResizablePanel>
       </ResizablePanelGroup>
-    </div>
+    </main>
   )
 }
 
@@ -297,7 +310,7 @@ function TitleInput({ value, onCommit }: { value: string; onCommit: (v: string) 
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => draft !== value && onCommit(draft)}
       onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-      className="field-sizing-content max-w-full min-w-[4ch] rounded-md bg-transparent px-1.5 py-1 text-body font-medium outline-none hover:bg-accent/50 focus:bg-accent"
+      className="field-sizing-content max-w-full min-w-[4ch] rounded-md bg-transparent px-1.5 py-1 text-body font-medium outline-none hover:bg-accent/50 focus:bg-accent focus-visible:ring-1 focus-visible:ring-ring"
     />
   )
 }
@@ -344,7 +357,7 @@ function ZoomMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="tabular-nums">
+        <Button variant="ghost" size="sm" aria-label={`Zoom ${Math.round(scale * 100)}%`} className="tabular-nums">
           {Math.round(scale * 100)}% <ChevronDown />
         </Button>
       </DropdownMenuTrigger>

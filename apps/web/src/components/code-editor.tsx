@@ -1,7 +1,7 @@
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands"
 import { Annotation, EditorState, StateEffect, StateField } from "@codemirror/state"
 import { Decoration, EditorView, keymap, lineNumbers, drawSelection, type DecorationSet } from "@codemirror/view"
-import { useEffect, useRef } from "react"
+import { useEffect, useId, useRef } from "react"
 
 import type { SourceBinding, TextChange } from "@eos/core"
 
@@ -84,6 +84,7 @@ export function CodeEditor({
   wrap?: boolean
 }) {
   const host = useRef<HTMLDivElement>(null)
+  const hintId = useId()
   const view = useRef<EditorView | null>(null)
   const callbacks = useRef({ onChange, onUndo, onRedo })
   callbacks.current = { onChange, onUndo, onRedo }
@@ -114,7 +115,12 @@ export function CodeEditor({
           theme,
           gutter ? [] : noGutterTheme,
           wrap ? EditorView.lineWrapping : [],
-          EditorView.contentAttributes.of({ "aria-label": label, spellcheck: "false", autocapitalize: "off" }),
+          EditorView.contentAttributes.of({
+            "aria-label": label,
+            ...(readOnly ? {} : { "aria-describedby": hintId }),
+            spellcheck: "false",
+            autocapitalize: "off",
+          }),
           EditorView.updateListener.of((u) => {
             if (!u.docChanged) return
             if (binding && !u.transactions.some((t) => t.annotation(external))) {
@@ -155,7 +161,16 @@ export function CodeEditor({
         queueMicrotask(apply)
       }
     })
+    // In a dialog, Radix takes Escape at the document to close it, before CodeMirror sees it, and the
+    // unsaved text goes with it. Get there first and keep Escape for CodeMirror's own way out: then Tab.
+    const onEscape = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || !v.hasFocus || !v.dom.closest("[role=dialog]")) return
+      e.preventDefault()
+      v.setTabFocusMode(2000)
+    }
+    if (!readOnly) window.addEventListener("keydown", onEscape, true)
     return () => {
+      window.removeEventListener("keydown", onEscape, true)
       unbind?.()
       v.destroy()
     }
@@ -183,5 +198,14 @@ export function CodeEditor({
     view.current?.dispatch({ effects: setErrorLine.of(errorAt) })
   }, [errorAt])
 
-  return <div ref={host} className="min-h-0 flex-1 overflow-hidden" />
+  return (
+    <div ref={host} className="min-h-0 flex-1 overflow-hidden">
+      {/* Tab indents, so say how to leave with the keyboard (CodeMirror's Escape-then-Tab). */}
+      {!readOnly && (
+        <span id={hintId} hidden>
+          Tab indents. Press Escape, then Tab, to move focus out of the editor.
+        </span>
+      )}
+    </div>
+  )
 }
