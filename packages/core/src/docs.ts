@@ -73,29 +73,37 @@ export function persistDoc(db: Database, id: DiagramId, doc: LoroDoc, onLocalUpd
   // Each write waits for the previous one; a failed write is logged and the queue
   // carries on, so one bad write (quota, a closed connection) can't silently stop
   // every later change from saving. The write after a failure saves the whole doc
-  // instead, which fills the gap.
-  const queue = (write: () => Promise<void>) => {
+  // instead, which fills the gap. `saved` runs once the write is done, whether or not it worked.
+  const queue = (write: () => Promise<void>, saved?: () => void) => {
     pending = pending
       .then(async () => {
         if (stopped) return
-        if (!gap) return write()
-        await compact(db, id, doc)
-        gap = false
+        try {
+          if (!gap) return await write()
+          await compact(db, id, doc)
+          gap = false
+        } finally {
+          saved?.()
+        }
       })
       .catch((error) => {
         gap = true
         console.error(`Couldn't save a change to diagram ${id}`, error)
       })
   }
+  // Other tabs hear of an update once it's on disk: one that opens the doc before then reads it
+  // from disk without the update, and would ignore the message too if it came earlier.
   const unsubscribe = doc.subscribeLocalUpdates((bytes) => {
-    onLocalUpdate?.(bytes)
-    queue(async () => {
-      await db.add("updates", { id, bytes, at: Date.now() })
-      const count = await db.countFromIndex("updates", "byDiagram", id)
-      // Stopped mid-write (by a delete): a snapshot now would write the diagram back.
-      if (stopped) return
-      if (count > COMPACT_AFTER) await compact(db, id, doc)
-    })
+    queue(
+      async () => {
+        await db.add("updates", { id, bytes, at: Date.now() })
+        const count = await db.countFromIndex("updates", "byDiagram", id)
+        // Stopped mid-write (by a delete): a snapshot now would write the diagram back.
+        if (stopped) return
+        if (count > COMPACT_AFTER) await compact(db, id, doc)
+      },
+      () => onLocalUpdate?.(bytes)
+    )
   })
   return {
     stop: () => {

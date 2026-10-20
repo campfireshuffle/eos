@@ -23,6 +23,7 @@ describe("Eos store", () => {
     expect(d?.meta.tags).toEqual(["work/backend"])
     const rows = await eos.listDiagrams({ tags: ["work"] })
     expect(rows.map((r) => r.id)).toEqual([id])
+    expect((await eos.listDiagrams({ tags: ["#Work"] })).map((r) => r.id)).toEqual([id])
   })
 
   it("undoes and redoes edits", async () => {
@@ -38,13 +39,39 @@ describe("Eos store", () => {
   it("rejects a version the diagram doesn't have, changing nothing", async () => {
     const eos = await fresh()
     const id = await eos.createDiagram({ source: "one" })
-    for (const version of ["bogus", "123:4"]) {
+    // Including ids Loro would panic on, leaving the diagram unusable.
+    for (const version of ["bogus", "123:4", "1:-1", "1:1.5", "x:1", ","]) {
       await expect(eos.getSource(id, version)).rejects.toBeInstanceOf(UnknownVersionError)
       await expect(eos.restoreVersion(id, version)).rejects.toBeInstanceOf(UnknownVersionError)
       await expect(eos.editDiagram(id, { source: "two" }, undefined, { base: version })).rejects.toBeInstanceOf(UnknownVersionError)
     }
     expect(await eos.getSource(id)).toBe("one")
     expect((await eos.canUndo(id)).canUndo).toBe(false)
+    await eos.setSource(id, "two")
+    expect((await eos.history(id)).length).toBeGreaterThan(0)
+    expect(await eos.getSource(id)).toBe("two")
+  })
+
+  it("merges an edit from an older version where the person deleted the same text, or next to it", async () => {
+    const eos = await fresh()
+    // The text at the base, the person's text now, the edit made from the base, and the merge.
+    const cases = [
+      [
+        "flowchart TD\n  A-->B\n  typo\n  C-->D",
+        "flowchart TD\n  A-->B\n  C-->D",
+        "flowchart TD\n  A-->B\n  C-->D",
+        "flowchart TD\n  A-->B\n  C-->D",
+      ],
+      ["abcd", "acd", "abXcd", "aXcd"],
+      ["line one\nline two", "line one\nline two\nperson's line", "LINE ONE\nline two", "LINE ONE\nline two\nperson's line"],
+    ] as const
+    for (const [base, person, edit, merged] of cases) {
+      const id = await eos.createDiagram({ source: base })
+      const version = (await eos.getDiagram(id))!.version
+      await eos.setSource(id, person)
+      await eos.editDiagram(id, { source: edit }, undefined, { base: version })
+      expect(await eos.getSource(id)).toBe(merged)
+    }
   })
 
   it("stars, filters and builds the tag tree", async () => {
@@ -351,6 +378,22 @@ describe("editor binding", () => {
     return { state, type, binding }
   }
   const settle = () => new Promise((r) => setTimeout(r, 50))
+
+  it("hears every keystroke in a tab that opens the diagram while another tab's typing is being saved", async () => {
+    const name = `open-mid-write-${n++}`
+    const one = await Eos.create({ dbName: name, seed: false })
+    const id = await one.createDiagram({ source: "" })
+    const two = await Eos.create({ dbName: name, seed: false })
+    const a = await editor(one, id)
+    for (let i = 0; i < 30; i++) a.type(i, "a")
+    // The other tab hears some of those keystrokes before they're saved, then opens the diagram.
+    await new Promise((r) => setTimeout(r, 0))
+    await two.getSource(id)
+    await settle()
+    a.type(30, "Z")
+    await settle()
+    expect(await two.getSource(id)).toBe(a.state.text)
+  })
 
   it("merges two tabs typing at once, keystroke by keystroke", async () => {
     const name = `tabs-${n++}`
@@ -670,6 +713,35 @@ describe("backup import", () => {
       agent: { webmcpEnabled: true, confirmDestructive: true },
     })
     expect(JSON.parse(await eos.exportBackup()).settings).toEqual({ theme: eos.getSettings().theme })
+  })
+
+  it("keeps stars and tag emoji when replacing the library with its own backup", async () => {
+    const name = `replace-own-${n++}`
+    const eos = await Eos.create({ dbName: name, seed: false })
+    const id = await eos.createDiagram({ source: "x", tags: ["work"] })
+    await eos.setStarred(id, true)
+    await eos.setTagEmoji("work", "🔥")
+    await eos.importBackup(await eos.exportBackup(), "replace")
+    expect((await eos.listDiagrams())[0]?.starred).toBe(1)
+    expect((await eos.listTags()).map((t) => t.emoji)).toEqual(["🔥"])
+    await new Promise((r) => setTimeout(r, 50))
+    const later = await Eos.create({ dbName: name, seed: false })
+    expect((await later.listTags()).map((t) => t.emoji)).toEqual(["🔥"])
+    await later.renameDiagram(id, "Renamed") // rewrites the index row from the saved stars
+    expect((await later.listDiagrams())[0]?.starred).toBe(1)
+  })
+
+  it("keeps whether a diagram is deleted when merging a backup, whether it's open or not", async () => {
+    for (const open of [true, false]) {
+      const eos = await fresh()
+      const id = await eos.createDiagram({ source: "x" })
+      await eos.deleteDiagram(id)
+      const backup = await eos.exportBackup() // deleted then, restored since
+      await eos.restoreDiagram(id)
+      if (open) await eos.getSource(id)
+      await eos.importBackup(backup, "merge")
+      expect((await eos.listDiagrams()).map((r) => r.id)).toEqual([id])
+    }
   })
 
   /** A backup of one diagram whose doc `tamper` has changed. */

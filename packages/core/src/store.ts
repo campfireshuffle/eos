@@ -203,7 +203,7 @@ export class Eos {
     let rows = await read
     rows = rows.filter((r) => (filter.deleted ? !!r.deletedAt : filter.includeDeleted || !r.deletedAt))
     if (filter.starred) rows = rows.filter((r) => r.starred === 1)
-    for (const tag of filter.tags ?? []) rows = rows.filter((r) => r.tags.some((t) => tagMatches(t, tag)))
+    for (const tag of normalizeTags(filter.tags ?? [])) rows = rows.filter((r) => r.tags.some((t) => tagMatches(t, tag)))
     const q = filter.query?.trim()
     // A search ranks by relevance (title first, then contents) instead of the sort order.
     if (q) {
@@ -576,6 +576,17 @@ export class Eos {
         this.workspace.doc.import(workspace)
         await compact(this.db, WORKSPACE_ID, this.workspace.doc)
         this.broadcast({ type: "update", id: WORKSPACE_ID, bytes: workspace })
+        if (mode === "replace") {
+          // The wipe's deletes are newer than the backup's stars and emoji (always, for this
+          // library's own backup), so they'd win: set them again, as changes made now.
+          const backup = new LoroDoc()
+          backup.import(workspace)
+          for (const name of ["starred", "tagEmoji"] as const)
+            for (const [key, value] of Object.entries(backup.getMap(name).toJSON() as Record<string, Value>))
+              this.workspace[name].set(key, value)
+          backup.free()
+          commit(this.workspace.doc, { kind: "import", source: "backup" })
+        }
       }
       for (const { bytes, ...item } of diagrams) {
         // Something may be opening the diagram right now (e.g. an editor rebinding after the
@@ -590,7 +601,10 @@ export class Eos {
         } else {
           const existing = await loadDoc(this.db, item.id)
           existing.import(bytes)
-          await compact(this.db, item.id, existing, (doc) => this.indexRow(item.id, doc, item.deletedAt ?? undefined))
+          // A diagram already here keeps whether it's deleted, as an open one does (see rowOf).
+          await compact(this.db, item.id, existing, (doc, saved) =>
+            this.indexRow(item.id, doc, saved ? saved.deletedAt : (item.deletedAt ?? undefined))
+          )
           existing.free()
           this.indexChanged(item.id)
         }
@@ -1027,7 +1041,10 @@ export class UnknownVersionError extends Error {}
 /** The frontiers `version` names, or `UnknownVersionError` if the diagram has no such version. */
 function frontiersOf(d: Editable, version: string): Frontiers {
   const frontiers = decodeVersion(version)
+  const wellFormed = (f: Frontiers[number]) => /^\d+$/.test(f.peer) && Number.isSafeInteger(f.counter) && f.counter >= 0
   try {
+    // Loro panics on an id it can't parse (a negative counter, say), and the doc is unusable after.
+    if (!frontiers.length || !frontiers.every(wellFormed)) throw new Error("Malformed version")
     d.doc.frontiersToVV(frontiers)
   } catch {
     throw new UnknownVersionError(`Diagram ${d.id} has no version ${version}`)
@@ -1042,14 +1059,15 @@ function frontiersOf(d: Editable, version: string): Frontiers {
  */
 function editsFromBase(d: Editable, base: string, source: string): TextChange[] {
   const old = d.doc.forkAt(frontiersOf(d, base)).getText("source")
-  // Where the gap after the old text's i-th character is now.
-  const gapAfter = (i: number) => (i === 0 ? 0 : (d.doc.getCursorPos(old.getCursor(i - 1)!)?.offset ?? i - 1) + 1)
+  // Where the gap before the old text's i-th character is now. It's anchored on that character,
+  // which, if deleted since, still maps to where it was, so text deleted on both sides isn't counted twice.
+  const gapBefore = (i: number) => (i >= old.length ? d.text.length : (d.doc.getCursorPos(old.getCursor(i)!)?.offset ?? i))
   const edits: TextChange[] = []
   let pos = 0
   for (const part of diffChars(old.toString(), source)) {
-    if (part.added) edits.push({ from: gapAfter(pos), to: gapAfter(pos), insert: part.value })
+    if (part.added) edits.push({ from: gapBefore(pos), to: gapBefore(pos), insert: part.value })
     else {
-      if (part.removed) edits.push({ from: gapAfter(pos), to: gapAfter(pos + part.value.length), insert: "" })
+      if (part.removed) edits.push({ from: gapBefore(pos), to: gapBefore(pos + part.value.length), insert: "" })
       pos += part.value.length
     }
   }
