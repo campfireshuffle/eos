@@ -125,7 +125,8 @@
   --radius: 0.625rem;
 
   /* Pele diagram theme */
-  --pele-bg: transparent;
+  /* Backs edge labels, so lines don't strike through them; the preview pane is bg-card. */
+  --pele-bg: var(--card);
   --pele-fg: var(--eos-body);
   --pele-muted: var(--eos-muted);
   --pele-line: var(--eos-muted);
