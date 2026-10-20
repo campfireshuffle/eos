@@ -39,10 +39,17 @@ function setStyle(id: string, css: string) {
   el.textContent = css
 }
 
-/** Keeps only custom-property declarations whose names match `allow`. */
+/**
+ * Values that could make the page fetch something: CSS functions that load a resource, and
+ * backslashes, since an escaped name (`\75 rl(`) is still `url(`. Theme CSS can come from a
+ * backup or an agent, and a fetch would tell someone when Eos is open.
+ */
+const FETCHES = /\\|(?:url|src|image|image-set|cross-fade)\s*\(/i
+
+/** Keeps only custom-property declarations whose names match `allow` and whose values can't fetch anything. */
 export function sanitizeVars(css: string, allow: RegExp): string {
   const decls = [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/(--[\w-]+)\s*:\s*([^;{}<>]+);?/g)]
-    .filter(([, name]) => allow.test(name))
+    .filter(([, name, value]) => allow.test(name) && !FETCHES.test(value))
     .map(([, name, value]) => `${name}: ${value.trim()};`)
     .join("\n  ")
   return decls ? `:root, .dark {\n  ${decls}\n}` : ""

@@ -1,2 +1,7 @@
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
+
+# Remote https: images stay allowed: diagrams can show them. 'wasm-unsafe-eval' runs Loro's wasm.
+# The sha256 is index.html's inline theme script; the build fails if they drift (vite.config.ts).
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-nTQnq/WLoMy0AQ41S4aHnlpu/CSky09j+12eK0WnqwM='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
