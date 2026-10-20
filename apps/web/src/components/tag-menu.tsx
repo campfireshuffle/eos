@@ -21,6 +21,7 @@ export function TagMenu({ ids }: { ids: string[] }) {
   const tags = useTags()
   const rows = useLibrary({})
   const [query, setQuery] = useState("")
+  const [open, setOpen] = useState(false)
 
   const tagsById = useMemo(() => new Map((rows ?? []).map((r) => [r.id, new Set(r.tags)])), [rows])
   const all = useMemo(() => flatten(tags ?? []), [tags])
@@ -45,7 +46,8 @@ export function TagMenu({ ids }: { ids: string[] }) {
   }
 
   return (
-    <Popover>
+    // Closes once nothing's selected (say the change moved the cards out of view): its checkboxes would act on nothing.
+    <Popover open={open && ids.length > 0} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button variant="ghost" size="sm" className="rounded-full">
           <Tags /> <span className="max-sm:sr-only">Tags</span>

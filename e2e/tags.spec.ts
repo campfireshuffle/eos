@@ -139,3 +139,15 @@ test("a card dragged onto a tag or Starred gets it, and so does the selection it
   expect((await diagram("Three")).starred).toBe(true)
   expect((await diagram("One")).starred).toBe(false)
 })
+
+test("the Tags menu closes once its change takes the selected cards out of view", async ({ context }) => {
+  const page = await viewing(context, "inbox")
+  const cards = page.locator("[data-card-id]")
+  await cards.nth(0).click({ button: "right" })
+  await cards.nth(1).click()
+  await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Tags" }).click()
+  await page.getByRole("checkbox", { name: /inbox/ }).click()
+  // Both left the inbox view, so nothing is selected: the menu goes rather than acting on nothing.
+  await expect(cards).toHaveCount(0)
+  await expect(page.getByPlaceholder("Find or create a tag")).toBeHidden()
+})
