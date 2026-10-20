@@ -250,6 +250,10 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0 && e.button !== 1) return
     e.preventDefault() // stops middle-click autoscroll and text selection
+    // …and focus moving, so blur whatever had it: the preview's shortcuts and Space-to-pan listen on the page.
+    // Safari still types into an editor that keeps a selection, so clear that too.
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    getSelection()?.removeAllRanges()
     try {
       scroller.current!.setPointerCapture(e.pointerId)
     } catch {
