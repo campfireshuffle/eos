@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, type ReactNode } from "react"
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react"
 import { useDefaultLayout } from "react-resizable-panels"
 
 import { decodeShare } from "@eos/core"
@@ -20,8 +20,9 @@ import { setUi, useUi } from "@/lib/ui-state"
 
 // The editor (CodeMirror, the preview and its gestures) is a separate download, so the
 // library opens without it. It's fetched in the background once the app is idle.
-const loadEditor = () => import("@/components/editor")
-const Editor = lazy(() => loadEditor().then((m) => ({ default: m.Editor })))
+let editorModule: typeof import("@/components/editor") | undefined
+const loadEditor = () => import("@/components/editor").then((m) => (editorModule = m))
+const LazyEditor = lazy(() => loadEditor().then((m) => ({ default: m.Editor })))
 
 export function App() {
   const route = useRoute()
@@ -44,7 +45,7 @@ export function App() {
         {route.name === "home" && <Home route={route} />}
         {route.name === "diagram" && (
           <Suspense fallback={<div className="flex-1 bg-card md:rounded-tl-xl" />}>
-            <Editor key={route.id} id={route.id} />
+            <EditorRoute key={route.id} id={route.id} />
           </Suspense>
         )}
       </Shell>
@@ -52,6 +53,16 @@ export function App() {
       <ConfirmDialog />
     </TooltipProvider>
   )
+}
+
+/**
+ * The editor itself once the idle preload has it. A lazy component suspends on its first
+ * render even when its module is ready, and React then keeps the fallback up for 300ms.
+ */
+function EditorRoute({ id }: { id: string }) {
+  // Chosen once per diagram, so a preload landing while it's open doesn't remount the editor.
+  const [Editor] = useState(() => editorModule?.Editor ?? LazyEditor)
+  return <Editor id={id} />
 }
 
 function Shell({ route, children }: { route: Route; children: ReactNode }) {
