@@ -148,7 +148,10 @@ export function CodeEditor({
     // Changes from elsewhere arrive as edits, in the coordinates of the text the editor shows.
     const unbind = binding?.onChange((changes) => {
       const apply = () => {
-        v.dispatch({ changes, annotations: external.of(true) })
+        // Keep a caret at an insertion point after the inserted text, as CodeMirror's own undo does,
+        // so typing after undoing a deletion carries on after the restored text instead of before it.
+        const set = v.state.changes(changes)
+        v.dispatch({ changes: set, selection: v.state.selection.map(set, 1), annotations: external.of(true) })
         // Belt and braces: if the two ever disagree, show what's stored.
         const stored = binding.text()
         if (v.state.doc.toString() !== stored) {

@@ -3,6 +3,11 @@
   pointer-events: none;
 }
 
+/* Library thumbnails sit on bg-background, not the preview's bg-card. */
+.pele-thumb {
+  --pele-bg: var(--background);
+}
+
 /* Fit the card thumbnail: Pele inlines width/height/max-width on the SVG, so override them.
    The default preserveAspectRatio then letterboxes the diagram inside the padded box. */
 .pele-thumb svg {

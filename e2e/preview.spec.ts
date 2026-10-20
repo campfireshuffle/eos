@@ -100,3 +100,13 @@ test("after a click on the preview, its shortcuts and Space go to it rather than
   await expect.poll(() => zoom(page)).toBe(1)
   expect(await storedText(page, id)).toBe(source)
 })
+
+test("an edge label is backed, so its line doesn't strike through it", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const id = await newDiagram(page, "flowchart TD\n  A -->|yes| B")
+  await openEditor(page, id)
+  const backing = page.locator(".pele-preview svg .pele-edge-label rect")
+  await expect(backing).toHaveCount(1)
+  expect(await backing.evaluate((rect) => getComputedStyle(rect).fill)).not.toMatch(/^(rgba\(0, 0, 0, 0\)|transparent|none)$/)
+})
