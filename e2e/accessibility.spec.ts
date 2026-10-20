@@ -154,6 +154,7 @@ test.describe("keyboard", () => {
     await library(page)
     await expect(page.getByRole("link", { name: /^Release flow/ })).toBeVisible()
     const card = page.locator("[data-card-id]").last()
+    await expect(card).toHaveAccessibleDescription(/^Press Space, right-click or long-press to select\./)
     const star = page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Star" })
     await card.focus()
     await focusNext(page)

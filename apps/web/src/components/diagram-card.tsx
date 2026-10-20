@@ -14,6 +14,16 @@ import { Pill } from "./pill"
 /** Hold this long on a card (touch) to start selecting, like Photos and Files. */
 const LONG_PRESS_MS = 450
 const coarsePointer = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches
+const CARD_HINT_ID = "eos-card-hint"
+
+/** How to select, which every card is described by. Render it once wherever cards are. */
+export function CardHint() {
+  return (
+    <span id={CARD_HINT_ID} hidden>
+      Press Space, right-click or long-press to select. While selecting, clicking a diagram adds or removes it.
+    </span>
+  )
+}
 
 export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramIndexRow }) {
   const selected = useSelected(row.id)
@@ -34,6 +44,7 @@ export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramInde
     <a
       href={diagramHref(row.id)}
       data-card-id={row.id}
+      aria-describedby={CARD_HINT_ID}
       // On touch, a long press selects instead of starting a native drag.
       draggable={!coarsePointer}
       // Merged so React Aria's handlers don't replace ours. Left out on desktop, where a disabled press cancels every click.

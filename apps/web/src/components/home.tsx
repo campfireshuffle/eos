@@ -14,7 +14,7 @@ import { useIsMobile } from "@/lib/layout"
 import { useScrollRestoration } from "@/lib/scroll-restore"
 import { clearSelection } from "@/lib/selection"
 
-import { DiagramCard } from "./diagram-card"
+import { CardHint, DiagramCard } from "./diagram-card"
 import { Marquee } from "./marquee"
 import { SelectionBar } from "./selection-bar"
 import { Pill } from "./pill"
@@ -183,6 +183,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
           </div>
         )}
       </Marquee>
+      <CardHint />
       <SelectionBar deleted={route.deleted} />
     </main>
   )
