@@ -105,7 +105,7 @@ export async function svgToPng(svg: string, scale = 2): Promise<Blob> {
   return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("PNG export failed"))), "image/png"))
 }
 
-/** Pele SVG markup as the Export menu saves it, with the theme in effect inlined, for agents (the Export menu uses the live preview). */
+/** Pele SVG markup with the theme in effect inlined, as the Export menu saves it. */
 export function themedSvg(markup: string): string {
   const host = Object.assign(document.createElement("div"), { className: "pele-preview" })
   Object.assign(host.style, { position: "fixed", left: "-10000px", top: "0", visibility: "hidden" })
