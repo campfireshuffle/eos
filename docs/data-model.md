@@ -92,7 +92,6 @@ interface DiagramMeta {
   title: string
   tags: TagPath[] // stored as a LoroList<string> under meta.tags
   createdAt: number // ms epoch; set once at creation
-  schema: 1 // doc schema version for future migrations
 }
 
 function sourceOf(doc: LoroDoc): LoroText {
@@ -410,22 +409,23 @@ async function encodeShare(p: SharePayload): Promise<string> {
 
 ## 8. Settings record
 
-Settings are not CRDT data. They are a single plain record, last-write-wins, and are broadcast on `eos` as `{ type: "settings" }`.
+Settings are not CRDT data. They are one plain record under the key `"app"` in the `settings` store, last-write-wins, and are broadcast on `eos` as `{ type: "settings" }`. `updateSettings` merges a patch into it section by section, and a record saved before a field existed is read with that field's default.
 
 ```ts
 interface AppSettings {
-  key: "app"
-  schema: 1
   theme: {
     mode: "system" | "light" | "dark"
-    /** User CSS custom-property overrides applied to :root, e.g. { "--eos-node-fill": "#fef3c7" }. */
-    overrides: Record<`--${string}`, string>
-    /** Optional raw CSS appended after overrides, scoped to the Pele renderer root. */
-    customCss?: string
+    /** CSS custom properties (the app's are --eos-*) applied to :root. null means the defaults. */
+    customCss: string | null
+    /** Diagram variables (--pele-*) applied to the renderer. null means the defaults. */
+    diagramCss: string | null
   }
-  lastOpenedId?: DiagramId
-  library: { sort: LibrarySort }
-  agent: { webmcpEnabled: boolean }
+  agent: {
+    /** Registers the WebMCP tools (§10). */
+    webmcpEnabled: boolean
+    /** Asks the person before an agent deletes anything. */
+    confirmDestructive: boolean
+  }
 }
 ```
 
