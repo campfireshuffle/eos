@@ -47,6 +47,24 @@ test("theme CSS drops values that could fetch something", async ({ context }) =>
   await expect(page.locator("#eos-theme-diagram")).toHaveJSProperty("textContent", "")
 })
 
+test("an agent changing one app variable keeps the other mode's defaults", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.goto("/#/")
+  await page.waitForFunction(() => "__tools" in window && "set_theme" in (window as unknown as { __tools: object }).__tools)
+  await tool(page, "set_theme", { mode: "dark" })
+  // As set_theme says: start from the CSS get_settings returns, which is the dark palette here.
+  const { theme } = await tool<{ theme: { appCss: string } }>(page, "get_settings")
+  await tool(page, "set_theme", { appCss: theme.appCss.replace(/--eos-line:[^;]+;/, "--eos-line: #ff0000;") })
+  await tool(page, "set_theme", { mode: "light" })
+  const vars = () =>
+    page.evaluate(() => {
+      const cs = getComputedStyle(document.documentElement)
+      return [cs.getPropertyValue("--eos-ink").trim(), cs.getPropertyValue("--eos-line").trim()]
+    })
+  await expect.poll(vars).toEqual(["#f1f0ec", "#ff0000"])
+})
+
 test("saving one edited app variable keeps the other mode's defaults", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" })
   await page.goto("/#/")

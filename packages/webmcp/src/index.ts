@@ -34,6 +34,8 @@ export interface UiBridge {
   toSvg(svg: string): string
   /** The theme in effect: resolved light/dark plus the app and diagram CSS, defaults included. */
   getTheme(): { resolvedMode: "light" | "dark"; appCss: string; diagramCss: string }
+  /** The declarations in app CSS (as getTheme returns it, possibly edited) worth saving: what differs from the defaults in effect. */
+  appOverrides?(css: string): string | null
   /** Resolves once the page has rendered the latest UI change, so getView reports it. */
   settled?(): Promise<void>
   origin: string
@@ -466,10 +468,13 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
         diagramCss: z.optional(z.nullable(z.string())),
       },
       execute: async ({ mode, appCss, diagramCss }) => {
+        // getTheme gives every app variable as resolved in the current mode. Saved whole, they'd hold in
+        // the other mode too, so only the changed ones are kept (worked out before any mode change below).
+        const customCss = appCss && ui.appOverrides ? ui.appOverrides(appCss) : appCss
         await eos.updateSettings({
           theme: {
             ...(mode !== undefined ? { mode } : {}),
-            ...(appCss !== undefined ? { customCss: appCss } : {}),
+            ...(customCss !== undefined ? { customCss } : {}),
             ...(diagramCss !== undefined ? { diagramCss } : {}),
           } as never,
         })

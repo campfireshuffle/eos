@@ -2,7 +2,7 @@ import type { Eos } from "@eos/core"
 import { createTools, registerTools, type UiBridge } from "@eos/webmcp"
 
 import { download, svgMarkupToPng, themedSvg } from "./files"
-import { currentAppCss, DEFAULT_DIAGRAM_CSS } from "./theme"
+import { changedVars, currentAppCss, DEFAULT_DIAGRAM_CSS } from "./theme"
 import { diagramHref, homeHref, navigate, parseRoute } from "./router"
 import { askConfirm, getUi, requestZoom, setUi } from "./ui-state"
 
@@ -40,6 +40,8 @@ export function connectWebMcp(eos: Eos): () => void {
       appCss: eos.getSettings().theme.customCss ?? currentAppCss(),
       diagramCss: eos.getSettings().theme.diagramCss ?? DEFAULT_DIAGRAM_CSS,
     }),
+    // As Settings' Save does: on top of an override already saved, the CSS is the person's own, kept whole.
+    appOverrides: (css) => (eos.getSettings().theme.customCss ? css : changedVars(css, currentAppCss())),
   }
   const tools = createTools(eos, ui)
   let unregister: (() => void) | null = null

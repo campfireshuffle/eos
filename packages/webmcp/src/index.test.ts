@@ -277,6 +277,14 @@ describe("webmcp tools", () => {
     expect(theme.overridden.diagram).toBe(true)
   })
 
+  it("saves only the app variables an agent changed, as the page works them out", async () => {
+    const { call, bridge, eos } = await setup()
+    bridge.appOverrides = vi.fn(() => ":root { --eos-line: red; }")
+    await call("set_theme", { appCss: ":root { --eos-ink: #0e0e0e; --eos-line: red; }" })
+    expect(bridge.appOverrides).toHaveBeenCalledWith(":root { --eos-ink: #0e0e0e; --eos-line: red; }")
+    expect(eos.getSettings().theme.customCss).toBe(":root { --eos-line: red; }")
+  })
+
   it("registers with modelContext when available", () => {
     const registered: string[] = []
     ;(globalThis as any).navigator ??= {}
