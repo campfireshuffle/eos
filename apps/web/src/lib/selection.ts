@@ -19,9 +19,14 @@ export function useSelected(id: string): boolean {
 /** Replaces the selection. Same members as now is a no-op, so nothing re-renders. */
 export function setSelection(ids: Iterable<string>) {
   const next = new Set(ids)
-  if (next.size === selected.size && [...next].every((id) => selected.has(id))) return
+  if (next.size === selected.size && isSubset(next, selected)) return
   selected = next
   listeners.forEach((l) => l())
+}
+
+function isSubset(a: Set<string>, b: Set<string>) {
+  for (const id of a) if (!b.has(id)) return false
+  return true
 }
 
 export function toggleSelected(id: string) {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode, type RefObject } from "react"
+import { useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react"
 
 import { clearSelection, getSelection, setSelection } from "@/lib/selection"
 
@@ -19,6 +19,10 @@ export function Marquee({
   const own = useRef<HTMLDivElement>(null)
   const root = scrollerRef ?? own
   const box = useRef<HTMLDivElement>(null)
+  // Bumped whenever the library re-renders (new or changed rows hand Marquee new children),
+  // so a drag knows its cached card rects are stale. Selection changes don't re-render Marquee.
+  const layout = useRef(0)
+  useLayoutEffect(() => void layout.current++)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -44,10 +48,9 @@ export function Marquee({
     let pointer = { x: e.clientX, y: e.clientY }
     let frame = 0
     // Card rects in scroll-content coordinates, which scrolling doesn't change. Measured on the
-    // first frame, and again only after the library's DOM changes.
-    let cards: { id: string; x: number; y: number; w: number; h: number }[] | null = null
-    const changed = new MutationObserver(() => (cards = null))
-    changed.observe(el, { childList: true, subtree: true })
+    // first frame, and again only after the library re-renders.
+    let cards: { id: string; x: number; y: number; w: number; h: number }[] = []
+    let measured = -1
     try {
       el.setPointerCapture(e.pointerId)
     } catch {
@@ -57,18 +60,23 @@ export function Marquee({
     // Runs at most once a frame, for the latest pointer position. Reads layout before writing the box.
     const update = () => {
       frame = 0
+      // The library unmounted mid-drag (say, the person navigated away); there's nothing to select.
+      const b = box.current
+      if (!b) return
       const r = el.getBoundingClientRect()
       const cur = { x: pointer.x - r.left + el.scrollLeft, y: pointer.y - r.top + el.scrollTop }
       const rect = { x: Math.min(start.x, cur.x), y: Math.min(start.y, cur.y), w: Math.abs(cur.x - start.x), h: Math.abs(cur.y - start.y) }
       if (!moved && rect.w + rect.h < 4) return
       moved = true
-      cards ??= [...el.querySelectorAll<HTMLElement>("[data-card-id]")].map((card) => {
-        const c = card.getBoundingClientRect()
-        return { id: card.dataset.cardId!, x: c.left - r.left + el.scrollLeft, y: c.top - r.top + el.scrollTop, w: c.width, h: c.height }
-      })
+      if (measured !== layout.current) {
+        measured = layout.current
+        cards = [...el.querySelectorAll<HTMLElement>("[data-card-id]")].map((card) => {
+          const c = card.getBoundingClientRect()
+          return { id: card.dataset.cardId!, x: c.left - r.left + el.scrollLeft, y: c.top - r.top + el.scrollTop, w: c.width, h: c.height }
+        })
+      }
       const hits = new Set(base)
       for (const c of cards) if (c.x < rect.x + rect.w && c.x + c.w > rect.x && c.y < rect.y + rect.h && c.y + c.h > rect.y) hits.add(c.id)
-      const b = box.current!
       Object.assign(b.style, { left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.w}px`, height: `${rect.h}px` })
       b.hidden = false
       setSelection(hits)
@@ -87,14 +95,13 @@ export function Marquee({
       window.removeEventListener("pointerup", up)
       window.removeEventListener("pointercancel", up)
       window.removeEventListener("blur", up)
-      changed.disconnect()
       // Apply the last position a pending frame would have drawn.
       if (frame) {
         cancelAnimationFrame(frame)
         update()
       }
       if (!moved && !base.size) clearSelection()
-      box.current!.hidden = true
+      if (box.current) box.current.hidden = true
     }
     el.addEventListener("pointermove", move)
     // Autoscroll and the wheel still scroll mid-drag, which moves the pointer through the content.
@@ -108,7 +115,7 @@ export function Marquee({
   return (
     <div ref={root} onPointerDown={onPointerDown} className={`relative ${className ?? ""}`}>
       {children}
-      {/* Drawn from the drag handler rather than state, so dragging doesn't re-render the library. */}
+      {/* Drawn from the drag handler rather than state, so moving it doesn't cost a React commit per frame. */}
       <div
         ref={box}
         hidden
