@@ -1,7 +1,7 @@
 import type { Eos } from "@eos/core"
 import { createTools, registerTools, type UiBridge } from "@eos/webmcp"
 
-import { download, svgMarkupToPng } from "./files"
+import { download, svgMarkupToPng, themedSvg } from "./files"
 import { currentAppCss, DEFAULT_DIAGRAM_CSS } from "./theme"
 import { diagramHref, homeHref, navigate, parseRoute } from "./router"
 import { askConfirm, getUi, requestZoom, setUi } from "./ui-state"
@@ -32,6 +32,7 @@ export function connectWebMcp(eos: Eos): () => void {
       getUi().confirm ? "busy" : (await askConfirm(message, action, signal)) ? "confirmed" : "declined",
     download: (name, data) => download(name, data),
     toPng: svgMarkupToPng,
+    toSvg: themedSvg,
     // Two frames covers React's render plus the preview's layout pass that applies zoom.
     settled: () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
     getTheme: () => ({

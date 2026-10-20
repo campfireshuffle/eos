@@ -30,6 +30,8 @@ export interface UiBridge {
   download(name: string, data: string | Blob): void
   /** Rasterises an SVG to a PNG data URL (2×), as the Export menu does. */
   toPng(svg: string): Promise<{ dataUrl: string; blob: Blob }>
+  /** The SVG as the Export menu saves it, with the theme in effect inlined. */
+  toSvg(svg: string): string
   /** The theme in effect: resolved light/dark plus the app and diagram CSS, defaults included. */
   getTheme(): { resolvedMode: "light" | "dark"; appCss: string; diagramCss: string }
   /** Resolves once the page has rendered the latest UI change, so getView reports it. */
@@ -273,8 +275,9 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
         if (!parsed.valid) return fail("parse_error", "The Mermaid source doesn't parse", { error: parsed.error })
         const svg = renderSvg(text)
         if (format === "svg") {
-          if (download) ui.download(`${title}.svg`, svg)
-          return ok({ data: svg, type: parsed.type })
+          const themed = ui.toSvg(svg)
+          if (download) ui.download(`${title}.svg`, new Blob([themed], { type: "image/svg+xml" }))
+          return ok({ data: themed, type: parsed.type })
         }
         const png = await ui.toPng(svg)
         if (download) ui.download(`${title}.png`, png.blob)

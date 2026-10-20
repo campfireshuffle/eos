@@ -17,6 +17,7 @@ const ui = (confirm: boolean | "busy" = true): UiBridge => ({
   confirm: vi.fn(async () => (confirm === "busy" ? "busy" : confirm ? "confirmed" : "declined")),
   download: vi.fn(),
   toPng: vi.fn(async () => ({ dataUrl: "data:image/png;base64,AA==", blob: new Blob() })),
+  toSvg: vi.fn((s: string) => s),
   getTheme: () => ({ resolvedMode: "light", appCss: ":root {}", diagramCss: ".pele {}" }),
 })
 
@@ -127,10 +128,16 @@ describe("webmcp tools", () => {
   })
 
   it("reports parse errors and exports every format", async () => {
-    const { call } = await setup()
+    const { call, bridge } = await setup()
     expect((await call("export", { format: "svg", source: "flowchart TD\n  A --> {{x" })).code).toBe("parse_error")
     const { id } = await call("create_diagram", { title: "Pie", source: 'pie\n  "a": 1', open: false })
-    expect((await call("export", { id, format: "svg" })).data).toContain("<svg")
+    vi.mocked(bridge.toSvg).mockImplementationOnce((s) => `${s}<!-- themed -->`)
+    expect((await call("export", { id, format: "svg", download: true })).data).toMatch(/^<svg[\s\S]*<!-- themed -->$/)
+    expect(bridge.toSvg).toHaveBeenCalledWith(expect.stringContaining("<svg"))
+    const saved = vi.mocked(bridge.download).mock.calls[0]
+    expect(saved[0]).toBe("Pie.svg")
+    expect(saved[1]).toBeInstanceOf(Blob)
+    expect((saved[1] as Blob).type).toBe("image/svg+xml")
     expect((await call("export", { id, format: "png" })).data).toMatch(/^data:image\/png/)
     expect((await call("export", { id, format: "mmd" })).data).toContain("pie")
     const { url } = await call("export", { id, format: "link" })

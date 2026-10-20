@@ -67,3 +67,24 @@ test("an exported SVG opens at the diagram's own size, whatever the preview's zo
   })
   expect(size.shown).toEqual(size.own)
 })
+
+test.describe("in dark mode", () => {
+  test.use({ colorScheme: "dark" })
+
+  test("an agent's SVG export inlines the theme, as the Export menu's does", async ({ context }) => {
+    await withAgentTools(context)
+    const page = await context.newPage()
+    const id = await newDiagram(page, "flowchart LR\n  A --> B")
+    await openEditor(page, id)
+    await expect(page.locator("html")).toHaveClass(/dark/)
+    // The colours inlined on the root <svg>, which override Pele's built-in fallbacks outside Eos.
+    const colours = (svg: string) => {
+      const style = /^<svg[^>]*\sstyle="([^"]*)"/.exec(svg)?.[1] ?? ""
+      return Object.fromEntries([...style.matchAll(/(--pele-[\w-]+|background):([^;]+)/g)].map(([, k, v]) => [k, v.trim()]))
+    }
+    const agent = colours((await tool<{ data: string }>(page, "export", { id, format: "svg" })).data)
+    expect(agent["--pele-fg"]).toBeTruthy()
+    expect(agent["--pele-fg"]).not.toBe("#1f1f1f")
+    expect(agent).toEqual(colours(await exported(page, "SVG .svg")))
+  })
+})
