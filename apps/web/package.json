@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
     "preview": "vite preview",
+    "test": "vitest run",
     "deploy": "cf deploy",
     "deploy:check": "cf deploy --dry-run"
   },
@@ -44,6 +45,7 @@
     "cf": "1.0.0-beta.18",
     "typescript": "~6.0.2",
     "vite": "^8",
-    "vite-plugin-wasm": "^3.6.0"
+    "vite-plugin-wasm": "^3.6.0",
+    "vitest": "^5.0.5"
   }
 }
