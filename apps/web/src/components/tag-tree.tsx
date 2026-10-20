@@ -121,7 +121,9 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
         onExpandedChange={(keys: Set<Key>) => setCollapsed(new Set(withChildren.filter((p) => !keys.has(p))))}
         onAction={(key) => navigate(homeHref({ tag: String(key), sort: sort as never, group: group as never }))}
         dragAndDropHooks={dragAndDropHooks}
-        className="flex min-h-0 flex-col gap-0.5 overflow-y-auto outline-none"
+        // Rows space themselves (mb-0.5), not with a gap: while dragging, React Aria puts a zero-height
+        // "Drop on …" row for screen readers before the target row, and a gap would push the rows below down.
+        className="flex min-h-0 flex-col overflow-y-auto outline-none"
       >
         {function renderTag(tag: TagRecord): ReactNode {
           return (
@@ -134,7 +136,7 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
               }}
               className={({ isDropTarget, isDragging, isFocusVisible, isHovered }) =>
                 cn(
-                  "flex h-8 shrink-0 cursor-default items-center rounded-md px-2.5 text-body text-muted-foreground outline-none select-none [-webkit-touch-callout:none] max-md:h-10",
+                  "mb-0.5 flex h-8 shrink-0 cursor-default items-center rounded-md px-2.5 text-body text-muted-foreground outline-none select-none [-webkit-touch-callout:none] last:mb-0 max-md:h-10",
                   isHovered && "bg-accent/30 text-foreground",
                   tag.path === selected && "bg-accent font-medium text-foreground",
                   isDropTarget && DROP_HIGHLIGHT,
