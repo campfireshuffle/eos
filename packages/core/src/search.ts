@@ -4,6 +4,8 @@ import type { DiagramIndexRow } from "./types"
 
 /** Title matches count this many times more than contents matches. */
 const TITLE_BOOST = 3
+/** Rows indexed per task while building (about 10ms of work). */
+const BUILD_SLICE = 100
 
 /** Searches some of the rows an index was built over (see searchIndex). */
 export type Search = (rows: DiagramIndexRow[], query: string) => Promise<DiagramIndexRow[]>
@@ -14,14 +16,16 @@ export type Search = (rows: DiagramIndexRow[], query: string) => Promise<Diagram
  * returns only the matches among the rows it's given (the ones the other filters kept).
  */
 export async function searchIndex(all: DiagramIndexRow[]): Promise<Search> {
-  // Building takes a while (about 70ms for 1000 diagrams). Start it in a task of its own, so the
-  // keystroke that asked for it can finish its own work first (the browser may paint in between).
-  await new Promise((resolve) => setTimeout(resolve))
   const db = create({ schema: { id: "string", title: "string", source: "string" } as const })
-  await insertMultiple(
-    db,
-    all.map((r) => ({ id: r.id, title: r.title, source: r.sourceText ?? r.sourcePreview }))
-  )
+  // Building takes a while (about 70ms for 1000 diagrams), so it's done a slice at a time, each
+  // in a task of its own: keystrokes that come in meanwhile are handled between slices.
+  for (let i = 0; i < all.length; i += BUILD_SLICE) {
+    await new Promise((resolve) => setTimeout(resolve))
+    await insertMultiple(
+      db,
+      all.slice(i, i + BUILD_SLICE).map((r) => ({ id: r.id, title: r.title, source: r.sourceText ?? r.sourcePreview }))
+    )
+  }
   return async (rows, query) => {
     const byId = new Map(rows.map((r) => [r.id, r]))
     const result = (await search(db, {
