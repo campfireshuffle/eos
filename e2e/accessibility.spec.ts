@@ -8,6 +8,8 @@ const FLOWCHART = "flowchart TD\n  A[Start] --> B{Ready?}\n  B -->|Yes| C[Ship]\
 /** Runs axe against the page as it is now, at WCAG 2.2 A and AA. */
 async function audit(page: Page, { menuOpen = false } = {}) {
   // Let open/close animations finish, so colours are measured at rest, however slow the machine.
+  // Two frames first, so one that's about to start (a menu just opened) has.
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))))
   await page.waitForFunction(() =>
     document.getAnimations().every((a) => a.playState !== "running" || a.effect?.getTiming().iterations === Infinity)
   )
@@ -205,6 +207,8 @@ test.describe("keyboard", () => {
     await page.getByRole("button", { name: "Settings" }).click()
     const dialog = page.getByRole("dialog", { name: "Settings" })
     const editor = dialog.getByRole("textbox", { name: "App theme CSS" })
+    // The editor fills in the current theme as it opens; typing before then would be mixed into it.
+    await expect(editor).toContainText("--eos-ink")
     await editor.click()
     await page.keyboard.type("/* draft */")
     await page.keyboard.press("Escape")
