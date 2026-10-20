@@ -46,3 +46,24 @@ test("theme CSS drops values that could fetch something", async ({ context }) =>
   await expect(page.locator("#eos-theme-app")).toHaveJSProperty("textContent", ":root, .dark {\n  --eos-primary: #ff0000;\n}")
   await expect(page.locator("#eos-theme-diagram")).toHaveJSProperty("textContent", "")
 })
+
+test("saving one edited app variable keeps the other mode's defaults", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "light" })
+  await page.goto("/#/")
+  await page.getByRole("button", { name: "Settings" }).click()
+  const dialog = page.getByRole("dialog", { name: "Settings" })
+  await dialog.getByRole("radio", { name: "Light" }).click()
+  // Replace only the value of the pre-filled --eos-line declaration.
+  await dialog.locator(".cm-line", { hasText: "--eos-line: #dddad3;" }).click()
+  await page.keyboard.press("End")
+  for (let i = 0; i < "#dddad3;".length; i++) await page.keyboard.press("Backspace")
+  await page.keyboard.type("#ff0000;")
+  await dialog.getByRole("button", { name: "Save" }).click()
+  await dialog.getByRole("radio", { name: "Dark" }).click()
+  const vars = () =>
+    page.evaluate(() => {
+      const cs = getComputedStyle(document.documentElement)
+      return [cs.getPropertyValue("--eos-ink").trim(), cs.getPropertyValue("--eos-line").trim()]
+    })
+  await expect.poll(vars).toEqual(["#0e0e0e", "#ff0000"])
+})

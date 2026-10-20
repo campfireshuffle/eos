@@ -19,7 +19,7 @@ Your mode and both CSS overrides are saved in this browser, in the same IndexedD
 
 ## App theme
 
-App CSS is a list of variable declarations. Only declarations are kept: selectors, `@` rules and anything that isn't a `--` variable are ignored, as are values that could load something (`url(`, `image-set(` and the like, or any backslash escape). Each declaration overrides that variable in **both** light and dark mode, so a colour you set while in dark mode also applies in light mode.
+App CSS is a list of variable declarations. Only declarations are kept: selectors, `@` rules and anything that isn't a `--` variable are ignored, as are values that could load something (`url(`, `image-set(` and the like, or any backslash escape). Each declaration overrides that variable in **both** light and dark mode, so a colour you set while in dark mode also applies in light mode. The editor starts with the current mode's values, and **Save** keeps only the ones you changed, so the rest still follow the mode.
 
 ```css
 :root {
