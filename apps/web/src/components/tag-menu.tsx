@@ -35,12 +35,12 @@ export function TagMenu({ ids }: { ids: string[] }) {
   const canCreate = !!newTag && !all.some((t) => t.path === newTag)
 
   const toggle = (path: string) => {
-    if (stateOf(path) === "all") void eos.batch(() => Promise.all(ids.map((id) => eos.removeTags(id, [path]))))
-    else void eos.batch(() => Promise.all(ids.map((id) => eos.addTags(id, [path]))))
+    if (stateOf(path) === "all") void eos.removeTags(ids, [path])
+    else void eos.addTags(ids, [path])
   }
   const create = () => {
     if (!newTag) return
-    void eos.batch(() => Promise.all(ids.map((id) => eos.addTags(id, [newTag]))))
+    void eos.addTags(ids, [newTag])
     setQuery("")
   }
 

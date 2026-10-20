@@ -54,6 +54,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onFocus={() => eos.prepareSearch()}
               placeholder="Search"
               aria-label="Search diagrams"
               className="pl-8"
@@ -68,6 +69,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onFocus={() => eos.prepareSearch()}
             placeholder="Search"
             aria-label="Search diagrams"
             className="pl-8"

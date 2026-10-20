@@ -83,7 +83,7 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
       for (const item of e.items) {
         if (item.kind !== "text" || !item.types.has(DIAGRAM_MIME)) continue
         const ids = parseIds(await item.getText(DIAGRAM_MIME))
-        void eos.batch(() => Promise.all(ids.map((id) => eos.addTags(id, [tag]))))
+        void eos.addTags(ids, [tag])
       }
     },
   })
