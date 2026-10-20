@@ -132,8 +132,9 @@ export function Editor({ id }: { id: string }) {
   const redo = () => void eos.redo(id).catch(() => {})
 
   const title = diagram?.meta.title ?? ""
-  // Exports are of the version shown, like the preview they're drawn from.
-  const actions = useExportActions(title, shown ?? "", () => svgRef.current)
+  // Exports are of the version shown, like the preview they're drawn from. Until a past
+  // version's text arrives, the preview still shows the latest, and so do they.
+  const actions = useExportActions(title, shown ?? source ?? "", () => svgRef.current)
 
   useShortcuts(actions)
   const mobile = useIsMobile()
@@ -163,7 +164,7 @@ export function Editor({ id }: { id: string }) {
       <div className="flex items-center gap-1.5 pt-1.5 pr-2 pl-1.5">
         <SidebarToggle />
         <HistoryNav />
-        {/* Also committed on leaving, by when the diagram may have been deleted. */}
+        {/* Also committed on leaving, when the diagram may already be gone. */}
         <TitleInput value={title} onCommit={(t) => void eos.renameDiagram(id, t).catch(() => {})} />
         <div className="flex-1" />
         <IconButton label={diagram.starred ? "Unstar" : "Star"} onClick={() => eos.setStarred(id, !diagram.starred)}>

@@ -95,5 +95,8 @@ test("after a click on the preview, its shortcuts and Space go to it rather than
   await page.keyboard.press("Shift+Digit1")
   await expect.poll(() => zoom(page)).toBe(2)
   await page.keyboard.press("Space")
+  // Keys are handled in order, so once this one has zoomed the preview, a typed space would be saved by now.
+  await page.keyboard.press("Shift+Digit0")
+  await expect.poll(() => zoom(page)).toBe(1)
   expect(await storedText(page, id)).toBe(source)
 })
