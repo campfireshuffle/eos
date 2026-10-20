@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, test, type Page } from "@playwright/test"
 
-import { openEditor, tool, withAgentTools } from "./helpers"
+import { focusNext, openEditor, tool, withAgentTools } from "./helpers"
 
 const FLOWCHART = "flowchart TD\n  A[Start] --> B{Ready?}\n  B -->|Yes| C[Ship]\n  B -->|No| A"
 
@@ -152,13 +152,13 @@ test.describe("keyboard", () => {
     const card = page.locator("[data-card-id]").last()
     const star = page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Star" })
     await card.focus()
-    await page.keyboard.press("Tab")
+    await focusNext(page)
     await expect(star).not.toBeFocused()
 
     await card.focus()
     await page.keyboard.press("ControlOrMeta+Enter")
     await expect(page.getByText("1 selected")).toBeVisible()
-    await page.keyboard.press("Tab")
+    await focusNext(page)
     await expect(star).toBeFocused()
   })
 
@@ -207,7 +207,7 @@ test.describe("keyboard", () => {
     await page.keyboard.type("/* draft */")
     await page.keyboard.press("Escape")
     await expect(dialog).toBeVisible()
-    await page.keyboard.press("Tab")
+    await focusNext(page)
     await expect(editor).not.toBeFocused()
     await expect(editor).toContainText("/* draft */")
     await page.keyboard.press("Escape")

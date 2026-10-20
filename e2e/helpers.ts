@@ -44,3 +44,8 @@ export async function cursorAtEndOf(page: Page, line: number) {
 
 /** Waits until the editor shows `text`. */
 export const expectEditor = (page: Page, text: string) => expect.poll(() => editorText(page)).toBe(text)
+
+/** Moves focus to the next control. Safari's default Tab skips buttons and links; Option+Tab reaches them. */
+export function focusNext(page: Page) {
+  return page.keyboard.press(page.context().browser()?.browserType().name() === "webkit" ? "Alt+Tab" : "Tab")
+}
