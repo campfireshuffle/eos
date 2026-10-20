@@ -31,17 +31,28 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
   // Ignore zoom requests made before this preview mounted (e.g. on another diagram).
   const handled = useRef(zoomRequest?.n ?? 0)
 
-  // While the stage moves it gets a layer of its own; once it settles that goes, so the browser redraws the text sharp.
+  // The zoom the diagram is laid out at: the host is sized to it, so the browser draws the SVG sharp at that size.
+  // While the view moves, the stage scales from it on a layer of its own, which is cheap but stretches what was
+  // drawn (Safari keeps that blurry). Once the view settles, the diagram is laid out at the new zoom.
+  const drawn = useRef(1)
+  const sizeHost = () => {
+    const size = laidOutSize.current
+    if (size) Object.assign(host.current!.style, { width: `${size.w * drawn.current}px`, height: `${size.h * drawn.current}px` })
+  }
   const settle = useRef(0)
+  const draw = () => {
+    const { x, y, k } = view.current
+    drawn.current = k
+    sizeHost()
+    Object.assign(stage.current!.style, { transform: `translate(${x}px, ${y}px)`, willChange: "" })
+  }
   /** Puts the diagram at `v`, kept within reach. */
   const show = (v: View) => {
-    const el = stage.current!
     view.current = natural ? clamp(v, pane, natural) : v
     const { x, y, k } = view.current
-    el.style.transform = `translate(${x}px, ${y}px) scale(${k})`
-    el.style.willChange = "transform"
+    Object.assign(stage.current!.style, { transform: `translate(${x}px, ${y}px) scale(${k / drawn.current})`, willChange: "transform" })
     clearTimeout(settle.current)
-    settle.current = window.setTimeout(() => (el.style.willChange = ""), 200)
+    settle.current = window.setTimeout(draw, 200)
     setScale(k)
   }
   /** Moves the diagram as the person asked, so it stops following the fit. */
@@ -74,8 +85,6 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
     onSvg(svg ?? null)
     const vb = svg?.viewBox.baseVal
     if (!svg || !vb || vb.width <= 0) return
-    // Drawn at its natural size; the stage does the zooming.
-    Object.assign(svg.style, { width: `${vb.width}px`, height: `${vb.height}px`, maxWidth: "none", display: "block" })
     // A resize that switched Pele to a different layout: fade the new one in so it doesn't read as a flicker.
     if (relayout.current) {
       relayout.current = false
@@ -84,6 +93,7 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
         host.current?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: "ease-out" })
     }
     laidOutSize.current = { w: vb.width, h: vb.height }
+    sizeHost()
     setNatural((prev) => (prev && prev.w === vb.width && prev.h === vb.height ? prev : { w: vb.width, h: vb.height }))
   }
 
@@ -111,7 +121,13 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source])
 
-  useEffect(() => () => mounted.current?.destroy(), [])
+  useEffect(
+    () => () => {
+      clearTimeout(settle.current)
+      mounted.current?.destroy()
+    },
+    []
+  )
 
   // Re-lay out when the pane's width settles on a new value (not on zoom).
   useEffect(() => {
@@ -253,7 +269,11 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
       )}
     >
       <div ref={stage} className="absolute top-0 left-0 w-max origin-top-left">
-        <div ref={host} className="pele-preview transition-opacity data-[stale=true]:opacity-30" data-stale={stale} />
+        <div
+          ref={host}
+          className="pele-preview transition-opacity data-[stale=true]:opacity-30 [&>svg]:block [&>svg]:size-full [&>svg]:max-w-none"
+          data-stale={stale}
+        />
       </div>
     </div>
   )
