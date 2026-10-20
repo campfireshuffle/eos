@@ -38,8 +38,7 @@ import { formatWhen, HistoryMenu } from "./history-menu"
 import { ExportMenu, useExportActions } from "./export-menu"
 import { Preview } from "./preview"
 import { ResizeHandle } from "./resize-handle"
-import { HistoryNav } from "./history-nav"
-import { SidebarToggle } from "./sidebar-toggle"
+import { EmptyPage, Page, PageHeader, Panel } from "./page"
 
 export function Editor({ id }: { id: string }) {
   const [copied, copy] = useCopy()
@@ -147,31 +146,26 @@ export function Editor({ id }: { id: string }) {
 
   if (diagram === null) {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center gap-3 bg-card text-body text-muted-foreground transition-[border-radius] duration-200 md:rounded-tl-xl md:group-data-[collapsed=true]/shell:rounded-tl-none">
+      <EmptyPage>
         This diagram doesn’t exist.
         <Button variant="outline" asChild>
           <a href={homeHref()}>Back to diagrams</a>
         </Button>
-      </main>
+      </EmptyPage>
     )
   }
-  if (!diagram || source === null)
-    return (
-      <main className="flex-1 bg-card transition-[border-radius] duration-200 md:rounded-tl-xl md:group-data-[collapsed=true]/shell:rounded-tl-none" />
-    )
+  if (!diagram || source === null) return <EmptyPage />
 
   return (
-    <main className="flex min-w-0 flex-1 flex-col gap-2 max-md:h-svh">
-      <div className="flex items-center gap-1.5 pt-1.5 pr-2 pl-1.5">
-        <SidebarToggle />
-        <HistoryNav />
-        {/* Also committed on leaving, when the diagram may already be gone. */}
-        <TitleInput value={title} onCommit={(t) => void eos.renameDiagram(id, t).catch(() => {})} />
-        <div className="flex-1" />
+    <Page className="max-md:h-svh">
+      <PageHeader
+        // Also committed on leaving, when the diagram may already be gone.
+        title={<TitleInput value={title} onCommit={(t) => void eos.renameDiagram(id, t).catch(() => {})} />}
+      >
         <IconButton label={diagram.starred ? "Unstar" : "Star"} onClick={() => eos.setStarred(id, !diagram.starred)}>
           <Star className={diagram.starred ? "fill-[var(--eos-champagne)] text-[var(--eos-champagne)]" : ""} />
         </IconButton>
-      </div>
+      </PageHeader>
 
       {previewing && (
         <Banner>
@@ -204,7 +198,7 @@ export function Editor({ id }: { id: string }) {
       )}
       <ResizablePanelGroup key={orientation} orientation={orientation} className="min-h-0 flex-1" {...layout}>
         <ResizablePanel id="source" defaultSize="42%" minSize={mobile ? "120px" : "280px"} className="flex">
-          <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card transition-[border-radius] duration-200 md:rounded-t-xl md:group-data-[collapsed=true]/shell:rounded-tl-none">
+          <Panel as="section" split="start" className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <PanelHeader title="Source">
               {(history.canUndo || history.canRedo) && (
                 <>
@@ -265,14 +259,14 @@ export function Editor({ id }: { id: string }) {
                 )}
               </footer>
             ) : null}
-          </section>
+          </Panel>
         </ResizablePanel>
         {/* Stacked on small screens: a hairline instead of a gap, so both panes stay flush. */}
         <ResizeHandle
           className={mobile ? "h-px! bg-border before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-['']" : undefined}
         />
         <ResizablePanel id="preview" minSize={mobile ? "160px" : "320px"} className="flex">
-          <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-card md:rounded-tl-xl">
+          <Panel as="section" split="end" className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
             <PanelHeader title="Preview">
               <ZoomMenu />
               <ExportMenu actions={actions} />
@@ -289,10 +283,10 @@ export function Editor({ id }: { id: string }) {
                 </div>
               )}
             </div>
-          </section>
+          </Panel>
         </ResizablePanel>
       </ResizablePanelGroup>
-    </main>
+    </Page>
   )
 }
 
@@ -334,7 +328,7 @@ function TitleInput({ value, onCommit }: { value: string; onCommit: (v: string) 
       }}
       onBlur={commit}
       onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-      className="field-sizing-content max-w-full min-w-[4ch] rounded-md bg-transparent px-1.5 py-1 text-body font-medium outline-none hover:bg-accent/50 focus:bg-accent focus-visible:ring-1 focus-visible:ring-ring"
+      className="field-sizing-content max-w-full min-w-[4ch] rounded-md bg-transparent px-1.5 py-1 outline-none hover:bg-accent/50 focus:bg-accent focus-visible:ring-1 focus-visible:ring-ring"
     />
   )
 }

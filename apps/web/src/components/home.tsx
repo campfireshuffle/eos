@@ -18,8 +18,7 @@ import { DiagramCard } from "./diagram-card"
 import { Marquee } from "./marquee"
 import { SelectionBar } from "./selection-bar"
 import { Pill } from "./pill"
-import { HistoryNav } from "./history-nav"
-import { SidebarToggle } from "./sidebar-toggle"
+import { Page, PageHeader, PageTitle, Panel } from "./page"
 
 export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   const eos = useEos()
@@ -77,13 +76,10 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   }
 
   return (
-    <main className="relative flex min-w-0 flex-1 flex-col bg-card transition-[border-radius] duration-200 md:overflow-hidden md:rounded-tl-xl md:group-data-[collapsed=true]/shell:rounded-tl-none">
+    <Page className="relative">
       {/* Sticks to the top on phones, where the page itself scrolls. */}
-      <div className="z-20 bg-card max-md:sticky max-md:top-0">
-        <header className="flex items-center gap-2 border-b border-border py-3.5 pr-4 pl-4 md:pl-6">
-          <SidebarToggle />
-          <HistoryNav />
-          <h1 className="flex-1 text-title font-medium">{route.deleted ? "Deleted" : "Diagrams"}</h1>
+      <div className="max-md:sticky max-md:top-0 max-md:z-20 max-md:bg-background">
+        <PageHeader title={<PageTitle>{route.deleted ? "Deleted" : "Diagrams"}</PageTitle>}>
           <div className="relative w-[280px] max-md:hidden">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -99,9 +95,9 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
           <Button onClick={create} aria-label="New diagram">
             <Plus /> <span className="max-sm:hidden">New diagram</span>
           </Button>
-        </header>
-        <div className="relative border-b border-border px-4 py-2.5 md:hidden">
-          <Search className="pointer-events-none absolute top-1/2 left-6.5 size-4 -translate-y-1/2 text-muted-foreground" />
+        </PageHeader>
+        <div className="relative px-2 py-1.5 md:hidden">
+          <Search className="pointer-events-none absolute top-1/2 left-4.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
             onChange={(e) => type(e.target.value)}
@@ -114,76 +110,81 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
         </div>
       </div>
 
-      <Marquee scrollerRef={scroller} className="eos-library-scroller flex flex-1 flex-col gap-5 p-4 md:min-h-0 md:overflow-y-auto md:p-6">
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Filter chips take their own row on narrow screens; the view controls stay right-aligned. */}
-          <div className="flex min-w-0 flex-1 basis-full flex-wrap items-center gap-2 empty:hidden sm:basis-0">
-            {route.starred && (
-              <Pill removeHref={homeHref({ ...route, starred: false })} removeLabel="Remove Starred filter">
-                Starred
-              </Pill>
-            )}
-            {route.tag && (
-              <Pill icon={emoji} removeHref={homeHref({ ...route, tag: null })} removeLabel={`Remove ${route.tag} filter`}>
-                {route.tag}
-              </Pill>
-            )}
+      <Panel className="flex min-h-0 flex-1 flex-col md:overflow-hidden">
+        <Marquee
+          scrollerRef={scroller}
+          className="eos-library-scroller flex flex-1 flex-col gap-5 p-4 md:min-h-0 md:overflow-y-auto md:p-6"
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Filter chips take their own row on narrow screens; the view controls stay right-aligned. */}
+            <div className="flex min-w-0 flex-1 basis-full flex-wrap items-center gap-2 empty:hidden sm:basis-0">
+              {route.starred && (
+                <Pill removeHref={homeHref({ ...route, starred: false })} removeLabel="Remove Starred filter">
+                  Starred
+                </Pill>
+              )}
+              {route.tag && (
+                <Pill icon={emoji} removeHref={homeHref({ ...route, tag: null })} removeLabel={`Remove ${route.tag} filter`}>
+                  {route.tag}
+                </Pill>
+              )}
+            </div>
+            <div className="ml-auto flex gap-2 max-sm:w-full">
+              <NativeSelect
+                value={route.group}
+                onChange={(e) => navigate(homeHref({ ...route, group: e.target.value as LibraryGroup }), { replace: true })}
+                className="w-[150px] shrink-0 max-sm:w-auto max-sm:flex-1"
+                aria-label="Group by"
+              >
+                <NativeSelectOption value="date">Group: Date</NativeSelectOption>
+                <NativeSelectOption value="subtag">Group: Subtag</NativeSelectOption>
+                <NativeSelectOption value="none">Group: None</NativeSelectOption>
+              </NativeSelect>
+              <NativeSelect
+                value={route.sort}
+                onChange={(e) => navigate(homeHref({ ...route, sort: e.target.value as LibrarySort }), { replace: true })}
+                className="w-[150px] shrink-0 max-sm:w-auto max-sm:flex-1"
+                aria-label="Sort"
+              >
+                <NativeSelectOption value="modified">Sort: Modified</NativeSelectOption>
+                <NativeSelectOption value="created">Sort: Created</NativeSelectOption>
+                <NativeSelectOption value="title">Sort: Title</NativeSelectOption>
+              </NativeSelect>
+            </div>
           </div>
-          <div className="ml-auto flex gap-2 max-sm:w-full">
-            <NativeSelect
-              value={route.group}
-              onChange={(e) => navigate(homeHref({ ...route, group: e.target.value as LibraryGroup }), { replace: true })}
-              className="w-[150px] shrink-0 max-sm:w-auto max-sm:flex-1"
-              aria-label="Group by"
-            >
-              <NativeSelectOption value="date">Group: Date</NativeSelectOption>
-              <NativeSelectOption value="subtag">Group: Subtag</NativeSelectOption>
-              <NativeSelectOption value="none">Group: None</NativeSelectOption>
-            </NativeSelect>
-            <NativeSelect
-              value={route.sort}
-              onChange={(e) => navigate(homeHref({ ...route, sort: e.target.value as LibrarySort }), { replace: true })}
-              className="w-[150px] shrink-0 max-sm:w-auto max-sm:flex-1"
-              aria-label="Sort"
-            >
-              <NativeSelectOption value="modified">Sort: Modified</NativeSelectOption>
-              <NativeSelectOption value="created">Sort: Created</NativeSelectOption>
-              <NativeSelectOption value="title">Sort: Title</NativeSelectOption>
-            </NativeSelect>
-          </div>
-        </div>
 
-        {rows && rows.length === 0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 text-body text-muted-foreground">
-            {/* An empty library just shows the button; filters and Deleted say why nothing is listed. */}
-            {route.deleted ? "Nothing deleted." : query || route.tag || route.starred ? "No diagrams match." : null}
-            {!route.deleted && (
-              <Button variant="outline" onClick={create}>
-                <Plus /> New diagram
-              </Button>
-            )}
-          </div>
-        ) : (
-          <div className="flex flex-col gap-7">
-            {groupRows(rows ?? [], route.group, route.sort, route.tag).map((g) => (
-              <section key={g.key} className="flex flex-col gap-3">
-                {g.label && (
-                  <h2 className="flex items-baseline gap-2 text-caption font-medium text-muted-foreground">
-                    {g.label}
-                    <span className="text-[var(--eos-faint)] tabular-nums">{g.rows.length}</span>
-                  </h2>
-                )}
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
-                  {g.rows.map((row) => (
-                    <DiagramCard key={`${g.key}:${row.id}`} row={row} />
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
-        )}
-      </Marquee>
+          {rows && rows.length === 0 ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 text-body text-muted-foreground">
+              {/* An empty library just shows the button; filters and Deleted say why nothing is listed. */}
+              {route.deleted ? "Nothing deleted." : query || route.tag || route.starred ? "No diagrams match." : null}
+              {!route.deleted && (
+                <Button variant="outline" onClick={create}>
+                  <Plus /> New diagram
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-7">
+              {groupRows(rows ?? [], route.group, route.sort, route.tag).map((g) => (
+                <section key={g.key} className="flex flex-col gap-3">
+                  {g.label && (
+                    <h2 className="flex items-baseline gap-2 text-caption font-medium text-muted-foreground">
+                      {g.label}
+                      <span className="text-[var(--eos-faint)] tabular-nums">{g.rows.length}</span>
+                    </h2>
+                  )}
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
+                    {g.rows.map((row) => (
+                      <DiagramCard key={`${g.key}:${row.id}`} row={row} />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+        </Marquee>
+      </Panel>
       <SelectionBar deleted={route.deleted} />
-    </main>
+    </Page>
   )
 }
