@@ -81,6 +81,16 @@ test("the library's view controls stay put while the cards scroll", async ({ con
   await expect(cards.first()).toContainText("Diagram 0")
   const sort = page.getByRole("combobox", { name: "Sort" })
   const before = (await sort.boundingBox())!.y
+  // Its header's line only shows once cards have scrolled under it.
+  const line = () =>
+    page
+      .locator("main header")
+      .last()
+      .evaluate((el) => getComputedStyle(el).borderBottomColor)
+  expect(await line()).toBe("rgba(0, 0, 0, 0)")
   await scrollTo(600)
   expect((await sort.boundingBox())!.y).toBe(before)
+  await expect.poll(line).not.toBe("rgba(0, 0, 0, 0)")
+  await scrollTo(0)
+  await expect.poll(line).toBe("rgba(0, 0, 0, 0)")
 })

@@ -1,4 +1,4 @@
-import type { ComponentProps, ReactNode } from "react"
+import { createContext, useContext, useState, type ComponentProps, type ReactNode } from "react"
 
 import { cn } from "@workspace/ui/lib/utils"
 
@@ -27,13 +27,21 @@ export function PageHeader({ title, children }: { title?: ReactNode; children?: 
   )
 }
 
+/** Whether something in the panel is scrolled down, so its header draws a line over what's beneath. */
+const Scrolled = createContext(false)
+
 /**
  * A panel's header bar, above what scrolls in it: a title (or the panel's filters) on the left,
  * the panel's controls on the right. On narrow screens the controls wrap onto a row of their own.
  */
 export function PanelHeader({ title, children }: { title?: ReactNode; children?: ReactNode }) {
   return (
-    <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-x-1 gap-y-1.5 border-b border-border py-1.5 pr-2.5 pl-4">
+    <header
+      className={cn(
+        "flex min-h-12 shrink-0 flex-wrap items-center gap-x-1 gap-y-1.5 border-b py-1.5 pr-2.5 pl-4 transition-colors",
+        useContext(Scrolled) ? "border-border" : "border-transparent"
+      )}
+    >
       <div className="flex min-w-0 flex-1 items-center text-body">{title}</div>
       {children}
     </header>
@@ -67,15 +75,20 @@ export function Panel({
   className,
   ...props
 }: { as?: "div" | "section"; split?: "start" | "end" } & Omit<ComponentProps<"div">, "ref">) {
+  const [scrolled, setScrolled] = useState(false)
   return (
-    <Tag
-      className={cn(
-        "bg-card transition-[border-radius] duration-200 md:rounded-tl-xl",
-        split !== "end" && "md:group-data-[collapsed=true]/shell:rounded-tl-none",
-        split === "start" && "md:rounded-tr-xl",
-        className
-      )}
-      {...props}
-    />
+    <Scrolled.Provider value={scrolled}>
+      <Tag
+        // Scroll events don't bubble, but they can be caught on the way down, from whatever scrolls inside.
+        onScrollCapture={(e) => setScrolled((e.target as Element).scrollTop > 0)}
+        className={cn(
+          "bg-card transition-[border-radius] duration-200 md:rounded-tl-xl",
+          split !== "end" && "md:group-data-[collapsed=true]/shell:rounded-tl-none",
+          split === "start" && "md:rounded-tr-xl",
+          className
+        )}
+        {...props}
+      />
+    </Scrolled.Provider>
   )
 }
