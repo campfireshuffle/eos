@@ -75,7 +75,7 @@ type Editable = Pick<DiagramDoc, "id" | "doc" | "text" | "meta">
 
 /**
  * One diagram, or several. A change to several is one batch (one library event, one index
- * message to other tabs) and skips any deleted for good meanwhile; one that's gone throws.
+ * message to other tabs) and skips any that are missing; a single missing one throws.
  */
 export type Ids = DiagramId | DiagramId[]
 
@@ -113,8 +113,8 @@ export class Eos {
    */
   private rows: Promise<DiagramIndexRow[]> | null = null
   private rowsById = new Map<DiagramId, DiagramIndexRow>()
-  /** The search index over those rows, built on the first search after a change. */
-  private searcher: Promise<Search> | null = null
+  /** The search index over those rows (the read it was built from), built on the first search after a change. */
+  private searcher: { rows: Promise<DiagramIndexRow[]>; built: Promise<Search | null> } | null = null
   /** Changes being made to copies of diagrams that aren't open, by diagram: the last one queued (see mutate). */
   private turns = new Map<DiagramId, Promise<void>>()
   /** Bulk changes running (see batch), and the events and index refreshes they're holding back. */
@@ -139,10 +139,10 @@ export class Eos {
     // Save what's pending if the tab is closed, or hidden: a mobile browser may discard a
     // hidden tab without a pagehide.
     if (typeof addEventListener === "function") addEventListener("pagehide", () => eos.saveNow())
-    // Shown again, re-read the library: a tab closed partway through a bulk change never sent
-    // the index message for it, so the rows this tab has cached could be out of date.
+    // Shown again, check the cached rows: a tab closed partway through a bulk change never sent
+    // the index message for it.
     if (typeof document !== "undefined")
-      document.addEventListener("visibilitychange", () => (document.visibilityState === "hidden" ? eos.saveNow() : eos.emit("library")))
+      document.addEventListener("visibilitychange", () => (document.visibilityState === "hidden" ? eos.saveNow() : void eos.recheckRows()))
     await eos.backfillSearchText()
     if (options.seed !== false && (await db.count("diagrams")) === 0) {
       for (const s of SAMPLES) await eos.createDiagram(s, { kind: "system", reason: "seed" })
@@ -199,13 +199,18 @@ export class Eos {
   // ── Library ────────────────────────────────────────────────────────────────
 
   async listDiagrams(filter: LibraryFilter = {}): Promise<DiagramIndexRow[]> {
-    let rows = await this.allRows()
+    const read = this.allRows()
+    let rows = await read
     rows = rows.filter((r) => (filter.deleted ? !!r.deletedAt : filter.includeDeleted || !r.deletedAt))
     if (filter.starred) rows = rows.filter((r) => r.starred === 1)
     for (const tag of filter.tags ?? []) rows = rows.filter((r) => r.tags.some((t) => tagMatches(t, tag)))
     const q = filter.query?.trim()
     // A search ranks by relevance (title first, then contents) instead of the sort order.
-    if (q) return (await this.search())(rows, q)
+    if (q) {
+      const search = await this.search(read)
+      // The library changed while the index was being built: search what's there now.
+      return search ? search(rows, q) : this.listDiagrams(filter)
+    }
     const sort = filter.sort ?? "modified"
     rows.sort((a, b) =>
       sort === "title" ? a.titleKey.localeCompare(b.titleKey) : sort === "created" ? b.createdAt - a.createdAt : b.updatedAt - a.updatedAt
@@ -415,12 +420,16 @@ export class Eos {
   // ── Organisation ───────────────────────────────────────────────────────────
 
   async setStarred(ids: Ids, starred: boolean, actor: Actor = USER) {
-    for (const id of [ids].flat()) {
-      if (starred) this.workspace.starred.set(id, true)
-      else this.workspace.starred.delete(id)
+    try {
+      await this.each(ids, async (id) => {
+        await this.patchIndex(id, { starred: starred ? 1 : 0 })
+        // Only once the diagram is known to be there, so a missing one isn't left a star.
+        if (starred) this.workspace.starred.set(id, true)
+        else this.workspace.starred.delete(id)
+      })
+    } finally {
+      commit(this.workspace.doc, actor)
     }
-    commit(this.workspace.doc, actor)
-    await this.each(ids, (id) => this.patchIndex(id, { starred: starred ? 1 : 0 }))
   }
 
   async addTags(ids: Ids, tags: string[], actor: Actor = USER) {
@@ -630,16 +639,19 @@ export class Eos {
 
   /** Permanently removes soft-deleted diagrams. */
   async purge(ids: Ids) {
-    await this.each(ids, async (id) => {
-      const deleted = deleteDocData(this.db, id)
-      // Closed after the delete is queued (see close).
-      await this.close(id)
-      await deleted
-      this.workspace.starred.delete(id)
-      this.emit("library")
-      this.broadcast({ type: "close", id })
-    })
-    commit(this.workspace.doc, USER)
+    try {
+      await this.each(ids, async (id) => {
+        const deleted = deleteDocData(this.db, id)
+        // Closed after the delete is queued (see close).
+        await this.close(id)
+        await deleted
+        this.workspace.starred.delete(id)
+        this.emit("library")
+        this.broadcast({ type: "close", id })
+      })
+    } finally {
+      commit(this.workspace.doc, USER)
+    }
   }
 
   // ── Internals ──────────────────────────────────────────────────────────────
@@ -731,10 +743,7 @@ export class Eos {
         const before = doc.oplogVersion()
         change({ id, doc, text: doc.getText("source"), meta: doc.getMap("meta") }, actor, fn, { details })
         if (!(await compact(this.db, id, doc, this.rowOf(id)))) throw new Error(`Diagram ${id} not found`)
-        const bytes = doc.export({ mode: "update", from: before })
-        // An open started before this change was saved may have missed it: bring it in.
-        void this.ifOpen(id).then((d) => d?.doc.import(bytes))
-        this.broadcast({ type: "update", id, bytes })
+        this.broadcast({ type: "update", id, bytes: doc.export({ mode: "update", from: before }) })
       } finally {
         doc.free()
       }
@@ -758,7 +767,7 @@ export class Eos {
 
   /**
    * Runs `fn` for one diagram, or for each of several in turn as one batch (see batch). In a
-   * batch, one deleted for good meanwhile is skipped, so it doesn't stop the rest.
+   * batch, a missing one is skipped, so it doesn't stop the rest.
    */
   private async each(ids: Ids, fn: (id: DiagramId) => Promise<unknown>) {
     if (!Array.isArray(ids)) return void (await fn(ids))
@@ -892,11 +901,30 @@ export class Eos {
     return read
   }
 
-  /** The search index over every row, built once per change to the library. */
-  private search(): Promise<Search> {
-    const built = (this.searcher ??= this.allRows().then(searchIndex))
-    // A failed build isn't kept: the next search tries again.
-    built.catch(() => this.searcher === built && (this.searcher = null))
+  /** Reads the rows again, and refreshes the library if any differ from the ones last read. */
+  private async recheckRows() {
+    const cached = this.rowsById
+    const rows = await this.db.getAll("diagrams")
+    const differs = (row: DiagramIndexRow) => {
+      const old = cached.get(row.id)
+      return !old || !sameRow(old, row)
+    }
+    if (rows.length !== cached.size || rows.some(differs)) this.emit("library")
+  }
+
+  /**
+   * The search index over the rows `read` returns (by default the current read), built once
+   * per change to the library. It's null if the library changed before it was done: the
+   * build stops early, since nothing would use it.
+   */
+  private search(read = this.allRows()): Promise<Search | null> {
+    if (this.searcher?.rows === read) return this.searcher.built
+    const built: Promise<Search | null> = read.then((rows) => searchIndex(rows, () => this.rows !== read))
+    if (this.rows === read) {
+      this.searcher = { rows: read, built }
+      // A failed build isn't kept: the next search tries again.
+      built.catch(() => this.searcher?.built === built && (this.searcher = null))
+    }
     return built
   }
 

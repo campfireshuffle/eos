@@ -14,13 +14,15 @@ export type Search = (rows: DiagramIndexRow[], query: string) => Promise<Diagram
  * Fuzzy, typo-tolerant search over titles and contents, best match first. The index is
  * built once over the whole library and kept until the library changes; each search
  * returns only the matches among the rows it's given (the ones the other filters kept).
+ * Returns null, having stopped early, once `stale` says the index is no longer wanted.
  */
-export async function searchIndex(all: DiagramIndexRow[]): Promise<Search> {
+export async function searchIndex(all: DiagramIndexRow[], stale: () => boolean = () => false): Promise<Search | null> {
   const db = create({ schema: { id: "string", title: "string", source: "string" } as const })
   // Building takes a while (about 70ms for 1000 diagrams), so it's done a slice at a time, each
   // in a task of its own: keystrokes that come in meanwhile are handled between slices.
   for (let i = 0; i < all.length; i += BUILD_SLICE) {
     await new Promise((resolve) => setTimeout(resolve))
+    if (stale()) return null
     await insertMultiple(
       db,
       all.slice(i, i + BUILD_SLICE).map((r) => ({ id: r.id, title: r.title, source: r.sourceText ?? r.sourcePreview }))

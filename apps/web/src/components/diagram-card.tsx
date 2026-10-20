@@ -142,14 +142,14 @@ function Thumbnail({ id, source, updatedAt }: { id: string; source: string | und
   )
 }
 
-/** Thumbnails rendered lately, by diagram and source, so a card scrolled back into view shows at once. */
-const rendered = new Map<string, string>()
+/** Thumbnails rendered lately, one per diagram, so a card scrolled back into view shows at once. */
+const rendered = new Map<string, { source: string; svg: string }>()
 const RENDERED_MAX = 100
 
 /** The diagram's thumbnail SVG, or "" if it can't be rendered. */
 function thumbnailSvg(id: string, source: string): string {
-  const key = `${id}\n${source}`
-  let svg = rendered.get(key)
+  const cached = rendered.get(id)
+  let svg = cached?.source === source ? cached.svg : undefined
   if (svg === undefined) {
     try {
       svg = renderSvg(source, `t-${id.slice(0, 8)}-`)
@@ -157,9 +157,9 @@ function thumbnailSvg(id: string, source: string): string {
       svg = ""
     }
   }
-  // Most recently used last, so the first key is the one to drop.
-  rendered.delete(key)
-  rendered.set(key, svg)
+  // Most recently used last, so the first one is the one to drop.
+  rendered.delete(id)
+  rendered.set(id, { source, svg })
   if (rendered.size > RENDERED_MAX) rendered.delete(rendered.keys().next().value!)
   return svg
 }
