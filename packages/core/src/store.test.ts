@@ -4,7 +4,8 @@ import { LoroDoc } from "loro-crdt"
 import { describe, expect, it, vi } from "vitest"
 
 import { fromBase64, toBase64 } from "./base64"
-import type { Database } from "./db"
+import { openEosDB, type Database } from "./db"
+import { compact, loadDoc } from "./docs"
 import { decodeShare, encodeShare } from "./share"
 import { Eos, UnknownVersionError } from "./store"
 import type { TextChange } from "./types"
@@ -238,6 +239,56 @@ describe("durability", () => {
     await settle()
     const later = await Eos.create({ dbName: name, seed: false })
     expect(await later.getSource(id)).toBe("base + edit from elsewhere")
+  })
+
+  it("shows what a backup brings in to other tabs that have it open", async () => {
+    const name = `backup-tabs-${n++}`
+    const eos = await Eos.create({ dbName: name, seed: false })
+    const id = await eos.createDiagram({ source: "base" })
+    const other = await Eos.create({ dbName: name, seed: false })
+    expect(await other.getSource(id)).toBe("base") // open there too
+    const backup = JSON.parse(await eos.exportBackup()) as { diagrams: { snapshot: string }[] }
+    const elsewhere = LoroDoc.fromSnapshot(fromBase64(backup.diagrams[0]!.snapshot))
+    elsewhere.getText("source").insert(4, "!")
+    elsewhere.commit()
+    backup.diagrams[0]!.snapshot = toBase64(elsewhere.export({ mode: "snapshot" }))
+    await eos.importBackup(JSON.stringify(backup), "merge")
+    await settle()
+    expect(await other.getSource(id)).toBe("base!")
+  })
+
+  it("keeps stars set after everything is deleted", async () => {
+    const name = `delete-all-${n++}`
+    const eos = await Eos.create({ dbName: name, seed: false })
+    await eos.setStarred(await eos.createDiagram({ source: "old" }), true)
+    await eos.deleteAll()
+    const id = await eos.createDiagram({ source: "new" })
+    await eos.setStarred(id, true)
+    await settle()
+    const later = await Eos.create({ dbName: name, seed: false })
+    await later.renameDiagram(id, "Renamed") // rewrites the index row from the saved stars
+    expect((await later.listDiagrams())[0]?.starred).toBe(1)
+  })
+
+  it("keeps changes another tab saved that this one hasn't heard of when compacting", async () => {
+    const db = await openEosDB(`compact-${n++}`)
+    const id = "d"
+    const here = new LoroDoc()
+    here.getText("source").insert(0, "base")
+    here.commit()
+    await compact(db, id, here)
+    // Another tab, whose updates never reach this one: it compacts, then logs one more.
+    const there = new LoroDoc()
+    there.importBatch([(await db.get("snapshots", id))!.bytes])
+    there.getText("source").insert(4, " one")
+    there.commit()
+    await compact(db, id, there)
+    const before = there.version()
+    there.getText("source").insert(8, " two")
+    there.commit()
+    await db.add("updates", { id, bytes: there.export({ mode: "update", from: before }), at: Date.now() })
+    await compact(db, id, here)
+    expect((await loadDoc(db, id)).getText("source").toString()).toBe("base one two")
   })
 
   it("saves a new diagram whole or not at all", async () => {

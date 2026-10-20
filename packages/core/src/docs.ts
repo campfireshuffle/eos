@@ -55,34 +55,53 @@ export async function loadDoc(db: Database, id: DiagramId): Promise<LoroDoc> {
   return doc
 }
 
+export interface Persisted {
+  /** Stops saving: anything still queued is dropped too. */
+  stop(): void
+  /** If the last write failed, saves the whole doc now instead of with the next change. */
+  retry(): void
+}
+
 /** Appends every local change to the update log; compacts when it gets long. */
-export function persistDoc(db: Database, id: DiagramId, doc: LoroDoc, onLocalUpdate?: (bytes: Uint8Array) => void): () => void {
+export function persistDoc(db: Database, id: DiagramId, doc: LoroDoc, onLocalUpdate?: (bytes: Uint8Array) => void): Persisted {
   let pending = Promise.resolve()
+  let stopped = false
   /** A write failed, so the log is missing an update that every later one builds on. */
   let gap = false
-  const unsubscribe = doc.subscribeLocalUpdates((bytes) => {
-    onLocalUpdate?.(bytes)
-    // Each write waits for the previous one; a failed write is logged and the
-    // queue carries on, so one bad write (quota, a closed connection) can't
-    // silently stop every later change from saving. The write after a failure
-    // saves the whole doc, which fills the gap.
+  // Each write waits for the previous one; a failed write is logged and the queue
+  // carries on, so one bad write (quota, a closed connection) can't silently stop
+  // every later change from saving. The write after a failure saves the whole doc
+  // instead, which fills the gap.
+  const queue = (write: () => Promise<void>) => {
     pending = pending
       .then(async () => {
-        if (gap) {
-          await compact(db, id, doc)
-          gap = false
-          return
-        }
-        await db.add("updates", { id, bytes, at: Date.now() })
-        const count = await db.countFromIndex("updates", "byDiagram", id)
-        if (count > COMPACT_AFTER) await compact(db, id, doc)
+        if (stopped) return
+        if (!gap) return write()
+        await compact(db, id, doc)
+        gap = false
       })
       .catch((error) => {
         gap = true
         console.error(`Couldn't save a change to diagram ${id}`, error)
       })
+  }
+  const unsubscribe = doc.subscribeLocalUpdates((bytes) => {
+    onLocalUpdate?.(bytes)
+    queue(async () => {
+      await db.add("updates", { id, bytes, at: Date.now() })
+      const count = await db.countFromIndex("updates", "byDiagram", id)
+      if (count > COMPACT_AFTER) await compact(db, id, doc)
+    })
   })
-  return unsubscribe
+  return {
+    stop: () => {
+      stopped = true
+      unsubscribe()
+    },
+    retry: () => {
+      if (gap) queue(async () => {})
+    },
+  }
 }
 
 /**
@@ -90,18 +109,22 @@ export function persistDoc(db: Database, id: DiagramId, doc: LoroDoc, onLocalUpd
  * index row is written in the same transaction, so neither is saved without the other.
  */
 export async function compact(db: Database, id: DiagramId, doc: LoroDoc, row?: DiagramIndexRow) {
-  const tx = db.transaction(["snapshots", "updates", "diagrams"], "readwrite")
-  const updates = tx.objectStore("updates")
+  const tx = db.transaction(row ? ["snapshots", "updates", "diagrams"] : ["snapshots", "updates"], "readwrite")
+  const snapshots = tx.objectStore("snapshots")
+  const log = tx.objectStore("updates").index("byDiagram")
+  const save = async () => {
+    // Another tab may have saved changes this doc hasn't heard of yet, to the snapshot
+    // (by compacting) or the log. Take them in first, or this snapshot would drop them.
+    const [saved, logged, keys] = await Promise.all([snapshots.get(id), log.getAll(id), log.getAllKeys(id)])
+    doc.importBatch([...(saved ? [saved.bytes] : []), ...logged.map((u) => u.bytes)])
+    await Promise.all([
+      snapshots.put({ id, bytes: doc.export({ mode: "snapshot" }), savedAt: Date.now() }),
+      ...keys.map((k) => tx.objectStore("updates").delete(k)),
+      row && tx.objectStore("diagrams").put(row),
+    ])
+  }
   // Awaited with tx.done, so a failed write rejects once instead of leaving done unhandled.
-  await Promise.all([
-    tx.objectStore("snapshots").put({ id, bytes: doc.export({ mode: "snapshot" }), savedAt: Date.now() }),
-    updates
-      .index("byDiagram")
-      .getAllKeys(id)
-      .then((keys) => Promise.all(keys.map((k) => updates.delete(k)))),
-    row && tx.objectStore("diagrams").put(row),
-    tx.done,
-  ])
+  await Promise.all([save(), tx.done])
 }
 
 export async function deleteDocData(db: Database, id: DiagramId) {

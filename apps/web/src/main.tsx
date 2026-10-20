@@ -44,7 +44,7 @@ try {
   clearTimeout(slow)
   // Ask for persistent storage once there's something of the person's to keep: browsers
   // prompt for, or refuse, a request made on first visit. The seeded samples are already
-  // in by now, so they don't count.
+  // in by now, so they don't count. A change heard from another tab counts too, which is fine.
   const off = eos.subscribe("library", () => {
     off()
     void eos.requestPersistence()

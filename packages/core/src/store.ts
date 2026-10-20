@@ -20,6 +20,7 @@ import {
   setTags,
   sourceOf,
   type DiagramDoc,
+  type Persisted,
 } from "./docs"
 import { SAMPLES } from "./samples"
 import { searchRows } from "./search"
@@ -64,6 +65,7 @@ interface OpenDiagram extends DiagramDoc {
    * undo or redo runs, `stepping` is the burst of the steps it moves, which they keep.
    */
   burst: { count: number; lastEdit: number; stepping: Value | undefined }
+  persisted: Persisted
 }
 
 /** Whose undo stack to use. */
@@ -73,6 +75,7 @@ interface Workspace {
   doc: LoroDoc
   starred: LoroMap
   tagEmoji: LoroMap
+  persisted: Persisted
 }
 
 interface SyncMessage {
@@ -103,16 +106,15 @@ export class Eos {
   static async create(options: { dbName?: string; seed?: boolean } & OpenHooks = {}): Promise<Eos> {
     const db = await openEosDB(options.dbName, options)
     const doc = await loadDoc(db, WORKSPACE_ID)
-    const workspace = { doc, starred: doc.getMap("starred"), tagEmoji: doc.getMap("tagEmoji") }
-    const eos = new Eos(db, workspace)
-    persistDoc(db, WORKSPACE_ID, doc, (bytes) => eos.broadcast({ type: "update", id: WORKSPACE_ID, bytes }))
+    const persisted = persistDoc(db, WORKSPACE_ID, doc, (bytes) => eos.broadcast({ type: "update", id: WORKSPACE_ID, bytes }))
+    const eos = new Eos(db, { doc, starred: doc.getMap("starred"), tagEmoji: doc.getMap("tagEmoji"), persisted })
     eos.settingsCache = withDefaults(await db.get("settings", "app"))
     eos.listenToOtherTabs()
-    // Save a pending index refresh if the tab is closed mid-typing, or hidden: a mobile
-    // browser may discard a hidden tab without a pagehide.
-    if (typeof addEventListener === "function") addEventListener("pagehide", () => eos.flushIndex())
+    // Save what's pending if the tab is closed, or hidden: a mobile browser may discard a
+    // hidden tab without a pagehide.
+    if (typeof addEventListener === "function") addEventListener("pagehide", () => eos.saveNow())
     if (typeof document !== "undefined")
-      document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && eos.flushIndex())
+      document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && eos.saveNow())
     await eos.backfillSearchText()
     if (options.seed !== false && (await db.count("diagrams")) === 0) {
       for (const s of SAMPLES) await eos.createDiagram(s, { kind: "system", reason: "seed" })
@@ -471,11 +473,12 @@ export class Eos {
   async importBackup(data: string | Backup, mode: "merge" | "replace") {
     const { settings, workspace, diagrams } = typeof data === "string" ? readBackup(data) : data
     if (mode === "replace") await this.deleteAll({ reseed: false })
-    // Imported ops aren't local updates, so persistDoc never saves them: each import
-    // below saves its doc whole.
+    // Imported ops aren't local updates, so persistDoc neither saves nor broadcasts them:
+    // each import below saves its doc whole and sends the ops to other tabs itself.
     if (workspace) {
       this.workspace.doc.import(workspace)
       await compact(this.db, WORKSPACE_ID, this.workspace.doc)
+      this.broadcast({ type: "update", id: WORKSPACE_ID, bytes: workspace })
     }
     for (const { bytes, ...item } of diagrams) {
       // Something may be opening the diagram right now (e.g. an editor rebinding after the
@@ -483,6 +486,8 @@ export class Eos {
       const d = await this.open.get(item.id)?.catch(() => undefined)
       if (d) {
         d.doc.import(bytes)
+        // The snapshot exists already, so saving it apart from the index row (in afterChange,
+        // like any edit) can't leave a diagram the library doesn't list.
         await compact(this.db, item.id, d.doc)
         await this.afterChange(item.id, d)
       } else {
@@ -490,6 +495,7 @@ export class Eos {
         existing.import(bytes)
         await compact(this.db, item.id, existing, this.indexRow(item.id, existing, item.deletedAt ?? undefined))
       }
+      this.broadcast({ type: "update", id: item.id, bytes })
     }
     if (settings) await this.updateSettings(settings as Partial<AppSettings>)
     this.emit("library")
@@ -509,6 +515,8 @@ export class Eos {
     for (const key of this.workspace.starred.keys()) this.workspace.starred.delete(key)
     for (const key of this.workspace.tagEmoji.keys()) this.workspace.tagEmoji.delete(key)
     commit(this.workspace.doc, { kind: "system", reason: "delete-all" })
+    // The wipe took the workspace's saved history too, which that change builds on: save it whole.
+    await compact(this.db, WORKSPACE_ID, this.workspace.doc)
     this.broadcast({ type: "close" })
     if (reseed) for (const s of SAMPLES) await this.createDiagram(s, { kind: "system", reason: "seed" })
     this.emit("library")
@@ -575,7 +583,7 @@ export class Eos {
           maxUndoSteps: 200,
           excludeOriginPrefixes: ["user", "import", "system", DETAILS],
         })
-        const stop = persistDoc(this.db, id, doc, (bytes) => this.broadcast({ type: "update", id, bytes }))
+        const persisted = persistDoc(this.db, id, doc, (bytes) => this.broadcast({ type: "update", id, bytes }))
         return {
           id,
           doc,
@@ -584,12 +592,13 @@ export class Eos {
           undo,
           agentUndo,
           burst,
-          // Only deletes close a diagram, so a pending index refresh is dropped, not run, and
-          // nothing is compacted (either could write the diagram back after the delete).
+          persisted,
+          // Only deletes close a diagram, so a pending index refresh and any queued writes are
+          // dropped, not run (either could write the diagram back after the delete).
           dispose: () => {
             clearTimeout(this.indexTimers.get(id)?.timer)
             this.indexTimers.delete(id)
-            stop()
+            persisted.stop()
             this.closed.get(id)?.forEach((listener) => listener())
             this.closed.delete(id)
           },
@@ -644,6 +653,17 @@ export class Eos {
       void this.afterChange(id, d)
     }
     this.indexTimers.set(id, { timer: setTimeout(run, INDEX_MS), run })
+  }
+
+  /** When the page goes away: refreshes pending index rows, and retries a failed write instead of waiting for the next edit. */
+  private saveNow() {
+    this.flushIndex()
+    this.workspace.persisted.retry()
+    for (const opened of this.open.values())
+      void opened.then(
+        (d) => d.persisted.retry(),
+        () => {}
+      )
   }
 
   /** Runs a pending index refresh now (before closing a diagram, or when the page goes away). */
