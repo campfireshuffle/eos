@@ -97,9 +97,10 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
    * Pele lays some diagrams out to fit a width (e.g. a mindmap stacks vertically when
    * narrow). Give it the pane's width, so layout follows the pane and zoom only scales.
    * Without this, Pele would measure the zoomed element and re-lay out on every zoom.
+   * The outer width, so a scrollbar appearing as the diagram is zoomed past the pane doesn't count.
    */
   const layoutWidth = () => {
-    const w = scroller.current?.clientWidth ?? 0
+    const w = scroller.current?.offsetWidth ?? 0
     return Math.max(240, Math.round((w - 48) / 16) * 16)
   }
   const renderOptions = (maxWidth: number) => ({ zoom: false, responsive: false, maxWidth, onRender: measure })
@@ -126,7 +127,7 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
 
   // Re-lay out when the pane's width settles on a new value (not on zoom).
   useEffect(() => {
-    if (!box.w) return
+    if (!box.ow) return
     const t = setTimeout(() => {
       const w = layoutWidth()
       if (!mounted.current || w === laidOutFor.current) return
@@ -137,7 +138,7 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
     }, 150)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [box.w])
+  }, [box.ow])
 
   useEffect(() => {
     const el = scroller.current!

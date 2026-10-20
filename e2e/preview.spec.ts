@@ -110,3 +110,22 @@ test("an edge label is backed, so its line doesn't strike through it", async ({ 
   await expect(backing).toHaveCount(1)
   expect(await backing.evaluate((rect) => getComputedStyle(rect).fill)).not.toMatch(/^(rgba\(0, 0, 0, 0\)|transparent|none)$/)
 })
+
+test("zooming only scales the diagram, even once it overflows the pane", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const id = await newDiagram(
+    page,
+    "sequenceDiagram\n  User->>App: Place order\n  App->>Payments: Create charge\n  Payments-->>App: Charge succeeded\n  App-->>User: Order confirmed"
+  )
+  await openEditor(page, id)
+  const svg = page.locator(".pele-preview svg").first()
+  await expect(svg).toBeVisible()
+  // A re-layout replaces the SVG, so a mark on it shows the layout was kept.
+  await svg.evaluate((el) => el.setAttribute("data-probe", ""))
+  // Zoom in until the diagram is far wider than the pane, past the re-layout delay. Where scrollbars take
+  // up room (WebKit here; macOS with "always show scrollbars"), the pane's inner width then shrinks.
+  for (let i = 0; i < 6; i++) await tool(page, "set_view", { zoom: "in" })
+  await page.waitForTimeout(500)
+  await expect(page.locator(".pele-preview svg[data-probe]")).toHaveCount(1)
+})
