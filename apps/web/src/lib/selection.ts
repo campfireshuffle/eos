@@ -5,18 +5,23 @@ export const DIAGRAM_MIME = "application/x-eos-diagrams"
 
 let selected = new Set<string>()
 const listeners = new Set<() => void>()
-const emit = () => listeners.forEach((l) => l())
+const subscribe = (cb: () => void) => (listeners.add(cb), () => listeners.delete(cb))
 
 export function useSelection(): Set<string> {
-  return useSyncExternalStore(
-    (cb) => (listeners.add(cb), () => listeners.delete(cb)),
-    () => selected
-  )
+  return useSyncExternalStore(subscribe, () => selected)
 }
 
+/** Whether `id` is selected; re-renders only when that flips, not on every selection change. */
+export function useSelected(id: string): boolean {
+  return useSyncExternalStore(subscribe, () => selected.has(id))
+}
+
+/** Replaces the selection. Same members as now is a no-op, so nothing re-renders. */
 export function setSelection(ids: Iterable<string>) {
-  selected = new Set(ids)
-  emit()
+  const next = new Set(ids)
+  if (next.size === selected.size && [...next].every((id) => selected.has(id))) return
+  selected = next
+  listeners.forEach((l) => l())
 }
 
 export function toggleSelected(id: string) {
