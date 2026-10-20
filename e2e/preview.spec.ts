@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
 
-import { newDiagram, openEditor, tool, withAgentTools } from "./helpers"
+import { cursorAtEndOf, newDiagram, openEditor, tool, withAgentTools } from "./helpers"
 
 test.use({ viewport: { width: 1280, height: 860 } })
 
@@ -18,7 +18,10 @@ const zoom = async (page: Page) => (await tool<{ view: { zoom: number } }>(page,
 const placement = (page: Page) =>
   page.locator(".pele-preview svg").evaluate((svg) => {
     const s = svg.getBoundingClientRect()
-    const p = svg.closest(".overflow-auto")!.getBoundingClientRect()
+    // The pane is the preview's scroll container.
+    let pane = svg.closest(".pele-preview")!.parentElement!
+    while (getComputedStyle(pane).overflowY !== "auto") pane = pane.parentElement!
+    const p = pane.getBoundingClientRect()
     const [cx, cy] = [p.left + p.width / 2, p.top + p.height / 2]
     return {
       inside: s.left >= p.left && s.top >= p.top && s.right <= p.right && s.bottom <= p.bottom,
@@ -52,7 +55,27 @@ test("a zoomed preview keeps its zoom, and the part of the diagram in view, as i
   await tool(page, "set_view", { zoom: "out" })
   await expect.poll(() => zoom(page)).toBeCloseTo(1.6)
   await grow()
-  expect(await zoom(page)).toBeCloseTo(1.6)
+  await expect.poll(() => zoom(page)).toBeCloseTo(1.6)
   // What was in the middle of the pane (the first two nodes) still is, rather than the diagram drifting off into a corner.
   await expect.poll(async () => (await placement(page)).overCentre).toBe(true)
+})
+
+test("typing into a fitted diagram never zooms it in", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  // Wide enough that the fit is limited by the pane's width, not the 200% cap.
+  const id = await newDiagram(page, "flowchart LR\n  A --> B --> C --> D --> E --> F")
+  await openEditor(page, id)
+  await expect.poll(() => zoom(page)).toBeLessThan(2)
+  const start = await zoom(page)
+  await cursorAtEndOf(page, 1)
+  await page.keyboard.press("Enter")
+  // Half-typed lines briefly add nodes (X, then B) or drop them again; none of that should zoom the preview back in.
+  const seen: number[] = []
+  for (const key of "X --> B1") {
+    await page.keyboard.press(key === " " ? "Space" : key)
+    seen.push(await zoom(page))
+  }
+  expect(Math.max(...seen)).toBeLessThanOrEqual(start)
+  await expect.poll(async () => (await placement(page)).inside).toBe(true)
 })

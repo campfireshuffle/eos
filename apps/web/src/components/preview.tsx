@@ -7,6 +7,8 @@ import { setUi, useUi } from "@/lib/ui-state"
 
 const MIN = 0.1
 const MAX = 8
+// Fit shrinks big diagrams to the pane but won't blow small ones up past 200%.
+const FIT_MAX = 2
 
 /**
  * Live Pele render with our own zoom: "fit" scales the diagram to the pane,
@@ -19,6 +21,10 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
   const mounted = useRef<Mounted | null>(null)
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
   const [mode, setMode] = useState<"fit" | number>("fit")
+  // The most a fitted preview may zoom to. Each edit caps it at the current fit, so an edit can shrink the
+  // diagram to fit but never zooms it back in (typing would otherwise bounce the zoom as nodes come and go).
+  // Choosing fit again, or a new pane size, lifts it.
+  const [fitCap, setFitCap] = useState(FIT_MAX)
   // w/h: the content area (for fitting). ow/oh: the outer size, which a scrollbar appearing doesn't change.
   const [box, setBox] = useState({ w: 0, h: 0, ow: 0, oh: 0 })
   const zoomRequest = useUi((s) => s.zoomRequest)
@@ -39,6 +45,7 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
    * Before Pele draws a new layout (an edit, or a re-layout for a new width), keep the diagram point at the
    * pane's centre there. Otherwise the scroll offset stays put in pixels while the diagram and its gutters
    * change size around it, which can leave the diagram all but out of view.
+   * Relies on Pele's update rendering synchronously (as of 1.6.0), so the old diagram is what's measured here.
    */
   const holdCentre = () => {
     const r = scroller.current?.getBoundingClientRect()
@@ -82,7 +89,6 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
         host.current?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: "ease-out" })
     }
     laidOutSize.current = { w: vb.width, h: vb.height }
-    // A fitted preview keeps fitting as the diagram changes size; a zoom the person chose stays as it is.
     setNatural((prev) => (prev && prev.w === vb.width && prev.h === vb.height ? prev : { w: vb.width, h: vb.height }))
   }
 
@@ -108,6 +114,7 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
       laidOutFor.current = layoutWidth()
       mounted.current = mount(host.current!, source, renderOptions(laidOutFor.current))
     } else {
+      if (mode === "fit") setFitCap(scale)
       holdCentre()
       mounted.current.update(source)
     }
@@ -151,10 +158,11 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
     }
   }, [])
 
+  // A new pane size may leave room to zoom a fitted diagram back in.
+  useEffect(() => setFitCap(FIT_MAX), [box.ow, box.oh])
+
   const pad = 48
-  // Fit shrinks big diagrams to the pane but won't blow small ones up past 200%.
-  const FIT_MAX = 2
-  const fit = natural && box.w ? Math.min((box.w - pad) / natural.w, (box.h - pad) / natural.h, FIT_MAX) : 1
+  const fit = natural && box.w ? Math.min((box.w - pad) / natural.w, (box.h - pad) / natural.h, fitCap) : 1
   const scale = mode === "fit" ? fit : mode
   const scaleRef = useRef(scale)
   scaleRef.current = scale
@@ -193,7 +201,10 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
       cy = r.top + r.height / 2
     if (zoomRequest.action === "in") zoomAt(clamp(scale * 1.25), cx, cy)
     if (zoomRequest.action === "out") zoomAt(clamp(scale * 0.8), cx, cy)
-    if (zoomRequest.action === "fit") setMode("fit")
+    if (zoomRequest.action === "fit") {
+      setFitCap(FIT_MAX)
+      setMode("fit")
+    }
     if (zoomRequest.action === "actual") zoomAt(1, cx, cy)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoomRequest])
