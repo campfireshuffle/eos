@@ -12,7 +12,11 @@ async function library(context: BrowserContext, hash: string) {
   await page.evaluate((h) => (location.hash = h), hash)
   const scroller = page.locator(".eos-library-scroller")
   const cards = scroller.locator("a")
-  const scrollTo = (y: number) => expect.poll(() => scroller.evaluate((el, top) => (el.scrollTo({ top }), el.scrollTop), y)).toBe(y)
+  const scrollTo = async (y: number) => {
+    await expect.poll(() => scroller.evaluate((el, top) => (el.scrollTo({ top }), el.scrollTop), y)).toBe(y)
+    // The scroll event for getting there fires with the next frame; wait it out, so it's saved and not mistaken for a later scroll.
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+  }
   // Past the frames a scroll restore takes to settle.
   const settledTop = async () => (await page.waitForTimeout(300), scroller.evaluate((el) => el.scrollTop))
   return { page, cards, scrollTo, settledTop }
@@ -48,7 +52,6 @@ test("back returns to where the library was scrolled after searching", async ({ 
   await page.getByPlaceholder("Search").first().fill("Diagram")
   await expect(page).toHaveURL(/q=Diagram/)
   await scrollTo(500)
-  await page.waitForTimeout(100)
   // Clicked where it sits: Playwright's own click would first scroll it into view.
   await cards.nth(12).evaluate((a: HTMLElement) => a.click())
   await page.locator(".cm-content").waitFor()
