@@ -107,7 +107,7 @@ Notes:
 - **Editor binding.** CodeMirror transactions map to `LoroText.insert/delete`. If a whole-buffer replacement comes from an external source, such as an agent's `update_diagram({ source })` or a paste-replace, use `text.update(newSource)`, which runs a minimal diff. That keeps concurrent edits elsewhere in the text intact.
 - **Tags** go in a `LoroList<string>` under `meta.tags`. `setTags` replaces the whole list on each change, so concurrent tag edits are last-write-wins. `normalizeTags` (`tags.ts`) de-duplicates them on write.
 - **`updatedAt` is not stored in the doc.** It is derived from the last change's timestamp (see §4) and cached in the index (§2).
-- **Doc-level settings applied on every open:** `doc.setRecordTimestamp(true)`, so each `Change` carries a Unix timestamp in seconds, and the default `setChangeMergeInterval`. Consecutive local commits merge into one `Change` only if their messages match, so changes made by different actors stay separate (verified).
+- **Doc-level settings applied on every open:** `doc.setRecordTimestamp(true)`, so each `Change` carries a Unix timestamp in seconds, and `setChangeMergeInterval(0)` (both in `newDiagramDoc`, `docs.ts`). Every commit is its own `Change` with its own timestamp: Loro's default would merge a peer's commits with the same message for up to 1,000 seconds, dating a later edit by an earlier one. History does its own folding (§4).
 
 ## 1a. The workspace document
 
@@ -207,7 +207,7 @@ Full history is kept forever. We do not use `{ mode: "shallow-snapshot" }`, beca
 
 ### Library queries (filters + sort)
 
-The sidebar has no "Recent" item; sorting replaces it. Clicking **Starred** or a tag adds a removable chip to the right pane (`★ Starred ×`, `#work/backend ×`). Chips combine with AND, and a **Sort by** dropdown (Modified / Created / Title) applies on top.
+The sidebar has no "Recent" item; sorting replaces it. Clicking **Starred** or a tag in the sidebar shows that one filter as a removable chip (`★ Starred ×`, `#work/backend ×`); choosing another replaces it. A link or an agent's `set_view` can combine Starred with one tag. Search, Group and **Sort by** (Modified / Created / Title) apply on top. The core query below accepts several tags, combined with AND, and `get_library` uses that; the library page uses at most one.
 
 ```ts
 type LibrarySort = "modified" | "created" | "title"
@@ -428,7 +428,7 @@ Backups carry only the theme. Agent settings are the person's say over what agen
 
 1. **History trimming.** Do we ever offer a shallow snapshot (`mode: "shallow-snapshot"`) to drop old history? If we do, links to old history entries break, and other tabs that hold a deeper history need a strategy for reconciling with it.
 2. **Agent identity.** WebMCP may not tell us which agent or client is calling. Is `kind: "agent"` plus the tool name enough, or do we want the person to label sessions?
-3. **Multiple tag chips.** The default is AND (`#work` + `#q3` shows diagrams tagged with both). Do people expect OR between tags instead?
+3. **Several tags at once.** The library page filters by one tag. Would people want to pick several, and if so, AND (`#work` + `#q3` shows diagrams tagged with both) or OR?
 4. **Multi-device.** Out of scope for now. The snapshot + update-log layout can be synced as-is later, but if that happens, actors may need to say which device made a change.
 5. **Tag emoji in share links.** Never included for now. Should the recipient see the sender's tag emoji when tags are shared?
 6. **Native confirmation.** Deletes ask in Eos's own dialog. If WebMCP adds a native confirmation or elicitation API, should it replace ours?

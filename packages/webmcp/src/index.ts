@@ -417,7 +417,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
           z.strictObject({
             starred: z.optional(z.boolean()),
             deleted: z.optional(z.boolean()),
-            tags: z.optional(z.array(z.string())),
+            tags: z.optional(z.array(z.string()).check(z.maxLength(1), z.describe("One tag: the library shows one tag at a time"))),
             sort: z.optional(sort),
           })
         ),

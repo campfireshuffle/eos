@@ -194,6 +194,8 @@ describe("webmcp tools", () => {
     })
     expect((await call("set_view", { library: { tag: "x" } })).message).toMatch(/input.library isn't a field/)
     expect((await call("set_view", { zoom: "huge" })).code).toBe("invalid_input")
+    // The library shows one tag at a time, so a second is refused rather than dropped.
+    expect((await call("set_view", { filters: { tags: ["work", "q3"] } })).code).toBe("invalid_input")
     expect((await call("get_diagram", {})).message).toBe("input.id is required")
     expect((await call("export", { format: "svg" })).code).toBe("invalid_input")
     expect((await call("update_diagram", { id, revert: "bogus" })).code).toBe("not_found")
