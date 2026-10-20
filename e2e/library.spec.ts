@@ -42,3 +42,17 @@ test("an agent's confirm doesn't replace one the person has open", async ({ cont
   expect(await tool(page, "delete_all_data")).toMatchObject({ ok: false, code: "busy" })
   await expect(dialog).toContainText("Move this diagram to Deleted?")
 })
+
+// Safari throws once a page calls history.replaceState more than 100 times in 10 seconds.
+test("a long search keeps every keystroke and reaches the URL", async ({ page }) => {
+  const errors: string[] = []
+  page.on("pageerror", (e) => errors.push(e.message))
+  await page.goto("/#/")
+  const search = page.getByRole("textbox", { name: "Search diagrams" }).first()
+  await search.click()
+  const text = "the quick brown fox jumps over the lazy dog ".repeat(3)
+  await page.keyboard.type(text, { delay: 20 })
+  await expect(search).toHaveValue(text)
+  await expect.poll(() => new URL(page.url()).hash).toBe(`#/?${new URLSearchParams({ q: text })}`)
+  expect(errors).toEqual([])
+})
