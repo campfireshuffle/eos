@@ -18,10 +18,7 @@ const zoom = async (page: Page) => (await tool<{ view: { zoom: number } }>(page,
 const placement = (page: Page) =>
   page.locator(".pele-preview svg").evaluate((svg) => {
     const s = svg.getBoundingClientRect()
-    // The pane is the preview's scroll container.
-    let pane = svg.closest(".pele-preview")!.parentElement!
-    while (getComputedStyle(pane).overflowY !== "auto") pane = pane.parentElement!
-    const p = pane.getBoundingClientRect()
+    const p = svg.closest("[data-preview-frame]")!.getBoundingClientRect()
     const [cx, cy] = [p.left + p.width / 2, p.top + p.height / 2]
     return {
       inside: s.left >= p.left && s.top >= p.top && s.right <= p.right && s.bottom <= p.bottom,
@@ -111,13 +108,48 @@ test("an edge label is backed, so its line doesn't strike through it", async ({ 
   expect(await backing.evaluate((rect) => getComputedStyle(rect).fill)).not.toMatch(/^(rgba\(0, 0, 0, 0\)|transparent|none)$/)
 })
 
+const sequence =
+  "sequenceDiagram\n  User->>App: Place order\n  App->>Payments: Create charge\n  Payments-->>App: Charge succeeded\n  App-->>User: Order confirmed"
+
+test("pinch zoom keeps the point under the pointer still, even as the diagram outgrows the pane", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const id = await newDiagram(page, sequence)
+  await openEditor(page, id)
+  const svg = page.locator(".pele-preview svg").first()
+  await expect(svg).toBeVisible()
+  await tool(page, "set_view", { zoom: "actual" })
+  await expect.poll(() => zoom(page)).toBe(1)
+  // The diagram's position and scale on screen.
+  const at = () =>
+    svg.evaluate((el: SVGSVGElement) => {
+      const r = el.getBoundingClientRect()
+      return { left: r.left, top: r.top, scale: r.width / el.viewBox.baseVal.width }
+    })
+  const frame = (await page.locator("[data-preview-frame]").boundingBox())!
+  const [px, py] = [frame.x + frame.width / 2, frame.y + 60]
+  await page.mouse.move(px, py)
+  await page.keyboard.down("Control")
+  // Small trackpad-pinch steps in to about 170%, back out to about 110%, and in again.
+  const steps = [...Array(19).fill(-4), ...Array(15).fill(4), ...Array(14).fill(-4)]
+  const drift: number[] = []
+  for (const dy of steps) {
+    const before = await at()
+    const [nx, ny] = [(px - before.left) / before.scale, (py - before.top) / before.scale]
+    await page.mouse.wheel(0, dy)
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+    const after = await at()
+    drift.push(Math.hypot(after.left + nx * after.scale - px, after.top + ny * after.scale - py))
+  }
+  await page.keyboard.up("Control")
+  expect(await zoom(page)).toBeGreaterThan(1.6)
+  expect(Math.max(...drift)).toBeLessThanOrEqual(1)
+})
+
 test("zooming only scales the diagram, even once it overflows the pane", async ({ context }) => {
   await withAgentTools(context)
   const page = await context.newPage()
-  const id = await newDiagram(
-    page,
-    "sequenceDiagram\n  User->>App: Place order\n  App->>Payments: Create charge\n  Payments-->>App: Charge succeeded\n  App-->>User: Order confirmed"
-  )
+  const id = await newDiagram(page, sequence)
   await openEditor(page, id)
   const svg = page.locator(".pele-preview svg").first()
   await expect(svg).toBeVisible()
