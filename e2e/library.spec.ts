@@ -39,6 +39,6 @@ test("an agent's confirm doesn't replace one the person has open", async ({ cont
   const dialog = page.getByRole("alertdialog")
   await expect(dialog).toContainText("Move this diagram to Deleted?")
 
-  expect(await tool(page, "delete_all_data")).toMatchObject({ ok: false, code: "user_declined" })
+  expect(await tool(page, "delete_all_data")).toMatchObject({ ok: false, code: "busy" })
   await expect(dialog).toContainText("Move this diagram to Deleted?")
 })

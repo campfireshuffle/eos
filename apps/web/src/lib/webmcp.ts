@@ -27,7 +27,9 @@ export function connectWebMcp(eos: Eos): () => void {
     openSettings: (open) => setUi({ settingsOpen: open }),
     previewVersion: (id, version, meta) =>
       setUi({ preview: version ? { id, version, at: meta?.at ?? Date.now(), label: meta?.label ?? "" } : null }),
-    confirm: askConfirm,
+    // Checked before asking: a confirm while another dialog is open would be answered no without the person seeing it.
+    confirm: async (message, action, signal) =>
+      getUi().confirm ? "busy" : (await askConfirm(message, action, signal)) ? "confirmed" : "declined",
     download: (name, data) => download(name, data),
     toPng: svgMarkupToPng,
     // Two frames covers React's render plus the preview's layout pass that applies zoom.

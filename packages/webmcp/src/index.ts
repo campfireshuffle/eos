@@ -25,8 +25,8 @@ export interface UiBridge {
   openSettings(open: boolean): void
   /** Shows a past version read-only in the editor, or returns to the latest. */
   previewVersion(id: DiagramId, version: string | null, meta?: { at: number; label: string }): void
-  /** Resolves true when the person allows a destructive agent action; false if they decline or `signal` aborts. */
-  confirm(message: string, action?: string, signal?: AbortSignal): Promise<boolean>
+  /** Asks the person to allow a destructive agent action. "declined" also covers `signal` aborting; "busy" means another dialog was already open, so nothing was asked. */
+  confirm(message: string, action?: string, signal?: AbortSignal): Promise<"confirmed" | "declined" | "busy">
   download(name: string, data: string | Blob): void
   /** Rasterises an SVG to a PNG data URL (2×), as the Export menu does. */
   toPng(svg: string): Promise<{ dataUrl: string; blob: Blob }>
@@ -127,8 +127,13 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
   /** Asks the person, unless they turned confirmations off. Returns a failure result to send back, or null to go ahead. */
   const ask = async (signal: AbortSignal | undefined, message: string, declined: string, action?: string) => {
     if (signal?.aborted) return fail("cancelled", "The call was cancelled")
-    if (!eos.getSettings().agent.confirmDestructive || (await ui.confirm(message, action, signal))) return null
-    return signal?.aborted ? fail("cancelled", "The call was cancelled") : fail("user_declined", declined)
+    if (!eos.getSettings().agent.confirmDestructive) return null
+    const answer = await ui.confirm(message, action, signal)
+    if (answer === "confirmed") return null
+    if (signal?.aborted) return fail("cancelled", "The call was cancelled")
+    return answer === "busy"
+      ? fail("busy", "Another dialog is open in the page. Try again once it's closed")
+      : fail("user_declined", declined)
   }
   const view = async () => {
     await ui.settled?.()

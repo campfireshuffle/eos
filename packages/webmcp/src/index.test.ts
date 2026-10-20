@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createTools, registerTools, type UiBridge } from "./index"
 
-const ui = (confirm = true): UiBridge => ({
+const ui = (confirm: boolean | "busy" = true): UiBridge => ({
   origin: "https://eos.lil.run",
   getView: () => ({}),
   openDiagram: vi.fn(),
@@ -14,14 +14,14 @@ const ui = (confirm = true): UiBridge => ({
   setZoom: vi.fn(),
   openSettings: vi.fn(),
   previewVersion: vi.fn(),
-  confirm: vi.fn(async () => confirm),
+  confirm: vi.fn(async () => (confirm === "busy" ? "busy" : confirm ? "confirmed" : "declined")),
   download: vi.fn(),
   toPng: vi.fn(async () => ({ dataUrl: "data:image/png;base64,AA==", blob: new Blob() })),
   getTheme: () => ({ resolvedMode: "light", appCss: ":root {}", diagramCss: ".pele {}" }),
 })
 
 let n = 0
-async function setup(confirm = true) {
+async function setup(confirm: boolean | "busy" = true) {
   const eos = await Eos.create({ dbName: `mcp-${n++}`, seed: false })
   const bridge = ui(confirm)
   const list = createTools(eos, bridge)
@@ -159,6 +159,13 @@ describe("webmcp tools", () => {
     expect((await eos.listDiagrams()).length).toBe(1)
   })
 
+  it("reports busy, not a no, when another dialog is already open", async () => {
+    const { call, eos } = await setup("busy")
+    const { id } = await call("create_diagram", { title: "Keep me", open: false })
+    expect(await call("update_diagram", { id, deleted: true })).toMatchObject({ ok: false, code: "busy" })
+    expect((await eos.listDiagrams()).length).toBe(1)
+  })
+
   it("rejects bad input with a clear error instead of throwing", async () => {
     const { call } = await setup()
     const { id } = await call("create_diagram", { title: "T", source: "flowchart TD\n  A-->B", open: false })
@@ -223,7 +230,7 @@ describe("webmcp tools", () => {
     // A confirm that stays open until the call's signal aborts, like the in-page dialog.
     bridge.confirm = vi.fn(
       (_m: string, _a?: string, signal?: AbortSignal) =>
-        new Promise<boolean>((resolve) => signal?.addEventListener("abort", () => resolve(false)))
+        new Promise<"declined">((resolve) => signal?.addEventListener("abort", () => resolve("declined")))
     )
     const tools = Object.fromEntries(list.map((t) => [t.name, t]))
     const { id } = (await tools.create_diagram.execute({ title: "Keep", open: false })) as any
