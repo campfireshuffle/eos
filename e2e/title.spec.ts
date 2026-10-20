@@ -38,3 +38,16 @@ test("the Enter that confirms an IME candidate doesn't leave the title", async (
   await page.keyboard.press("Enter")
   await expect(title).not.toBeFocused()
 })
+
+test("code scrolled sideways passes under the line numbers, not through them", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const id = await newDiagram(page, "erDiagram\n  CUSTOMER ||--o{ ORDER : places " + "and more ".repeat(40))
+  await openEditor(page, id)
+  const gutter = page.locator(".cm-gutters").first()
+  const [own, panel] = await gutter.evaluate((el) => [
+    getComputedStyle(el).backgroundColor,
+    getComputedStyle(el.closest("section")!).backgroundColor,
+  ])
+  expect(own).toBe(panel)
+})

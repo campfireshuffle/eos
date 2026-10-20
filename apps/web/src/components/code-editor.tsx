@@ -30,7 +30,13 @@ const theme = EditorView.theme(
     "&": { height: "100%", fontSize: "var(--eos-fs-body)", backgroundColor: "transparent" },
     ".cm-scroller": { fontFamily: "var(--font-mono)", lineHeight: "1.72", padding: "14px 0" },
     ".cm-content": { caretColor: "var(--eos-body)" },
-    ".cm-gutters": { backgroundColor: "transparent", border: "none", color: "var(--eos-faint)", paddingLeft: "12px" },
+    // Opaque, since code scrolled sideways passes under it: the surface the editor sits on (a card by default).
+    ".cm-gutters": {
+      backgroundColor: "var(--editor-surface, var(--card))",
+      border: "none",
+      color: "var(--eos-faint)",
+      paddingLeft: "12px",
+    },
     // Room for two digits, so the code doesn't shift right when a diagram reaches line 10.
     ".cm-lineNumbers .cm-gutterElement": { padding: "0 14px 0 5px", minWidth: "calc(2ch + 19px)" },
     ".cm-activeLine": { backgroundColor: "transparent" },

@@ -188,7 +188,7 @@ function Theming() {
 
 function CssBox({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
   return (
-    <div className="flex min-h-[140px] flex-1 overflow-hidden rounded-lg border border-input bg-background/40 focus-within:border-ring">
+    <div className="flex min-h-[140px] flex-1 overflow-hidden rounded-lg border border-input bg-background/40 [--editor-surface:color-mix(in_srgb,var(--background)_40%,var(--popover))] focus-within:border-ring">
       <Suspense fallback={null}>
         <CodeEditor value={value} onChange={onChange} language="css" label={label} />
       </Suspense>
