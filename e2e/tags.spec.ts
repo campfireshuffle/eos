@@ -40,7 +40,8 @@ test("Enter in the Tags menu toggles the tag typed, not the first that contains 
     .first()
     .click({ modifiers: ["ControlOrMeta"] })
   await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Tags" }).click()
-  await page.getByPlaceholder("Find or create a tag").fill("work")
+  // As someone might type it: with a #, which saving drops.
+  await page.getByPlaceholder("Find or create a tag").fill("#work")
   await page.keyboard.press("Enter")
   const tagged = async () =>
     (await tool<{ diagrams: { id: string; tags: string[] }[] }>(page, "get_library")).diagrams.find(

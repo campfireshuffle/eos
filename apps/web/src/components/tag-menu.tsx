@@ -67,8 +67,11 @@ export function TagMenu({ ids }: { ids: string[] }) {
             if (e.key !== "Enter") return
             e.preventDefault()
             if (canCreate) create()
-            // The tag typed exactly, else the first match.
-            else if (matches.length) toggle((matches.find((t) => t.path === newTag) ?? matches[0]!).path)
+            else {
+              // The tag typed (as it would be saved), else the first match.
+              const t = all.find((t) => t.path === newTag) ?? matches[0]
+              if (t) toggle(t.path)
+            }
           }}
           className="mb-1"
         />
