@@ -414,7 +414,11 @@ export class Eos {
   }
 
   async restoreVersion(id: DiagramId, version: string, actor: Actor = USER) {
-    await this.mutate(id, actor, (d) => d.doc.revertTo(frontiersOf(d, version)))
+    const d = await this.openDiagram(id)
+    const frontiers = frontiersOf(d, version) // checked first, so an unknown version clears nothing
+    // The restore reverses edits still on the other actor's stack; undoing one would apply its reversal twice.
+    if (version !== encodeVersion(d.doc)) (actor.kind === "agent" ? d.undo : d.agentUndo).clear()
+    await this.mutate(id, actor, (e) => e.doc.revertTo(frontiers))
   }
 
   // ── Organisation ───────────────────────────────────────────────────────────
@@ -570,24 +574,26 @@ export class Eos {
     const { settings, workspace, diagrams } = typeof data === "string" ? readBackup(data) : data
     await this.batch(async () => {
       if (mode === "replace") await this.deleteAll({ reseed: false })
+      const rows = await this.db.getAll("diagrams")
+      const had = new Set(rows.map((r) => r.id))
+      const hadTags = new Set(rows.flatMap((r) => r.tagPrefixes))
+      let tagEmoji: Record<string, Value> = {}
       // Imported ops aren't local updates, so persistDoc neither saves nor broadcasts them:
       // each import below saves its doc whole and sends the ops to other tabs itself.
       if (workspace) {
         this.workspace.doc.import(workspace)
         await compact(this.db, WORKSPACE_ID, this.workspace.doc)
         this.broadcast({ type: "update", id: WORKSPACE_ID, bytes: workspace })
-        if (mode === "replace") {
-          // The wipe's deletes are newer than the backup's stars and emoji (always, for this
-          // library's own backup), so they'd win: set them again, as changes made now. Only the
-          // diagrams the backup brings get their stars back, so a star with no diagram stays gone.
-          const backup = new LoroDoc()
-          backup.import(workspace)
-          for (const { id } of diagrams) if (backup.getMap("starred").get(id)) this.workspace.starred.set(id, true)
-          for (const [tag, emoji] of Object.entries(backup.getMap("tagEmoji").toJSON() as Record<string, Value>))
-            this.workspace.tagEmoji.set(tag, emoji)
-          backup.free()
-          commit(this.workspace.doc, { kind: "import", source: "backup" })
-        }
+        // A wipe's deletes (this replace's, or an earlier Delete all's) are newer than the backup's
+        // stars and emoji, so they'd win: set them again, as changes made now, but only for the
+        // diagrams and tags the library didn't have, so those it has keep any change made since.
+        // Only the diagrams the backup brings get their stars back, so a star with no diagram stays gone.
+        const backup = new LoroDoc()
+        backup.import(workspace)
+        for (const { id } of diagrams) if (!had.has(id) && backup.getMap("starred").get(id)) this.workspace.starred.set(id, true)
+        tagEmoji = backup.getMap("tagEmoji").toJSON() as Record<string, Value>
+        backup.free()
+        commit(this.workspace.doc, { kind: "import", source: "backup" })
       }
       for (const { bytes, ...item } of diagrams) {
         // Something may be opening the diagram right now (e.g. an editor rebinding after the
@@ -611,6 +617,10 @@ export class Eos {
         }
         this.broadcast({ type: "update", id: item.id, bytes })
       }
+      // Emoji only for the tags the backup brought back, so a tag deleted since doesn't get its emoji again.
+      const tags = new Set((await this.db.getAll("diagrams")).flatMap((r) => r.tagPrefixes))
+      for (const [tag, emoji] of Object.entries(tagEmoji)) if (tags.has(tag) && !hadTags.has(tag)) this.workspace.tagEmoji.set(tag, emoji)
+      commit(this.workspace.doc, { kind: "import", source: "backup" })
       if (settings?.theme) await this.updateSettings({ theme: { ...this.settingsCache.theme, ...settings.theme } })
     })
   }
