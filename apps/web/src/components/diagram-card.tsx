@@ -55,10 +55,11 @@ export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramInde
           lastPointer.current = e.pointerType
           longPressed.current = false
         },
-        // A right-click is the desktop's long press. On touch the long press itself selects, so only the menu is stopped.
+        // A right-click is the desktop's long press. Where the long press itself selects (a touch press on a phone
+        // or tablet), only the menu is stopped; a touchscreen laptop has only this.
         onContextMenu: (e: React.MouseEvent) => {
           e.preventDefault()
-          if (lastPointer.current !== "touch") toggleSelected(row.id)
+          if (lastPointer.current !== "touch" || !coarsePointer) toggleSelected(row.id)
         },
         onKeyDown: (e: React.KeyboardEvent) => {
           // Space selects from the keyboard; Enter opens, or toggles while selecting, as a click does.
@@ -75,7 +76,7 @@ export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramInde
           }
           // ⌘/Ctrl/⇧-click is the browser's (a new tab or window), selecting or not. Otherwise, while
           // selecting, a click or tap adds or removes the card instead of opening it.
-          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || getSelection().size === 0) return
+          if (e.metaKey || e.ctrlKey || e.shiftKey || getSelection().size === 0) return
           e.preventDefault()
           toggleSelected(row.id)
         },

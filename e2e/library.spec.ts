@@ -66,7 +66,8 @@ test.describe("selecting", () => {
     await card(page, "Apple crumble").click({ button: "right" })
     await expect(page.getByText("3 selected")).toBeVisible()
     await card(page, "Apple crumble").click()
-    await card(page, "Pear crumble").click()
+    // ⌥-click isn't the browser's (WebKit would open the card in place), so it toggles like a plain click.
+    await card(page, "Pear crumble").click({ modifiers: ["Alt"] })
     await expect(page.getByText("1 selected")).toBeVisible()
     await expect(page).toHaveURL(/#\/$/)
 
@@ -127,8 +128,7 @@ test.describe("selecting", () => {
 test.describe("selecting on touch", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 
-  test("a long press starts selecting, and then taps add and remove cards", async ({ context, browserName }) => {
-    test.skip(browserName === "firefox", "Playwright gives Firefox no coarse pointer, which long press needs")
+  test("a long press starts selecting, and then taps add and remove cards", async ({ context }) => {
     await withAgentTools(context)
     const page = await context.newPage()
     await page.goto("/#/")

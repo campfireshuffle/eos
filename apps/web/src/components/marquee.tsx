@@ -32,7 +32,9 @@ export function Marquee({
       if (e.key === "Escape") clearSelection()
       // ⌘A in a text field selects its text.
       const typing = target.isContentEditable || target.closest?.("input, textarea, select")
-      if (e.key.toLowerCase() === "a" && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && !typing) {
+      // By the letter typed (A sits elsewhere on AZERTY), or by the key's place on a non-Latin layout.
+      const a = /^[a-z]$/i.test(e.key) ? e.key.toLowerCase() === "a" : e.code === "KeyA"
+      if (a && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && !typing) {
         e.preventDefault()
         // Every card rendered, scrolled into view or not; one row can show under several groups.
         setSelection([...root.current!.querySelectorAll<HTMLElement>("[data-card-id]")].map((card) => card.dataset.cardId!))
