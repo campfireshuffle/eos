@@ -46,10 +46,21 @@ export function setTags(meta: LoroMap, tags: TagPath[]) {
   tags.forEach((tag, i) => list.insert(i, tag))
 }
 
-/** Loads a doc from its snapshot plus any logged updates. */
-export async function loadDoc(db: Database, id: DiagramId): Promise<LoroDoc> {
+/**
+ * A new, empty diagram doc. Every commit keeps its own timestamp: Loro would otherwise merge a
+ * peer's commits with the same message for up to 1,000 seconds into one change, dated by the
+ * first, and history would show a later edit at an earlier time (history folds them itself).
+ */
+export function newDiagramDoc(): LoroDoc {
   const doc = new LoroDoc()
   doc.setRecordTimestamp(true)
+  doc.setChangeMergeInterval(0)
+  return doc
+}
+
+/** Loads a doc from its snapshot plus any logged updates. */
+export async function loadDoc(db: Database, id: DiagramId): Promise<LoroDoc> {
+  const doc = newDiagramDoc()
   // One transaction, so another tab's compact can't move the log into the snapshot between the reads.
   const tx = db.transaction(["snapshots", "updates"], "readonly")
   const [snapshot, updates] = await Promise.all([

@@ -16,6 +16,7 @@ import {
   lastChangeAt,
   loadDoc,
   metaOf,
+  newDiagramDoc,
   persistDoc,
   setTags,
   sourceOf,
@@ -257,8 +258,7 @@ export class Eos {
 
   async createDiagram(input: { title?: string; source?: string; tags?: string[] } = {}, actor: Actor = USER): Promise<DiagramId> {
     const id = crypto.randomUUID()
-    const doc = new LoroDoc()
-    doc.setRecordTimestamp(true)
+    const doc = newDiagramDoc()
     const meta = doc.getMap("meta")
     meta.set("title", input.title?.trim() || "Untitled")
     meta.set("createdAt", Date.now())

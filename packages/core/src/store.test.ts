@@ -88,6 +88,26 @@ describe("Eos store", () => {
     })
   })
 
+  it("dates an agent's edit by when it was made, however alike its commits are", async () => {
+    const eos = await fresh()
+    const agent: Actor = { kind: "agent", tool: "update_diagram", changes: ["source"] }
+    const start = Date.now()
+    vi.useFakeTimers({ toFake: ["Date"], now: start })
+    try {
+      const id = await eos.createDiagram({ source: "flowchart TD\n  A" }, agent)
+      await eos.editDiagram(id, { source: "flowchart TD\n  A --> B" }, agent)
+      vi.setSystemTime(start + 130_000)
+      await eos.editDiagram(id, { source: "flowchart TD\n  A --> B\n  classDef x fill:#f00" }, agent)
+      const h = await eos.history(id)
+      // Two entries more than 2 minutes apart, the newer one dated when it was made.
+      expect(h.length).toBe(2)
+      expect(h[0]!.at - h[1]!.at).toBeGreaterThanOrEqual(120_000)
+      expect(await eos.getSource(id, h[1]!.version)).toBe("flowchart TD\n  A --> B")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("rejects a version the diagram doesn't have, changing nothing", async () => {
     const eos = await fresh()
     const id = await eos.createDiagram({ source: "one" })
