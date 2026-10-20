@@ -86,8 +86,12 @@ function Theming() {
     // Wait a tick so the new mode's class is on <html> before reading the variables.
     const t = setTimeout(() => {
       const next = currentAppCss()
-      appDefault.current = next
-      setAppCss(next)
+      // Checked again here: anything typed in the meantime is kept.
+      setAppCss((cur) => {
+        if (cur !== appDefault.current) return cur
+        appDefault.current = next
+        return next
+      })
     })
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
