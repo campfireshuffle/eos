@@ -578,12 +578,13 @@ export class Eos {
         this.broadcast({ type: "update", id: WORKSPACE_ID, bytes: workspace })
         if (mode === "replace") {
           // The wipe's deletes are newer than the backup's stars and emoji (always, for this
-          // library's own backup), so they'd win: set them again, as changes made now.
+          // library's own backup), so they'd win: set them again, as changes made now. Only the
+          // diagrams the backup brings get their stars back, so a star with no diagram stays gone.
           const backup = new LoroDoc()
           backup.import(workspace)
-          for (const name of ["starred", "tagEmoji"] as const)
-            for (const [key, value] of Object.entries(backup.getMap(name).toJSON() as Record<string, Value>))
-              this.workspace[name].set(key, value)
+          for (const { id } of diagrams) if (backup.getMap("starred").get(id)) this.workspace.starred.set(id, true)
+          for (const [tag, emoji] of Object.entries(backup.getMap("tagEmoji").toJSON() as Record<string, Value>))
+            this.workspace.tagEmoji.set(tag, emoji)
           backup.free()
           commit(this.workspace.doc, { kind: "import", source: "backup" })
         }
@@ -1055,19 +1056,29 @@ function frontiersOf(d: Editable, version: string): Frontiers {
 /**
  * The edits that turn the text at version `base` into `source`, each placed where that
  * spot of text is now. Loro cursors map positions from the old text to the current one,
- * so changes made since `base` elsewhere in the text are kept.
+ * so changes made since `base` elsewhere in the text are kept. A removed range is pinned on
+ * its own first and last characters, so it never takes text typed since on either side of it.
  */
 function editsFromBase(d: Editable, base: string, source: string): TextChange[] {
   const old = d.doc.forkAt(frontiersOf(d, base)).getText("source")
-  // Where the gap before the old text's i-th character is now. It's anchored on that character,
-  // which, if deleted since, still maps to where it was, so text deleted on both sides isn't counted twice.
+  // Where the gap before the old text's i-th character is now (where it was, if deleted since).
   const gapBefore = (i: number) => (i >= old.length ? d.text.length : (d.doc.getCursorPos(old.getCursor(i)!)?.offset ?? i))
+  // Where the gap after the old text's `char`, at i, is now. Nothing is left of it if deleted since.
+  const gapAfter = (i: number, char: string) => {
+    const now = d.doc.getCursorPos(old.getCursor(i)!)
+    return now ? now.offset + (now.update ? 0 : char.length) : i + char.length
+  }
   const edits: TextChange[] = []
   let pos = 0
   for (const part of diffChars(old.toString(), source)) {
     if (part.added) edits.push({ from: gapBefore(pos), to: gapBefore(pos), insert: part.value })
     else {
-      if (part.removed) edits.push({ from: gapBefore(pos), to: gapBefore(pos + part.value.length), insert: "" })
+      if (part.removed) {
+        // By code point: a cursor can't sit on the second half of a surrogate pair.
+        const last = [...part.value].at(-1)!
+        const from = gapBefore(pos)
+        edits.push({ from, to: Math.max(from, gapAfter(pos + part.value.length - last.length, last)), insert: "" })
+      }
       pos += part.value.length
     }
   }

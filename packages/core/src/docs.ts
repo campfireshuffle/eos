@@ -50,9 +50,14 @@ export function setTags(meta: LoroMap, tags: TagPath[]) {
 export async function loadDoc(db: Database, id: DiagramId): Promise<LoroDoc> {
   const doc = new LoroDoc()
   doc.setRecordTimestamp(true)
-  const snapshot = await db.get("snapshots", id)
+  // One transaction, so another tab's compact can't move the log into the snapshot between the reads.
+  const tx = db.transaction(["snapshots", "updates"], "readonly")
+  const [snapshot, updates] = await Promise.all([
+    tx.objectStore("snapshots").get(id),
+    tx.objectStore("updates").index("byDiagram").getAll(id),
+    tx.done,
+  ])
   if (snapshot) doc.import(snapshot.bytes)
-  const updates = await db.getAllFromIndex("updates", "byDiagram", id)
   for (const u of updates) doc.import(u.bytes)
   return doc
 }

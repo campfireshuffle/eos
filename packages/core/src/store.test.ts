@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto"
 
-import { LoroDoc } from "loro-crdt"
+import { LoroDoc, type LoroMap } from "loro-crdt"
 import { describe, expect, it, vi } from "vitest"
 
 import { fromBase64, toBase64 } from "./base64"
@@ -52,7 +52,7 @@ describe("Eos store", () => {
     expect(await eos.getSource(id)).toBe("two")
   })
 
-  it("merges an edit from an older version where the person deleted the same text, or next to it", async () => {
+  it("merges an edit from an older version, keeping what the person deleted or typed next to what it removes", async () => {
     const eos = await fresh()
     // The text at the base, the person's text now, the edit made from the base, and the merge.
     const cases = [
@@ -64,6 +64,12 @@ describe("Eos store", () => {
       ],
       ["abcd", "acd", "abXcd", "aXcd"],
       ["line one\nline two", "line one\nline two\nperson's line", "LINE ONE\nline two", "LINE ONE\nline two\nperson's line"],
+      // As Loro merges the same edit made on a fork at the base.
+      ["abc", "abcX", "ab", "abX"],
+      ["hello world", "hello world!", "totally new", "totally new!"],
+      ["hello", "hello!", "", "!"],
+      ["abcd", "abXcd", "acd", "aXcd"],
+      ["a😀b", "a😀Xb", "ab", "aXb"],
     ] as const
     for (const [base, person, edit, merged] of cases) {
       const id = await eos.createDiagram({ source: base })
@@ -312,6 +318,31 @@ describe("durability", () => {
     const later = await Eos.create({ dbName: name, seed: false })
     await later.renameDiagram(id, "Renamed") // rewrites the index row from the saved stars
     expect((await later.listDiagrams())[0]?.starred).toBe(1)
+  })
+
+  it("opens a diagram whole while another tab compacts it", async () => {
+    const name = `open-mid-compact-${n++}`
+    const one = await Eos.create({ dbName: name, seed: false })
+    const id = await one.createDiagram({ source: "a" })
+    for (const s of ["ab", "abc"]) await one.setSource(id, s) // logged, not yet compacted
+    await settle()
+    const doc = (await one.openDiagram(id)).doc
+    const two = await Eos.create({ dbName: name, seed: false })
+    // The other tab compacts just as this one has read the snapshot, before it reads the log.
+    const get = IDBObjectStore.prototype.get
+    IDBObjectStore.prototype.get = function (this: IDBObjectStore, ...args: Parameters<IDBObjectStore["get"]>) {
+      const request = get.apply(this, args)
+      if (this.name === "snapshots" && args[0] === id && this.transaction.mode === "readonly") {
+        IDBObjectStore.prototype.get = get
+        request.addEventListener("success", () => void compact(dbOf(one), id, doc))
+      }
+      return request
+    }
+    try {
+      expect(await two.getSource(id)).toBe("abc")
+    } finally {
+      IDBObjectStore.prototype.get = get
+    }
   })
 
   it("keeps changes another tab saved that this one hasn't heard of when compacting", async () => {
@@ -729,6 +760,19 @@ describe("backup import", () => {
     expect((await later.listTags()).map((t) => t.emoji)).toEqual(["🔥"])
     await later.renameDiagram(id, "Renamed") // rewrites the index row from the saved stars
     expect((await later.listDiagrams())[0]?.starred).toBe(1)
+  })
+
+  it("brings back only the stars of diagrams the backup has when replacing the library", async () => {
+    const eos = await fresh()
+    const id = await eos.createDiagram({ source: "x" })
+    await eos.setStarred(id, true)
+    // A star whose diagram is gone, as an older version could leave behind.
+    const { workspace } = eos as unknown as { workspace: { doc: LoroDoc; starred: LoroMap } }
+    workspace.starred.set("no-such-diagram", true)
+    workspace.doc.commit()
+    await eos.importBackup(await eos.exportBackup(), "replace")
+    const saved = LoroDoc.fromSnapshot(fromBase64(JSON.parse(await eos.exportBackup()).workspace))
+    expect(saved.getMap("starred").toJSON()).toEqual({ [id]: true })
   })
 
   it("keeps whether a diagram is deleted when merging a backup, whether it's open or not", async () => {
