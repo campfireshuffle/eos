@@ -75,3 +75,12 @@ test("opening a diagram leaves the library where it was scrolled", async ({ cont
   await page.locator(".cm-content").waitFor()
   expect(scrolls).toEqual([])
 })
+
+test("the library's view controls stay put while the cards scroll", async ({ context }) => {
+  const { page, cards, scrollTo } = await library(context, "/?sort=title")
+  await expect(cards.first()).toContainText("Diagram 0")
+  const sort = page.getByRole("combobox", { name: "Sort" })
+  const before = (await sort.boundingBox())!.y
+  await scrollTo(600)
+  expect((await sort.boundingBox())!.y).toBe(before)
+})

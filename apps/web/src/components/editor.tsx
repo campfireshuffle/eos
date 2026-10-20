@@ -38,7 +38,7 @@ import { formatWhen, HistoryMenu } from "./history-menu"
 import { ExportMenu, useExportActions } from "./export-menu"
 import { Preview } from "./preview"
 import { ResizeHandle } from "./resize-handle"
-import { EmptyPage, Page, PageHeader, Panel } from "./page"
+import { EmptyPage, Page, PageHeader, Panel, PanelHeader } from "./page"
 
 export function Editor({ id }: { id: string }) {
   const [copied, copy] = useCopy()
@@ -330,15 +330,6 @@ function TitleInput({ value, onCommit }: { value: string; onCommit: (v: string) 
       onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
       className="field-sizing-content max-w-full min-w-[4ch] rounded-md bg-transparent px-1.5 py-1 outline-none hover:bg-accent/50 focus:bg-accent focus-visible:ring-1 focus-visible:ring-ring"
     />
-  )
-}
-
-function PanelHeader({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <header className="flex h-12 items-center gap-1 border-b border-border pr-2.5 pl-4">
-      <span className="flex-1 text-body">{title}</span>
-      {children}
-    </header>
   )
 }
 

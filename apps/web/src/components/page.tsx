@@ -27,6 +27,19 @@ export function PageHeader({ title, children }: { title?: ReactNode; children?: 
   )
 }
 
+/**
+ * A panel's header bar, above what scrolls in it: a title (or the panel's filters) on the left,
+ * the panel's controls on the right. On narrow screens the controls wrap onto a row of their own.
+ */
+export function PanelHeader({ title, children }: { title?: ReactNode; children?: ReactNode }) {
+  return (
+    <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-x-1 gap-y-1.5 border-b border-border py-1.5 pr-2.5 pl-4">
+      <div className="flex min-w-0 flex-1 items-center text-body">{title}</div>
+      {children}
+    </header>
+  )
+}
+
 /** The page's heading. It keeps its width, so the header's actions give way instead. */
 export function PageTitle({ children }: { children: ReactNode }) {
   return <h1 className="shrink-0 px-1.5 py-1 whitespace-nowrap">{children}</h1>

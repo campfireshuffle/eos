@@ -18,7 +18,7 @@ import { CardHint, DiagramCard } from "./diagram-card"
 import { Marquee } from "./marquee"
 import { SelectionBar } from "./selection-bar"
 import { Pill } from "./pill"
-import { Page, PageHeader, PageTitle, Panel } from "./page"
+import { Page, PageHeader, PageTitle, Panel, PanelHeader } from "./page"
 
 export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   const eos = useEos()
@@ -117,13 +117,10 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
       </div>
 
       <Panel className="flex min-h-0 flex-1 flex-col md:overflow-hidden">
-        <Marquee
-          scrollerRef={scroller}
-          className="eos-library-scroller flex flex-1 flex-col gap-5 p-4 md:min-h-0 md:overflow-y-auto md:p-6"
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Filter chips take their own row on narrow screens; the view controls stay right-aligned. */}
-            <div className="flex min-w-0 flex-1 basis-full flex-wrap items-center gap-2 empty:hidden sm:basis-0">
+        {/* Filters and view controls stay put above the cards, like the editor's panel headers. */}
+        <PanelHeader
+          title={
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               {route.starred && (
                 <Pill removeHref={homeHref({ ...route, starred: false })} removeLabel="Remove Starred filter">
                   Starred
@@ -135,30 +132,35 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
                 </Pill>
               )}
             </div>
-            <div className="ml-auto flex gap-2 max-sm:w-full">
-              <NativeSelect
-                value={route.group}
-                onChange={(e) => navigate(homeHref({ ...route, group: e.target.value as LibraryGroup }), { replace: true })}
-                className="w-[150px] shrink-0 max-sm:w-auto max-sm:flex-1"
-                aria-label="Group by"
-              >
-                <NativeSelectOption value="date">Group: Date</NativeSelectOption>
-                <NativeSelectOption value="subtag">Group: Subtag</NativeSelectOption>
-                <NativeSelectOption value="none">Group: None</NativeSelectOption>
-              </NativeSelect>
-              <NativeSelect
-                value={route.sort}
-                onChange={(e) => navigate(homeHref({ ...route, sort: e.target.value as LibrarySort }), { replace: true })}
-                className="w-[150px] shrink-0 max-sm:w-auto max-sm:flex-1"
-                aria-label="Sort"
-              >
-                <NativeSelectOption value="modified">Sort: Modified</NativeSelectOption>
-                <NativeSelectOption value="created">Sort: Created</NativeSelectOption>
-                <NativeSelectOption value="title">Sort: Title</NativeSelectOption>
-              </NativeSelect>
-            </div>
+          }
+        >
+          <div className="ml-auto flex gap-2 max-sm:w-full">
+            <NativeSelect
+              value={route.group}
+              onChange={(e) => navigate(homeHref({ ...route, group: e.target.value as LibraryGroup }), { replace: true })}
+              className="w-[150px] shrink-0 max-sm:w-auto max-sm:flex-1"
+              aria-label="Group by"
+            >
+              <NativeSelectOption value="date">Group: Date</NativeSelectOption>
+              <NativeSelectOption value="subtag">Group: Subtag</NativeSelectOption>
+              <NativeSelectOption value="none">Group: None</NativeSelectOption>
+            </NativeSelect>
+            <NativeSelect
+              value={route.sort}
+              onChange={(e) => navigate(homeHref({ ...route, sort: e.target.value as LibrarySort }), { replace: true })}
+              className="w-[150px] shrink-0 max-sm:w-auto max-sm:flex-1"
+              aria-label="Sort"
+            >
+              <NativeSelectOption value="modified">Sort: Modified</NativeSelectOption>
+              <NativeSelectOption value="created">Sort: Created</NativeSelectOption>
+              <NativeSelectOption value="title">Sort: Title</NativeSelectOption>
+            </NativeSelect>
           </div>
-
+        </PanelHeader>
+        <Marquee
+          scrollerRef={scroller}
+          className="eos-library-scroller flex flex-1 flex-col gap-5 p-4 md:min-h-0 md:overflow-y-auto md:p-6"
+        >
           {rows && rows.length === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 text-body text-muted-foreground">
               {/* An empty library just shows the button; filters and Deleted say why nothing is listed. */}
