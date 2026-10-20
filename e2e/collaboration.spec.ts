@@ -56,6 +56,20 @@ test("redo in one tab reaches the other", async () => {
   await expectEditor(b, "A first second")
 })
 
+test("typing after an undone deletion carries on after the restored text", async () => {
+  await openInBoth("")
+  await cursorAtEndOf(a, 0)
+  await a.keyboard.type("hello")
+  // Past the store's 800ms undo grouping, so ⌘Z undoes only the deletion.
+  await a.waitForTimeout(1000)
+  for (let i = 0; i < 3; i++) await a.keyboard.press("Backspace")
+  await expectEditor(a, "he")
+  await a.keyboard.press("ControlOrMeta+z")
+  await expectEditor(a, "hello")
+  await a.keyboard.type("X")
+  await expectEditor(a, "helloX")
+})
+
 test("an agent's edit merges with typing done after the version it read", async () => {
   const id = await openInBoth("flowchart TD\n  A --> B")
   // The agent works through tab b; the person types in tab a.
