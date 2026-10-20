@@ -1,6 +1,6 @@
 import { Check, Star } from "lucide-react"
 import { memo, useEffect, useMemo, useRef, useState } from "react"
-import { useLongPress } from "react-aria"
+import { mergeProps, useLongPress } from "react-aria"
 
 import { renderSvg, type DiagramIndexRow } from "@eos/core"
 
@@ -21,7 +21,6 @@ export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramInde
   const lastPointer = useRef<string>("mouse")
   // Touch only: on desktop the card drags natively and a right-click selects.
   const { longPressProps } = useLongPress({
-    isDisabled: !coarsePointer,
     threshold: LONG_PRESS_MS,
     onLongPress: (e) => {
       if (e.pointerType !== "touch") return
@@ -37,37 +36,39 @@ export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramInde
       data-card-id={row.id}
       // On touch, a long press selects instead of starting a native drag.
       draggable={!coarsePointer}
-      onDragStart={(e) => startCardDrag(e, row.id)}
-      {...longPressProps}
-      // Runs before React Aria's handler (capture), so a long press always starts fresh.
-      onPointerDownCapture={(e) => {
-        lastPointer.current = e.pointerType
-        longPressed.current = false
-      }}
-      // A right-click is the desktop's long press. On touch the long press itself selects, so only the menu is stopped.
-      onContextMenu={(e) => {
-        e.preventDefault()
-        if (lastPointer.current !== "touch") toggleSelected(row.id)
-      }}
-      onKeyDown={(e) => {
-        // Space selects from the keyboard; Enter opens, or toggles while selecting, as a click does.
-        if (e.key !== " " || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return
-        e.preventDefault()
-        toggleSelected(row.id)
-      }}
-      onClick={(e) => {
-        if (longPressed.current) {
-          // The long press already selected the card; don't also open it.
-          e.preventDefault()
+      // Merged so React Aria's handlers don't replace ours. Left out on desktop, where a disabled press cancels every click.
+      {...mergeProps(coarsePointer ? longPressProps : {}, {
+        onDragStart: (e: React.DragEvent) => startCardDrag(e, row.id),
+        // Runs before React Aria's handler (capture), so a long press always starts fresh.
+        onPointerDownCapture: (e: React.PointerEvent) => {
+          lastPointer.current = e.pointerType
           longPressed.current = false
-          return
-        }
-        // ⌘/Ctrl/⇧-click is the browser's (a new tab or window), selecting or not. Otherwise, while
-        // selecting, a click or tap adds or removes the card instead of opening it.
-        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || getSelection().size === 0) return
-        e.preventDefault()
-        toggleSelected(row.id)
-      }}
+        },
+        // A right-click is the desktop's long press. On touch the long press itself selects, so only the menu is stopped.
+        onContextMenu: (e: React.MouseEvent) => {
+          e.preventDefault()
+          if (lastPointer.current !== "touch") toggleSelected(row.id)
+        },
+        onKeyDown: (e: React.KeyboardEvent) => {
+          // Space selects from the keyboard; Enter opens, or toggles while selecting, as a click does.
+          if (e.key !== " " || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return
+          e.preventDefault()
+          toggleSelected(row.id)
+        },
+        onClick: (e: React.MouseEvent) => {
+          if (longPressed.current) {
+            // The long press already selected the card; don't also open it.
+            e.preventDefault()
+            longPressed.current = false
+            return
+          }
+          // ⌘/Ctrl/⇧-click is the browser's (a new tab or window), selecting or not. Otherwise, while
+          // selecting, a click or tap adds or removes the card instead of opening it.
+          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || getSelection().size === 0) return
+          e.preventDefault()
+          toggleSelected(row.id)
+        },
+      })}
       className={cn(
         "group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors select-none [-webkit-touch-callout:none] hover:border-[var(--eos-line-active)]",
         selected && "border-[var(--eos-champagne)] ring-1 ring-[var(--eos-champagne)] hover:border-[var(--eos-champagne)]"
