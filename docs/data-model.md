@@ -183,8 +183,11 @@ interface DiagramIndexRow {
 
 ### Write path
 
-1. `doc.subscribeLocalUpdates(bytes => …)` fires after each local commit. Batch the update bytes and write them in one transaction about every 300 ms (and on `pagehide`). The same transaction appends each blob to `updates` and upserts the `diagrams` row.
-2. Updates that arrive from other tabs (§5) are **not** persisted by the receiving tab. The tab that wrote them already did, so the log never holds duplicates. Importing an update twice is harmless anyway, because Loro dedupes by op id.
+1. `doc.subscribeLocalUpdates(bytes => …)` fires after each local commit, and each update is appended to `updates` as it comes, one write after another (`persistDoc` in `docs.ts`). If a write fails, the log is missing an update that every later one builds on, so the next write saves a full snapshot instead (see Compaction), or sooner on `pagehide` or when the tab is hidden. A diagram's queued writes are dropped when it is closed, which only a delete does.
+2. The `diagrams` row is rewritten separately, after each change. While someone is typing it waits for a 300 ms pause, and a pending rewrite runs at once on `pagehide` or when the tab is hidden. A new diagram's snapshot and row are written in one transaction, so neither exists without the other.
+3. Imported ops (a backup restored or merged) aren't local updates, so `subscribeLocalUpdates` never sees them. The import saves each doc it changes as a full snapshot and posts the imported bytes as an `update` (§5) itself.
+4. Delete all clears the workspace doc's saved history along with everything else, so the change that unstars and drops tag emoji is saved as a full snapshot too. Logged on its own, it would build on history no longer on disk.
+5. Updates that arrive from other tabs (§5) are **not** persisted by the receiving tab. The tab that wrote them already did, so the log never holds duplicates. Importing an update twice is harmless anyway, because Loro dedupes by op id.
 
 ### Read path
 
@@ -203,16 +206,17 @@ async function openDiagram(id: DiagramId): Promise<LoroDoc> {
 
 ### Compaction
 
-Compact a diagram once its log has more than 200 entries, checked after each write (`persistDoc` in `docs.ts`).
+Compact a diagram once its log has more than 200 entries, checked after each write (`persistDoc` in `docs.ts`). The same step saves a doc after a failed write, after an import and after Delete all (the workspace). Given an index row, it also writes that row, which is how a new diagram and an imported diagram that isn't open are saved.
 
-To compact, in one `readwrite` transaction over `snapshots` + `updates`:
+To compact, in one `readwrite` transaction over `snapshots` + `updates` (+ `diagrams`, only when a row is given):
 
 ```ts
+doc.importBatch([savedSnapshot, ...loggedUpdates]) // both read inside the transaction
 await tx.objectStore("snapshots").put({ id, bytes: doc.export({ mode: "snapshot" }), savedAt: Date.now() }) // full history kept
-// then delete that diagram's log rows, read inside the same transaction, so none written meanwhile are lost
+// then delete the log rows read above
 ```
 
-Two tabs may both compact. That is safe: the transaction makes the snapshot and the deletes atomic, and every snapshot contains all ops the tab has seen.
+Two tabs may both compact. That is safe: the transaction makes the reads, the snapshot and the deletes atomic, and the snapshot holds everything already saved as well as everything the tab has seen. Another tab's change that hasn't arrived over the channel yet is taken in from disk instead of being dropped with the log.
 
 Full history is kept forever. We do not use `{ mode: "shallow-snapshot" }`, because Mermaid sources are small and history is a feature. If size becomes a problem, add an explicit "Trim history" action that exports `shallow-snapshot` at a chosen frontier (see Open questions).
 
@@ -364,7 +368,7 @@ interface SyncMessage {
 }
 ```
 
-- `update` (`id`, `bytes`): a local change to a diagram, or to the workspace doc (`id: "__workspace"`). `subscribeLocalUpdates(bytes)` posts it as the write to IndexedDB (§2) is queued. A receiving tab calls `doc.import(bytes)` if it has that doc open and does not persist the bytes; a tab without it open reads it from disk when it opens it.
+- `update` (`id`, `bytes`): a local change to a diagram, or to the workspace doc (`id: "__workspace"`). `subscribeLocalUpdates(bytes)` posts it as the write to IndexedDB (§2) is queued; a backup import posts each doc's imported bytes once it has saved them. A receiving tab calls `doc.import(bytes)` if it has that doc open and does not persist the bytes; a tab without it open reads it from disk when it opens it.
 - `index` (`id`): a `diagrams` row changed, so other tabs refresh their grid and tag tree.
 - `settings`: settings changed; other tabs re-read them.
 - `close` (`id?`): a diagram was purged, or with no `id` every diagram was deleted. Other tabs close their open copies so they stop saving edits to data that is gone.
@@ -400,16 +404,8 @@ async function encodeShare(p: SharePayload): Promise<string> {
 
 ## 7. Storage persistence
 
-```ts
-async function ensurePersisted(): Promise<boolean> {
-  if (!navigator.storage?.persist) return false
-  if (await navigator.storage.persisted()) return true
-  return navigator.storage.persist()
-}
-```
-
-- Call `ensurePersisted()` once, after the first diagram is created. Browsers grant this more readily after user engagement (Firefox shows a prompt, while Chromium decides heuristically).
-- Store the result in `settings.app.persist`. If the request was denied, show a one-line note in Settings (not a modal), for example "Browser may clear diagrams under storage pressure — export important ones." There is still no storage-management UI.
+- `Eos.requestPersistence()` calls `navigator.storage.persist()`. The app calls it once per page load, on the first change to the library (`main.tsx`), whether made in this tab or heard from another. The sample diagrams are seeded before it starts listening, so they don't count. Browsers grant this more readily after user engagement (Firefox shows a prompt, while Chromium decides heuristically, and refuses early requests).
+- The result isn't stored or shown anywhere. `Eos.storageUsage()` reports whether storage is persisted, but there is no storage-management UI.
 
 ## 8. Settings record
 
@@ -426,7 +422,6 @@ interface AppSettings {
     /** Optional raw CSS appended after overrides, scoped to the Pele renderer root. */
     customCss?: string
   }
-  persist: "granted" | "denied" | "unknown"
   lastOpenedId?: DiagramId
   library: { sort: LibrarySort }
   agent: { webmcpEnabled: boolean }

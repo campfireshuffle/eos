@@ -1,9 +1,11 @@
 import "fake-indexeddb/auto"
 
 import { LoroDoc } from "loro-crdt"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { fromBase64, toBase64 } from "./base64"
+import { openEosDB, type Database } from "./db"
+import { compact, loadDoc } from "./docs"
 import { decodeShare, encodeShare } from "./share"
 import { Eos, UnknownVersionError } from "./store"
 import type { TextChange } from "./types"
@@ -166,6 +168,169 @@ describe("Eos store", () => {
     const b = await fresh()
     await b.importBackup(backup, "merge")
     expect(await b.getSource(id)).toBe("z")
+  })
+})
+
+describe("durability", () => {
+  const settle = () => new Promise((r) => setTimeout(r, 50))
+  const dbOf = (eos: Eos) => (eos as unknown as { db: Database }).db
+  /** Aborts writes to `store`, as a full disk would: just the next one, or every one until the returned restore. */
+  function failWrites(method: "add" | "put", store: string, { once = false } = {}) {
+    const original = IDBObjectStore.prototype[method]
+    const restore = () => (IDBObjectStore.prototype[method] = original)
+    IDBObjectStore.prototype[method] = function (this: IDBObjectStore, ...args: Parameters<IDBObjectStore["put"]>) {
+      const request = original.apply(this, args)
+      if (this.name === store) {
+        this.transaction.abort()
+        if (once) restore()
+      }
+      return request
+    }
+    return restore
+  }
+
+  it("keeps every later edit after one change fails to save", async () => {
+    const name = `failed-write-${n++}`
+    const eos = await Eos.create({ dbName: name, seed: false })
+    const id = await eos.createDiagram({ source: "A" })
+    await eos.setSource(id, "AB")
+    await settle()
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    failWrites("add", "updates", { once: true })
+    await eos.setSource(id, "ABC") // fails to save
+    await settle()
+    await eos.setSource(id, "ABCD")
+    await eos.setSource(id, "ABCDE")
+    await settle()
+    expect(error).toHaveBeenCalledOnce()
+    error.mockRestore()
+    const later = await Eos.create({ dbName: name, seed: false })
+    expect(await later.getSource(id)).toBe("ABCDE")
+  })
+
+  it("saves a change that failed to save when the page goes away", async () => {
+    const name = `failed-last-${n++}`
+    const eos = await Eos.create({ dbName: name, seed: false })
+    const id = await eos.createDiagram({ source: "A" })
+    await settle()
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    failWrites("add", "updates", { once: true })
+    await eos.setSource(id, "AB") // fails to save, and no edit follows
+    await settle()
+    expect(error).toHaveBeenCalledOnce()
+    error.mockRestore()
+    ;(eos as unknown as { saveNow(): void }).saveNow() // what pagehide and hiding the tab run
+    await settle()
+    const later = await Eos.create({ dbName: name, seed: false })
+    expect(await later.getSource(id)).toBe("AB")
+  })
+
+  it("saves the stars and tag emoji a backup brings in", async () => {
+    const a = await fresh()
+    const id = await a.createDiagram({ source: "x", tags: ["work"] })
+    await a.setStarred(id, true)
+    await a.setTagEmoji("work", "🔥")
+    const backup = await a.exportBackup()
+    for (const mode of ["replace", "merge"] as const) {
+      const name = `backup-workspace-${mode}-${n++}`
+      await (await Eos.create({ dbName: name, seed: false })).importBackup(backup, mode)
+      await settle()
+      const later = await Eos.create({ dbName: name, seed: false })
+      expect((await later.listTags()).map((t) => t.emoji)).toEqual(["🔥"])
+      await later.renameDiagram(id, "Renamed") // rewrites the index row from the saved stars
+      expect((await later.listDiagrams())[0]?.starred).toBe(1)
+    }
+  })
+
+  it("saves what a backup merges into a diagram that's open", async () => {
+    const name = `backup-open-${n++}`
+    const eos = await Eos.create({ dbName: name, seed: false })
+    const id = await eos.createDiagram({ source: "base" })
+    // A backup of the same diagram, edited elsewhere. Exporting opens the diagram here.
+    const backup = JSON.parse(await eos.exportBackup()) as { diagrams: { snapshot: string }[] }
+    const elsewhere = LoroDoc.fromSnapshot(fromBase64(backup.diagrams[0]!.snapshot))
+    elsewhere.getText("source").insert(4, " + edit from elsewhere")
+    elsewhere.commit()
+    backup.diagrams[0]!.snapshot = toBase64(elsewhere.export({ mode: "snapshot" }))
+    await eos.importBackup(JSON.stringify(backup), "merge")
+    await settle()
+    const later = await Eos.create({ dbName: name, seed: false })
+    expect(await later.getSource(id)).toBe("base + edit from elsewhere")
+  })
+
+  it("shows what a backup brings in to other tabs that have it open", async () => {
+    const name = `backup-tabs-${n++}`
+    const eos = await Eos.create({ dbName: name, seed: false })
+    const id = await eos.createDiagram({ source: "base" })
+    const other = await Eos.create({ dbName: name, seed: false })
+    expect(await other.getSource(id)).toBe("base") // open there too
+    const backup = JSON.parse(await eos.exportBackup()) as { diagrams: { snapshot: string }[] }
+    const elsewhere = LoroDoc.fromSnapshot(fromBase64(backup.diagrams[0]!.snapshot))
+    elsewhere.getText("source").insert(4, "!")
+    elsewhere.commit()
+    backup.diagrams[0]!.snapshot = toBase64(elsewhere.export({ mode: "snapshot" }))
+    await eos.importBackup(JSON.stringify(backup), "merge")
+    await settle()
+    expect(await other.getSource(id)).toBe("base!")
+  })
+
+  it("keeps stars set after everything is deleted", async () => {
+    const name = `delete-all-${n++}`
+    const eos = await Eos.create({ dbName: name, seed: false })
+    await eos.setStarred(await eos.createDiagram({ source: "old" }), true)
+    await eos.deleteAll()
+    const id = await eos.createDiagram({ source: "new" })
+    await eos.setStarred(id, true)
+    await settle()
+    const later = await Eos.create({ dbName: name, seed: false })
+    await later.renameDiagram(id, "Renamed") // rewrites the index row from the saved stars
+    expect((await later.listDiagrams())[0]?.starred).toBe(1)
+  })
+
+  it("keeps changes another tab saved that this one hasn't heard of when compacting", async () => {
+    const db = await openEosDB(`compact-${n++}`)
+    const id = "d"
+    const here = new LoroDoc()
+    here.getText("source").insert(0, "base")
+    here.commit()
+    await compact(db, id, here)
+    // Another tab, whose updates never reach this one: it compacts, then logs one more.
+    const there = new LoroDoc()
+    there.importBatch([(await db.get("snapshots", id))!.bytes])
+    there.getText("source").insert(4, " one")
+    there.commit()
+    await compact(db, id, there)
+    const before = there.version()
+    there.getText("source").insert(8, " two")
+    there.commit()
+    await db.add("updates", { id, bytes: there.export({ mode: "update", from: before }), at: Date.now() })
+    await compact(db, id, here)
+    expect((await loadDoc(db, id)).getText("source").toString()).toBe("base one two")
+  })
+
+  it("saves a new diagram whole or not at all", async () => {
+    const eos = await fresh()
+    const restore = failWrites("put", "diagrams")
+    try {
+      await expect(eos.createDiagram({ source: "x" })).rejects.toThrow()
+    } finally {
+      restore()
+    }
+    expect(await dbOf(eos).count("snapshots")).toBe(0)
+  })
+
+  it("imports a backup's diagram whole or not at all", async () => {
+    const a = await fresh()
+    const id = await a.createDiagram({ source: "x" })
+    const backup = await a.exportBackup()
+    const eos = await fresh()
+    const restore = failWrites("put", "diagrams")
+    try {
+      await expect(eos.importBackup(backup, "merge")).rejects.toThrow()
+    } finally {
+      restore()
+    }
+    expect(await dbOf(eos).get("snapshots", id)).toBeUndefined()
   })
 })
 

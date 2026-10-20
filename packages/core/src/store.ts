@@ -7,6 +7,7 @@ import { openEosDB, WORKSPACE_ID, type Database, type OpenHooks } from "./db"
 import {
   actorOrigin,
   commit,
+  compact,
   decodeVersion,
   DETAILS,
   deleteDocData,
@@ -19,6 +20,7 @@ import {
   setTags,
   sourceOf,
   type DiagramDoc,
+  type Persisted,
 } from "./docs"
 import { SAMPLES } from "./samples"
 import { searchRows } from "./search"
@@ -63,6 +65,7 @@ interface OpenDiagram extends DiagramDoc {
    * undo or redo runs, `stepping` is the burst of the steps it moves, which they keep.
    */
   burst: { count: number; lastEdit: number; stepping: Value | undefined }
+  persisted: Persisted
 }
 
 /** Whose undo stack to use. */
@@ -72,6 +75,7 @@ interface Workspace {
   doc: LoroDoc
   starred: LoroMap
   tagEmoji: LoroMap
+  persisted: Persisted
 }
 
 interface SyncMessage {
@@ -102,13 +106,16 @@ export class Eos {
   static async create(options: { dbName?: string; seed?: boolean } & OpenHooks = {}): Promise<Eos> {
     const db = await openEosDB(options.dbName, options)
     const doc = await loadDoc(db, WORKSPACE_ID)
-    const workspace = { doc, starred: doc.getMap("starred"), tagEmoji: doc.getMap("tagEmoji") }
-    const eos = new Eos(db, workspace)
-    persistDoc(db, WORKSPACE_ID, doc, (bytes) => eos.broadcast({ type: "update", id: WORKSPACE_ID, bytes }))
+    // Only a commit runs this callback, and only eos's methods commit the workspace, so eos is set by then.
+    const persisted = persistDoc(db, WORKSPACE_ID, doc, (bytes) => eos.broadcast({ type: "update", id: WORKSPACE_ID, bytes }))
+    const eos = new Eos(db, { doc, starred: doc.getMap("starred"), tagEmoji: doc.getMap("tagEmoji"), persisted })
     eos.settingsCache = withDefaults(await db.get("settings", "app"))
     eos.listenToOtherTabs()
-    // Save a pending index refresh if the tab is closed mid-typing.
-    if (typeof addEventListener === "function") addEventListener("pagehide", () => eos.flushIndex())
+    // Save what's pending if the tab is closed, or hidden: a mobile browser may discard a
+    // hidden tab without a pagehide.
+    if (typeof addEventListener === "function") addEventListener("pagehide", () => eos.saveNow())
+    if (typeof document !== "undefined")
+      document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && eos.saveNow())
     await eos.backfillSearchText()
     if (options.seed !== false && (await db.count("diagrams")) === 0) {
       for (const s of SAMPLES) await eos.createDiagram(s, { kind: "system", reason: "seed" })
@@ -184,8 +191,7 @@ export class Eos {
     setTags(meta, normalizeTags(input.tags ?? []))
     doc.getText("source").insert(0, input.source ?? "flowchart TD\n  A[Start] --> B[End]\n")
     commit(doc, actor)
-    await this.db.put("snapshots", { id, bytes: doc.export({ mode: "snapshot" }), savedAt: Date.now() })
-    await this.writeIndex(id, doc)
+    await compact(this.db, id, doc, this.indexRow(id, doc))
     this.emit("library")
     this.broadcast({ type: "index", id })
     return id
@@ -468,20 +474,29 @@ export class Eos {
   async importBackup(data: string | Backup, mode: "merge" | "replace") {
     const { settings, workspace, diagrams } = typeof data === "string" ? readBackup(data) : data
     if (mode === "replace") await this.deleteAll({ reseed: false })
-    if (workspace) this.workspace.doc.import(workspace)
+    // Imported ops aren't local updates, so persistDoc neither saves nor broadcasts them:
+    // each import below saves its doc whole and sends the ops to other tabs itself.
+    if (workspace) {
+      this.workspace.doc.import(workspace)
+      await compact(this.db, WORKSPACE_ID, this.workspace.doc)
+      this.broadcast({ type: "update", id: WORKSPACE_ID, bytes: workspace })
+    }
     for (const { bytes, ...item } of diagrams) {
       // Something may be opening the diagram right now (e.g. an editor rebinding after the
       // wipe above); an open that failed because it wasn't there yet just means "not open".
       const d = await this.open.get(item.id)?.catch(() => undefined)
       if (d) {
         d.doc.import(bytes)
+        // The snapshot exists already, so saving it apart from the index row (in afterChange,
+        // like any edit) can't leave a diagram the library doesn't list.
+        await compact(this.db, item.id, d.doc)
         await this.afterChange(item.id, d)
       } else {
         const existing = await loadDoc(this.db, item.id)
         existing.import(bytes)
-        await this.db.put("snapshots", { id: item.id, bytes: existing.export({ mode: "snapshot" }), savedAt: Date.now() })
-        await this.writeIndex(item.id, existing, item.deletedAt ?? undefined)
+        await compact(this.db, item.id, existing, this.indexRow(item.id, existing, item.deletedAt ?? undefined))
       }
+      this.broadcast({ type: "update", id: item.id, bytes })
     }
     if (settings) await this.updateSettings(settings as Partial<AppSettings>)
     this.emit("library")
@@ -501,6 +516,8 @@ export class Eos {
     for (const key of this.workspace.starred.keys()) this.workspace.starred.delete(key)
     for (const key of this.workspace.tagEmoji.keys()) this.workspace.tagEmoji.delete(key)
     commit(this.workspace.doc, { kind: "system", reason: "delete-all" })
+    // The wipe took the workspace's saved history too, which that change builds on: save it whole.
+    await compact(this.db, WORKSPACE_ID, this.workspace.doc)
     this.broadcast({ type: "close" })
     if (reseed) for (const s of SAMPLES) await this.createDiagram(s, { kind: "system", reason: "seed" })
     this.emit("library")
@@ -567,7 +584,7 @@ export class Eos {
           maxUndoSteps: 200,
           excludeOriginPrefixes: ["user", "import", "system", DETAILS],
         })
-        const stop = persistDoc(this.db, id, doc, (bytes) => this.broadcast({ type: "update", id, bytes }))
+        const persisted = persistDoc(this.db, id, doc, (bytes) => this.broadcast({ type: "update", id, bytes }))
         return {
           id,
           doc,
@@ -576,12 +593,13 @@ export class Eos {
           undo,
           agentUndo,
           burst,
-          // Only deletes close a diagram, so a pending index refresh is dropped, not run, and
-          // nothing is compacted (either could write the diagram back after the delete).
+          persisted,
+          // Only deletes close a diagram, so a pending index refresh and any queued writes are
+          // dropped, not run (either could write the diagram back after the delete).
           dispose: () => {
             clearTimeout(this.indexTimers.get(id)?.timer)
             this.indexTimers.delete(id)
-            stop()
+            persisted.stop()
             this.closed.get(id)?.forEach((listener) => listener())
             this.closed.delete(id)
           },
@@ -638,6 +656,21 @@ export class Eos {
     this.indexTimers.set(id, { timer: setTimeout(run, INDEX_MS), run })
   }
 
+  /**
+   * When the page goes away: retries a failed write instead of waiting for the next edit,
+   * then refreshes pending index rows. The docs go first, as the index can be rebuilt from them.
+   */
+  private saveNow() {
+    this.workspace.persisted.retry()
+    const opened = [...this.open.values()].map((p) =>
+      p.then(
+        (d) => d.persisted.retry(),
+        () => {}
+      )
+    )
+    void Promise.all(opened).then(() => this.flushIndex())
+  }
+
   /** Runs a pending index refresh now (before closing a diagram, or when the page goes away). */
   flushIndex(id?: DiagramId) {
     for (const [key, pending] of [...this.indexTimers]) {
@@ -649,16 +682,16 @@ export class Eos {
 
   private async afterChange(id: DiagramId, d: DiagramDoc) {
     const row = await this.db.get("diagrams", id)
-    await this.writeIndex(id, d.doc, row?.deletedAt)
+    await this.db.put("diagrams", this.indexRow(id, d.doc, row?.deletedAt))
     this.emit("library", `diagram:${id}`)
     this.broadcast({ type: "index", id })
   }
 
-  private async writeIndex(id: DiagramId, doc: LoroDoc, deletedAt?: number) {
+  private indexRow(id: DiagramId, doc: LoroDoc, deletedAt?: number): DiagramIndexRow {
     const d = { text: doc.getText("source"), meta: doc.getMap("meta") }
     const meta = metaOf(d)
     const source = sourceOf(d)
-    const row: DiagramIndexRow = {
+    return {
       id,
       title: meta.title,
       tags: meta.tags,
@@ -671,7 +704,6 @@ export class Eos {
       sourceText: source,
       ...(deletedAt ? { deletedAt } : {}),
     }
-    await this.db.put("diagrams", row)
   }
 
   /** Rows written before search covered full contents only have a preview; fill them in once. */
