@@ -14,7 +14,8 @@ export type Search = (rows: DiagramIndexRow[], query: string) => Promise<Diagram
  * returns only the matches among the rows it's given (the ones the other filters kept).
  */
 export async function searchIndex(all: DiagramIndexRow[]): Promise<Search> {
-  // Building takes a while (about 70ms for 1000 diagrams), so let the keystroke that asked for it paint first.
+  // Building takes a while (about 70ms for 1000 diagrams). Start it in a task of its own, so the
+  // keystroke that asked for it can finish its own work first (the browser may paint in between).
   await new Promise((resolve) => setTimeout(resolve))
   const db = create({ schema: { id: "string", title: "string", source: "string" } as const })
   await insertMultiple(

@@ -370,7 +370,7 @@ interface SyncMessage {
 ```
 
 - `update` (`id`, `bytes`): a local change to a diagram, or to the workspace doc (`id: "__workspace"`). `subscribeLocalUpdates(bytes)` posts it as the write to IndexedDB (§2) is queued; a backup import posts each doc's imported bytes once it has saved them. A receiving tab calls `doc.import(bytes)` if it has that doc open and does not persist the bytes; a tab without it open reads it from disk when it opens it. A diagram's update doesn't refresh the library, whose row changes only with the `index` that follows; the workspace's does (stars, tag emoji).
-- `index` (`ids`): these `diagrams` rows changed, so other tabs refresh their grid and tag tree. A change to many diagrams (renaming a tag, a bulk star or delete, a backup import) sends one, listing them all (`Eos.batch`).
+- `index` (`ids`): these `diagrams` rows changed, so other tabs refresh their grid and tag tree. A change to many diagrams (renaming a tag, a bulk star or delete, a backup import) sends one, listing them all.
 - `settings`: settings changed; other tabs re-read them.
 - `close` (`id?`): a diagram was purged, or with no `id` every diagram was deleted. Other tabs close their open copies so they stop saving edits to data that is gone.
 

@@ -474,7 +474,7 @@ describe("library events and reads", () => {
     await eos.deleteTag("home")
     await settle()
     expect([here.library, there.library]).toEqual([2, 2])
-    await eos.batch(() => Promise.all(ids.map((id) => eos.deleteDiagram(id))))
+    await eos.deleteDiagram(ids)
     await settle()
     expect([here.library, there.library]).toEqual([3, 3])
     expect((await other.listDiagrams({ deleted: true })).every((r) => r.tags.join() === "job/x")).toBe(true)
@@ -578,6 +578,65 @@ describe("library events and reads", () => {
     const backup = JSON.parse(await fresh2.exportBackup()) as { diagrams: unknown[] }
     expect(backup.diagrams).toHaveLength(3)
     expect(openCount(fresh2)).toBe(0)
+  })
+
+  it("keeps both of two tag changes made at once to a diagram that isn't open", async () => {
+    const eos = await fresh()
+    const id = await eos.createDiagram({ title: "A" })
+    await Promise.all([eos.addTags(id, ["x"]), eos.addTags(id, ["y"])])
+    expect((await eos.listDiagrams())[0]?.tags).toEqual(["x", "y"])
+    expect((await eos.getDiagram(id))?.meta.tags).toEqual(["x", "y"])
+  })
+
+  /** Lets `k` microtasks run, to land a second change at each point in the first one. */
+  const ticks = async (k: number) => {
+    for (let i = 0; i < k; i++) await Promise.resolve()
+  }
+
+  it("never brings back a diagram purged while a tag change to it was being saved", async () => {
+    const back: number[] = []
+    for (let k = 0; k < 80; k += 2) {
+      const eos = await fresh()
+      const id = await eos.createDiagram({ title: "A", tags: ["t"] })
+      await eos.deleteDiagram(id)
+      const add = eos.addTags(id, ["u"]).catch(() => {})
+      await ticks(k)
+      await eos.purge(id)
+      await add
+      if ((await eos.listDiagrams({ includeDeleted: true })).length) back.push(k)
+    }
+    expect(back).toEqual([])
+  })
+
+  it("keeps another tab's delete made while a tag change was being saved", async () => {
+    const undeleted: string[] = []
+    for (let k = 0; k < 80; k += 2)
+      for (const open of [false, true]) {
+        const name = `race-${n++}`
+        const a = await Eos.create({ dbName: name, seed: false })
+        const b = await Eos.create({ dbName: name, seed: false })
+        const id = await a.createDiagram({ title: "A" })
+        if (open) await a.getSource(id)
+        const add = a.addTags(id, ["x"])
+        await ticks(k)
+        await b.deleteDiagram(id)
+        await add
+        if (!(await b.listDiagrams({ includeDeleted: true }))[0]?.deletedAt) undeleted.push(`${k} ${open ? "open" : "closed"}`)
+      }
+    expect(undeleted).toEqual([])
+  })
+
+  it("renames a tag on the diagrams still there when one is purged partway", async () => {
+    const eos = await fresh()
+    const ids: string[] = []
+    for (let i = 0; i < 3; i++) ids.push(await eos.createDiagram({ title: `d${i}`, tags: ["work"] }))
+    await eos.setTagEmoji("work", "💼")
+    await eos.deleteDiagram(ids[1]!)
+    const renamed = eos.renameTag("work", "job")
+    await eos.purge(ids[1]!)
+    await renamed
+    expect((await eos.listDiagrams()).map((r) => r.tags)).toEqual([["job"], ["job"]])
+    expect((await eos.listTags()).map((t) => [t.path, t.emoji])).toEqual([["job", "💼"]])
   })
 })
 

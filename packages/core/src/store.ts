@@ -19,8 +19,10 @@ import {
   persistDoc,
   setTags,
   sourceOf,
+  updateRow,
   type DiagramDoc,
   type Persisted,
+  type RowBuilder,
 } from "./docs"
 import { SAMPLES } from "./samples"
 import { searchIndex, type Search } from "./search"
@@ -71,6 +73,12 @@ interface OpenDiagram extends DiagramDoc {
 /** What a change made through mutate works on: an open diagram, or a copy loaded for the change. */
 type Editable = Pick<DiagramDoc, "id" | "doc" | "text" | "meta">
 
+/**
+ * One diagram, or several. A change to several is one batch (one library event, one index
+ * message to other tabs) and skips any deleted for good meanwhile; one that's gone throws.
+ */
+export type Ids = DiagramId | DiagramId[]
+
 /** Whose undo stack to use. */
 export type UndoScope = "user" | "agent"
 
@@ -107,6 +115,8 @@ export class Eos {
   private rowsById = new Map<DiagramId, DiagramIndexRow>()
   /** The search index over those rows, built on the first search after a change. */
   private searcher: Promise<Search> | null = null
+  /** Changes being made to copies of diagrams that aren't open, by diagram: the last one queued (see mutate). */
+  private turns = new Map<DiagramId, Promise<void>>()
   /** Bulk changes running (see batch), and the events and index refreshes they're holding back. */
   private batching = { depth: 0, topics: new Set<Topic>(), ids: new Set<DiagramId>() }
 
@@ -129,8 +139,10 @@ export class Eos {
     // Save what's pending if the tab is closed, or hidden: a mobile browser may discard a
     // hidden tab without a pagehide.
     if (typeof addEventListener === "function") addEventListener("pagehide", () => eos.saveNow())
+    // Shown again, re-read the library: a tab closed partway through a bulk change never sent
+    // the index message for it, so the rows this tab has cached could be out of date.
     if (typeof document !== "undefined")
-      document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && eos.saveNow())
+      document.addEventListener("visibilitychange", () => (document.visibilityState === "hidden" ? eos.saveNow() : eos.emit("library")))
     await eos.backfillSearchText()
     if (options.seed !== false && (await db.count("diagrams")) === 0) {
       for (const s of SAMPLES) await eos.createDiagram(s, { kind: "system", reason: "seed" })
@@ -159,7 +171,7 @@ export class Eos {
    * refresh, at the end instead of once per diagram. Events from anything else that runs
    * meanwhile wait for the end too.
    */
-  async batch<T>(fn: () => Promise<T>): Promise<T> {
+  private async batch<T>(fn: () => Promise<T>): Promise<T> {
     const b = this.batching
     b.depth++
     try {
@@ -170,8 +182,9 @@ export class Eos {
         const ids = [...b.ids]
         b.topics.clear()
         b.ids.clear()
-        if (ids.length) this.broadcast({ type: "index", ids })
+        // This tab's events first: posting can throw (the channel is closed as the page unloads).
         this.emit(...topics)
+        if (ids.length) this.broadcast({ type: "index", ids })
       }
     }
   }
@@ -192,12 +205,21 @@ export class Eos {
     for (const tag of filter.tags ?? []) rows = rows.filter((r) => r.tags.some((t) => tagMatches(t, tag)))
     const q = filter.query?.trim()
     // A search ranks by relevance (title first, then contents) instead of the sort order.
-    if (q) return (await (this.searcher ??= this.allRows().then(searchIndex)))(rows, q)
+    if (q) return (await this.search())(rows, q)
     const sort = filter.sort ?? "modified"
     rows.sort((a, b) =>
       sort === "title" ? a.titleKey.localeCompare(b.titleKey) : sort === "created" ? b.createdAt - a.createdAt : b.updatedAt - a.updatedAt
     )
     return rows
+  }
+
+  /**
+   * Builds the search index ahead of a search (when the search box is focused, say) while
+   * the page is idle, so the first keystroke doesn't wait for it.
+   */
+  prepareSearch() {
+    const idle = globalThis.requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 1))
+    idle(() => void this.search().catch(() => {}))
   }
 
   async listTags(): Promise<TagRecord[]> {
@@ -238,7 +260,7 @@ export class Eos {
     setTags(meta, normalizeTags(input.tags ?? []))
     doc.getText("source").insert(0, input.source ?? "flowchart TD\n  A[Start] --> B[End]\n")
     commit(doc, actor)
-    await compact(this.db, id, doc, this.indexRow(id, doc))
+    await compact(this.db, id, doc, () => this.indexRow(id, doc))
     this.indexChanged(id)
     return id
   }
@@ -284,12 +306,13 @@ export class Eos {
     return this.createDiagram({ title: title ?? `${meta.title} copy`, source: sourceOf(d), tags: meta.tags }, actor)
   }
 
-  async deleteDiagram(id: DiagramId) {
-    await this.patchIndex(id, { deletedAt: Date.now() })
+  /** Moves diagrams to Deleted (see Ids). */
+  async deleteDiagram(ids: Ids) {
+    await this.each(ids, (id) => this.patchIndex(id, { deletedAt: Date.now() }))
   }
 
-  async restoreDiagram(id: DiagramId) {
-    await this.patchIndex(id, { deletedAt: undefined })
+  async restoreDiagram(ids: Ids) {
+    await this.each(ids, (id) => this.patchIndex(id, { deletedAt: undefined }))
   }
 
   // ── Source ─────────────────────────────────────────────────────────────────
@@ -391,28 +414,34 @@ export class Eos {
 
   // ── Organisation ───────────────────────────────────────────────────────────
 
-  async setStarred(id: DiagramId, starred: boolean, actor: Actor = USER) {
-    if (starred) this.workspace.starred.set(id, true)
-    else this.workspace.starred.delete(id)
+  async setStarred(ids: Ids, starred: boolean, actor: Actor = USER) {
+    for (const id of [ids].flat()) {
+      if (starred) this.workspace.starred.set(id, true)
+      else this.workspace.starred.delete(id)
+    }
     commit(this.workspace.doc, actor)
-    await this.patchIndex(id, { starred: starred ? 1 : 0 })
+    await this.each(ids, (id) => this.patchIndex(id, { starred: starred ? 1 : 0 }))
   }
 
-  async addTags(id: DiagramId, tags: string[], actor: Actor = USER) {
-    await this.mutate(id, actor, (d) => setTags(d.meta, normalizeTags([...metaOf(d).tags, ...tags])), { details: true })
+  async addTags(ids: Ids, tags: string[], actor: Actor = USER) {
+    await this.each(ids, (id) =>
+      this.mutate(id, actor, (d) => setTags(d.meta, normalizeTags([...metaOf(d).tags, ...tags])), { details: true })
+    )
   }
 
-  async removeTags(id: DiagramId, tags: string[], actor: Actor = USER) {
+  async removeTags(ids: Ids, tags: string[], actor: Actor = USER) {
     const drop = new Set(normalizeTags(tags))
-    await this.mutate(
-      id,
-      actor,
-      (d) =>
-        setTags(
-          d.meta,
-          metaOf(d).tags.filter((t) => !drop.has(t))
-        ),
-      { details: true }
+    await this.each(ids, (id) =>
+      this.mutate(
+        id,
+        actor,
+        (d) =>
+          setTags(
+            d.meta,
+            metaOf(d).tags.filter((t) => !drop.has(t))
+          ),
+        { details: true }
+      )
     )
   }
 
@@ -422,14 +451,16 @@ export class Eos {
     if (!src || !dst || src === dst) return
     await this.batch(async () => {
       const rows = await this.db.getAllFromIndex("diagrams", "byTag", src)
-      for (const row of rows) {
-        await this.mutate(
-          row.id,
-          actor,
-          (d) => setTags(d.meta, normalizeTags(metaOf(d).tags.map((t) => (tagMatches(t, src) ? dst + t.slice(src.length) : t)))),
-          { details: true }
-        )
-      }
+      await this.each(
+        rows.map((row) => row.id),
+        (id) =>
+          this.mutate(
+            id,
+            actor,
+            (d) => setTags(d.meta, normalizeTags(metaOf(d).tags.map((t) => (tagMatches(t, src) ? dst + t.slice(src.length) : t)))),
+            { details: true }
+          )
+      )
       // The tags' emoji move with them; a tag merged into one that has its own emoji keeps that one.
       const emoji = this.workspace.tagEmoji
       const moved = emoji.keys().filter((key) => tagMatches(key, src))
@@ -447,18 +478,20 @@ export class Eos {
     if (!tag) return 0
     return this.batch(async () => {
       const rows = await this.db.getAllFromIndex("diagrams", "byTag", tag)
-      for (const row of rows) {
-        await this.mutate(
-          row.id,
-          actor,
-          (d) =>
-            setTags(
-              d.meta,
-              metaOf(d).tags.filter((t) => !tagMatches(t, tag))
-            ),
-          { details: true }
-        )
-      }
+      await this.each(
+        rows.map((row) => row.id),
+        (id) =>
+          this.mutate(
+            id,
+            actor,
+            (d) =>
+              setTags(
+                d.meta,
+                metaOf(d).tags.filter((t) => !tagMatches(t, tag))
+              ),
+            { details: true }
+          )
+      )
       for (const key of this.workspace.tagEmoji.keys()) if (tagMatches(key, tag)) this.workspace.tagEmoji.delete(key)
       commit(this.workspace.doc, actor)
       this.emit("library")
@@ -506,7 +539,7 @@ export class Eos {
     const diagrams = []
     for (const row of rows) {
       // A diagram that isn't open is loaded just for this and freed, rather than kept open.
-      const open = await this.open.get(row.id)?.catch(() => undefined)
+      const open = await this.ifOpen(row.id)
       const doc = open?.doc ?? (await loadDoc(this.db, row.id))
       diagrams.push({ id: row.id, deletedAt: row.deletedAt, snapshot: toBase64(doc.export({ mode: "snapshot" })) })
       if (!open) doc.free()
@@ -538,7 +571,7 @@ export class Eos {
       for (const { bytes, ...item } of diagrams) {
         // Something may be opening the diagram right now (e.g. an editor rebinding after the
         // wipe above); an open that failed because it wasn't there yet just means "not open".
-        const d = await this.open.get(item.id)?.catch(() => undefined)
+        const d = await this.ifOpen(item.id)
         if (d) {
           d.doc.import(bytes)
           // The snapshot exists already, so saving it apart from the index row (in afterChange,
@@ -548,7 +581,7 @@ export class Eos {
         } else {
           const existing = await loadDoc(this.db, item.id)
           existing.import(bytes)
-          await compact(this.db, item.id, existing, this.indexRow(item.id, existing, item.deletedAt ?? undefined))
+          await compact(this.db, item.id, existing, (doc) => this.indexRow(item.id, doc, item.deletedAt ?? undefined))
           existing.free()
           this.indexChanged(item.id)
         }
@@ -596,15 +629,17 @@ export class Eos {
   }
 
   /** Permanently removes soft-deleted diagrams. */
-  async purge(id: DiagramId) {
-    const deleted = deleteDocData(this.db, id)
-    // Closed after the delete is queued (see close).
-    await this.close(id)
-    await deleted
-    this.workspace.starred.delete(id)
+  async purge(ids: Ids) {
+    await this.each(ids, async (id) => {
+      const deleted = deleteDocData(this.db, id)
+      // Closed after the delete is queued (see close).
+      await this.close(id)
+      await deleted
+      this.workspace.starred.delete(id)
+      this.emit("library")
+      this.broadcast({ type: "close", id })
+    })
     commit(this.workspace.doc, USER)
-    this.emit("library")
-    this.broadcast({ type: "close", id })
   }
 
   // ── Internals ──────────────────────────────────────────────────────────────
@@ -613,6 +648,8 @@ export class Eos {
     let p = this.open.get(id)
     if (!p) {
       p = (async () => {
+        // A change being made to a copy (see mutate) is read in once it's saved.
+        await this.turns.get(id)
         const doc = await loadDoc(this.db, id)
         if (doc.oplogVersion().length() === 0 && !(await this.db.get("diagrams", id))) {
           throw new Error(`Diagram ${id} not found`)
@@ -671,44 +708,69 @@ export class Eos {
    * Makes a change as `actor`. With `details`, it's a title or tag change: saved and in
    * history like any other, but on nobody's undo stack. Those are single values, so
    * undoing one would overwrite whatever anyone set since; text undo merges instead.
-   * So a details change to a diagram that isn't open doesn't open it (see mutateClosed).
+   *
+   * Opening a diagram sets up its undo stacks (and keeps it in memory), which a details
+   * change doesn't need, so one to a diagram that isn't open is made on a copy loaded for
+   * it and freed after: a change to many diagrams (renaming a tag) doesn't leave them all
+   * open. Such changes to one diagram run one at a time, each on what the last one saved,
+   * since setting tags replaces the whole list. Either way the change is committed, saved,
+   * and its index row rebuilt from the row saved now, and a diagram purged meanwhile is
+   * left gone: that throws "not found".
    */
   private async mutate(id: DiagramId, actor: Actor, fn: (d: Editable) => void, { details = false } = {}) {
-    const d = details ? await this.open.get(id)?.catch(() => undefined) : await this.openDiagram(id)
-    if (!d) return this.mutateClosed(id, actor, fn)
-    const stack = actor.kind === "agent" ? d.agentUndo : d.undo
-    stack.groupStart()
-    try {
-      fn(d)
-      commit(d.doc, actor, { details })
-    } finally {
-      stack.groupEnd()
+    if (!details || this.open.has(id)) {
+      const d = await this.openDiagram(id)
+      change(d, actor, fn, { details, undo: actor.kind === "agent" ? d.agentUndo : d.undo })
+      // persistDoc saves the change as it's committed.
+      if (!(await this.afterChange(id, d))) throw new Error(`Diagram ${id} not found`)
+      return
     }
-    await this.afterChange(id, d)
+    await this.inTurn(id, async () => {
+      const doc = await loadDoc(this.db, id)
+      try {
+        const before = doc.oplogVersion()
+        change({ id, doc, text: doc.getText("source"), meta: doc.getMap("meta") }, actor, fn, { details })
+        if (!(await compact(this.db, id, doc, this.rowOf(id)))) throw new Error(`Diagram ${id} not found`)
+        const bytes = doc.export({ mode: "update", from: before })
+        // An open started before this change was saved may have missed it: bring it in.
+        void this.ifOpen(id).then((d) => d?.doc.import(bytes))
+        this.broadcast({ type: "update", id, bytes })
+      } finally {
+        doc.free()
+      }
+    })
+    this.indexChanged(id)
+  }
+
+  /** Runs `task` once the changes queued before it for this diagram (see mutate) are done. */
+  private inTurn(id: DiagramId, task: () => Promise<void>): Promise<void> {
+    const run = (this.turns.get(id) ?? Promise.resolve()).then(task)
+    const queued = run.catch(() => {})
+    this.turns.set(id, queued)
+    void queued.then(() => this.turns.get(id) === queued && this.turns.delete(id))
+    return run
+  }
+
+  /** The diagram if it's open, or opening; an open that failed means it isn't. */
+  private async ifOpen(id: DiagramId): Promise<OpenDiagram | undefined> {
+    return this.open.get(id)?.catch(() => undefined)
   }
 
   /**
-   * Makes a details change to a diagram that isn't open, on a copy loaded for it and freed
-   * after, so a change to many diagrams (renaming a tag) doesn't leave them all open. It's
-   * saved whole with its index row, and sent to other tabs like any edit.
+   * Runs `fn` for one diagram, or for each of several in turn as one batch (see batch). In a
+   * batch, one deleted for good meanwhile is skipped, so it doesn't stop the rest.
    */
-  private async mutateClosed(id: DiagramId, actor: Actor, fn: (d: Editable) => void) {
-    const doc = await loadDoc(this.db, id)
-    try {
-      const row = await this.db.get("diagrams", id)
-      if (doc.oplogVersion().length() === 0 && !row) throw new Error(`Diagram ${id} not found`)
-      const before = doc.oplogVersion()
-      fn({ id, doc, text: doc.getText("source"), meta: doc.getMap("meta") })
-      commit(doc, actor, { details: true })
-      await compact(this.db, id, doc, this.indexRow(id, doc, row?.deletedAt))
-      const bytes = doc.export({ mode: "update", from: before })
-      // Opened meanwhile, from what was saved before this change: bring the change in.
-      ;(await this.open.get(id)?.catch(() => undefined))?.doc.import(bytes)
-      this.broadcast({ type: "update", id, bytes })
-    } finally {
-      doc.free()
-    }
-    this.indexChanged(id)
+  private async each(ids: Ids, fn: (id: DiagramId) => Promise<unknown>) {
+    if (!Array.isArray(ids)) return void (await fn(ids))
+    await this.batch(async () => {
+      for (const id of ids) {
+        try {
+          await fn(id)
+        } catch (error) {
+          if (await this.db.get("diagrams", id)) throw error
+        }
+      }
+    })
   }
 
   /**
@@ -762,10 +824,16 @@ export class Eos {
     }
   }
 
-  private async afterChange(id: DiagramId, d: DiagramDoc) {
-    const row = await this.db.get("diagrams", id)
-    await this.db.put("diagrams", this.indexRow(id, d.doc, row?.deletedAt))
+  /** Rebuilds an open diagram's index row. Returns false, writing nothing, if the diagram has been purged. */
+  private async afterChange(id: DiagramId, d: DiagramDoc): Promise<boolean> {
+    if (!(await updateRow(this.db, id, (saved) => this.rowOf(id)(d.doc, saved)))) return false
     this.indexChanged(id)
+    return true
+  }
+
+  /** Builds an existing diagram's index row, keeping whether it's deleted; nothing if it's gone. */
+  private rowOf(id: DiagramId): RowBuilder {
+    return (doc, saved) => saved && this.indexRow(id, doc, saved.deletedAt)
   }
 
   private indexRow(id: DiagramId, doc: LoroDoc, deletedAt?: number): DiagramIndexRow {
@@ -798,11 +866,13 @@ export class Eos {
   }
 
   private async patchIndex(id: DiagramId, patch: Partial<DiagramIndexRow>) {
-    const row = await this.db.get("diagrams", id)
-    if (!row) throw new Error(`Diagram ${id} not found`)
-    const next = { ...row, ...patch }
-    if (patch.deletedAt === undefined && "deletedAt" in patch) delete next.deletedAt
-    await this.db.put("diagrams", next)
+    const patched = await updateRow(this.db, id, (row) => {
+      if (!row) return undefined
+      const next = { ...row, ...patch }
+      if (patch.deletedAt === undefined && "deletedAt" in patch) delete next.deletedAt
+      return next
+    })
+    if (!patched) throw new Error(`Diagram ${id} not found`)
     this.indexChanged(id)
   }
 
@@ -820,6 +890,14 @@ export class Eos {
     // A failed read isn't kept: the next one tries again.
     read.catch(() => this.rows === read && (this.rows = null))
     return read
+  }
+
+  /** The search index over every row, built once per change to the library. */
+  private search(): Promise<Search> {
+    const built = (this.searcher ??= this.allRows().then(searchIndex))
+    // A failed build isn't kept: the next search tries again.
+    built.catch(() => this.searcher === built && (this.searcher = null))
+    return built
   }
 
   private broadcast(msg: SyncMessage) {
@@ -948,6 +1026,22 @@ function editsFromBase(d: Editable, base: string, source: string): TextChange[] 
     }
   }
   return edits
+}
+
+/** Runs `fn` and commits what it did as `actor`: one step on `undo`, if given (see Eos.mutate). */
+function change(
+  d: Editable,
+  actor: Actor,
+  fn: (d: Editable) => void,
+  { details = false, undo }: { details?: boolean; undo?: UndoManager }
+) {
+  undo?.groupStart()
+  try {
+    fn(d)
+    commit(d.doc, actor, { details })
+  } finally {
+    undo?.groupEnd()
+  }
 }
 
 /** Whether two reads of an index row hold the same values. Rows are flat apart from their tag lists. */

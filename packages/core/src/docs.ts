@@ -109,26 +109,64 @@ export function persistDoc(db: Database, id: DiagramId, doc: LoroDoc, onLocalUpd
 }
 
 /**
- * Saves the whole doc as its snapshot and clears its update log. With `row`, its library
- * index row is written in the same transaction, so neither is saved without the other.
+ * Builds a diagram's library index row from its doc and the row saved now (undefined if there
+ * is none), or returns undefined to write nothing. It runs inside the transaction that writes
+ * the row, so it sees the latest saved row (another tab's delete, say) and can't race a purge.
  */
-export async function compact(db: Database, id: DiagramId, doc: LoroDoc, row?: DiagramIndexRow) {
+export type RowBuilder = (doc: LoroDoc, saved: DiagramIndexRow | undefined) => DiagramIndexRow | undefined
+
+/**
+ * Saves the whole doc as its snapshot and clears its update log. With `row`, its library
+ * index row is built and written in the same transaction, so neither is saved without the
+ * other: if `row` returns nothing (the diagram was purged, say), nothing is written.
+ * Returns whether it saved.
+ */
+export async function compact(db: Database, id: DiagramId, doc: LoroDoc, row?: RowBuilder): Promise<boolean> {
   const tx = db.transaction(row ? ["snapshots", "updates", "diagrams"] : ["snapshots", "updates"], "readwrite")
   const snapshots = tx.objectStore("snapshots")
   const log = tx.objectStore("updates").index("byDiagram")
   const save = async () => {
     // Another tab may have saved changes this doc hasn't heard of yet, to the snapshot
     // (by compacting) or the log. Take them in first, or this snapshot would drop them.
-    const [saved, logged, keys] = await Promise.all([snapshots.get(id), log.getAll(id), log.getAllKeys(id)])
+    const [saved, logged, keys, savedRow] = await Promise.all([
+      snapshots.get(id),
+      log.getAll(id),
+      log.getAllKeys(id),
+      row && tx.objectStore("diagrams").get(id),
+    ])
     doc.importBatch([...(saved ? [saved.bytes] : []), ...logged.map((u) => u.bytes)])
+    const next = row?.(doc, savedRow)
+    if (row && !next) return false
     await Promise.all([
       snapshots.put({ id, bytes: doc.export({ mode: "snapshot" }), savedAt: Date.now() }),
       ...keys.map((k) => tx.objectStore("updates").delete(k)),
-      row && tx.objectStore("diagrams").put(row),
+      next && tx.objectStore("diagrams").put(next),
     ])
+    return true
   }
   // Awaited with tx.done, so a failed write rejects once instead of leaving done unhandled.
-  await Promise.all([save(), tx.done])
+  const [saved] = await Promise.all([save(), tx.done])
+  return saved
+}
+
+/**
+ * Rewrites a diagram's library index row from the one saved now, in one transaction, so a
+ * change made meanwhile (another tab's delete, say) isn't overwritten by an older copy.
+ * `update` returns undefined to write nothing. Returns whether it wrote.
+ */
+export async function updateRow(
+  db: Database,
+  id: DiagramId,
+  update: (saved: DiagramIndexRow | undefined) => DiagramIndexRow | undefined
+): Promise<boolean> {
+  const tx = db.transaction("diagrams", "readwrite")
+  const write = async () => {
+    const next = update(await tx.store.get(id))
+    if (next) await tx.store.put(next)
+    return !!next
+  }
+  const [written] = await Promise.all([write(), tx.done])
+  return written
 }
 
 export async function deleteDocData(db: Database, id: DiagramId) {
