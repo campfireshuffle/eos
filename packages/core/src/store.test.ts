@@ -809,6 +809,31 @@ describe("backup import", () => {
     expect((await later.listDiagrams())[0]?.starred).toBe(1)
   })
 
+  it("brings back stars and tag emoji when merging a backup after deleting everything", async () => {
+    const eos = await fresh()
+    const id = await eos.createDiagram({ source: "x", tags: ["work"] })
+    await eos.setStarred(id, true)
+    await eos.setTagEmoji("work", "🚀")
+    const backup = await eos.exportBackup()
+    await eos.deleteAll()
+    await eos.importBackup(backup, "merge")
+    expect((await eos.getDiagram(id))?.starred).toBe(true)
+    expect((await eos.listTags()).map((t) => t.emoji)).toEqual(["🚀"])
+  })
+
+  it("keeps a local unstar and emoji change on a diagram and tag already there when merging", async () => {
+    const eos = await fresh()
+    const id = await eos.createDiagram({ source: "x", tags: ["work"] })
+    await eos.setStarred(id, true)
+    await eos.setTagEmoji("work", "🚀")
+    const backup = await eos.exportBackup()
+    await eos.setStarred(id, false)
+    await eos.setTagEmoji("work", "🔥")
+    await eos.importBackup(backup, "merge")
+    expect((await eos.getDiagram(id))?.starred).toBe(false)
+    expect((await eos.listTags()).map((t) => t.emoji)).toEqual(["🔥"])
+  })
+
   it("brings back only the stars of diagrams the backup has when replacing the library", async () => {
     const eos = await fresh()
     const id = await eos.createDiagram({ source: "x" })
