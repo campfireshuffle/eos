@@ -1,15 +1,15 @@
 # Eos data model
 
-Status: draft · Target: `loro-crdt@^1.16` (checked against 1.16.4 type defs and a node smoke test, 2026-10-18)
+Status: describes the code as built · Target: `loro-crdt@^1.16` (checked against 1.16.4 type defs and a node smoke test, 2026-10-20)
 
 Eos is a local-first Mermaid editor. All diagrams stay in the browser: there is no server and no account. This doc covers how a diagram is represented (Loro), how it is stored (IndexedDB), how tabs and the WebMCP agent share edits, and how undo, history, and share links work.
 
 ## Goals
 
 - **One source of truth per diagram:** a `LoroDoc`. Everything else (the library index) is derived from it and can be rebuilt.
-- **Edits never conflict.** The user, the in-tab WebMCP agent, and other open tabs all write to the same doc, and the CRDT merges them.
-- **Undo is per tab.** ⌘Z reverts edits made in this tab, by the user or by the agent working in it, and never edits from another tab.
-- **History is shared and attributed.** Every change records who made it (user, agent, or which tab), and the history panel shows that instead of using toasts.
+- **Edits never conflict.** The person, the in-tab WebMCP agent, and other open tabs all write to the same doc, and the CRDT merges them.
+- **Undo is per tab and per actor.** ⌘Z reverts the person's edits made in this tab, never an agent's and never another tab's. An agent has its own undo stack for its edits (§4).
+- **History is shared and attributed.** Every change records who made it (the person, an agent, an import or the app), and the history menu shows that instead of using toasts.
 - **The agent is a first-class editor.** Anything a person can do in the UI, an agent can do through WebMCP (§10), along the same code path.
 - **Durable by default.** Request persistent storage once. There is no storage-management UI.
 
@@ -28,7 +28,7 @@ flowchart LR
   Bridge <--> MC["document.modelContext<br/>registered tools"]
   MC <--> Tools["WebMCP tool layer §10"]
 
-  Editor -- "user edits" --> Actions
+  Editor -- "the person's edits" --> Actions
   Home -- "star · tag · filter" --> Actions
   SettingsUI --> Actions
   Tools -- "agent calls" --> Actions["Actions<br/>(one API for UI + agent)"]
@@ -37,7 +37,7 @@ flowchart LR
   subgraph Loro["Loro CRDT"]
     DiagramDoc["Diagram LoroDoc<br/>source · meta"]
     WorkspaceDoc["Workspace LoroDoc<br/>starred · tag emoji"]
-    Undo["UndoManager<br/>(this tab's peer)"]
+    Undo["Two UndoManagers per open diagram<br/>(the person's, the agent's)"]
   end
 
   Actions -- "commit + actor message" --> DiagramDoc
@@ -75,17 +75,17 @@ Agent edits and human edits both go through `Actions` into the same `LoroDoc`, s
 
 There is one `LoroDoc` per diagram. Its root containers:
 
-| Root     | Type       | Contents                               |
-| -------- | ---------- | -------------------------------------- |
-| `source` | `LoroText` | Mermaid source                         |
-| `meta`   | `LoroMap`  | `title`, `tags`, `createdAt`, `schema` |
+| Root     | Type       | Contents                     |
+| -------- | ---------- | ---------------------------- |
+| `source` | `LoroText` | Mermaid source               |
+| `meta`   | `LoroMap`  | `title`, `tags`, `createdAt` |
 
 ```ts
 import { LoroDoc, LoroText, LoroMap, LoroList } from "loro-crdt"
 
-type DiagramId = string // nanoid, stable for the life of the diagram
+type DiagramId = string // crypto.randomUUID(), stable for the life of the diagram
 
-/** Path-style tag, e.g. "work/backend". Segments are trimmed, lowercased, no empty segments. */
+/** Path-style tag, e.g. "work/backend". A leading `#` is stripped, segments are trimmed and lowercased, whitespace inside becomes `-`, and empty segments are dropped. */
 type TagPath = string
 
 interface DiagramMeta {
@@ -105,7 +105,7 @@ function metaOf(doc: LoroDoc): LoroMap {
 Notes:
 
 - **Editor binding.** CodeMirror transactions map to `LoroText.insert/delete`. If a whole-buffer replacement comes from an external source, such as an agent's `update_diagram({ source })` or a paste-replace, use `text.update(newSource)`, which runs a minimal diff. That keeps concurrent edits elsewhere in the text intact.
-- **Tags** go in a `LoroList<string>`, not a comma string. Concurrent add/remove of different tags then merges cleanly, and duplicates are de-duplicated on read.
+- **Tags** go in a `LoroList<string>` under `meta.tags`. `setTags` replaces the whole list on each change, so concurrent tag edits are last-write-wins. `normalizeTags` (`tags.ts`) de-duplicates them on write.
 - **`updatedAt` is not stored in the doc.** It is derived from the last change's timestamp (see §4) and cached in the index (§2).
 - **Doc-level settings applied on every open:** `doc.setRecordTimestamp(true)`, so each `Change` carries a Unix timestamp in seconds, and the default `setChangeMergeInterval`. Consecutive local commits merge into one `Change` only if their messages match, so changes made by different actors stay separate (verified).
 
@@ -121,19 +121,19 @@ Reasons for keeping this in a separate doc:
 
 ```ts
 // Roots of the workspace doc
-//   starred:  LoroMap<DiagramId, number>  value = starredAt (ms); delete key to unstar
+//   starred:  LoroMap<DiagramId, true>    a key per starred diagram; delete the key to unstar
 //   tagEmoji: LoroMap<TagPath, string>    a single grapheme per tag that has one; missing → render "#"
 ```
 
 - **Tag tree:** only tags in use. Take every tag prefix in the index rows of diagrams that aren't deleted, split on `/`, nest, and sort alphabetically, attaching each tag's emoji from `tagEmoji`. A tag disappears when its last diagram drops it, the way it does in Bear; its emoji stays in `tagEmoji` and comes back if the tag is used again.
-- **Renaming or moving a tag** (`work/backend` → `eng/backend`): one commit per affected diagram doc rewrites that tag and every tag under it, with a `details:` origin so it is not on the user's undo stack. Then one workspace commit moves their `tagEmoji` keys; a tag merged into one that has its own emoji keeps that one. These are not atomic across docs, but the rename is idempotent, so running it again after an interruption finishes it.
+- **Renaming or moving a tag** (`work/backend` → `eng/backend`): one commit per affected diagram doc rewrites that tag and every tag under it, with a `details:` origin so it is not on the person's undo stack. Then one workspace commit moves their `tagEmoji` keys; a tag merged into one that has its own emoji keeps that one. These are not atomic across docs, but the rename is idempotent, so running it again after an interruption finishes it.
 - **Deleting a tag** removes it and every tag under it from each diagram, then drops their `tagEmoji` keys.
-- **Deleting a diagram** keeps its `starred` key, so it's still starred if restored; purging it removes the key.
-- Edits to the workspace doc are committed with `{ actor: { kind: "user", tab } }` but have no UI history.
+- **Deleting a diagram** keeps its `starred` key, so it's still starred if restored; purging it removes the key, in a workspace commit made as the person.
+- Edits to the workspace doc are committed like a diagram's, with the actor who made them as the commit message (§3): the person, an agent, or `system` for Delete all. Nothing shows the workspace doc's history.
 
 ## 2. IndexedDB schema
 
-Database `eos`, version 1. Use `idb` as a thin wrapper.
+Database `eos`, version 2, opened through `idb` (`openEosDB` in `db.ts`). Version 1 also had a `thumbnails` store, which was never used; upgrading to 2 deletes it.
 
 ```ts
 interface EosDB {
@@ -154,9 +154,6 @@ interface EosDB {
     value: DiagramIndexRow
     indexes: {
       byUpdatedAt: number
-      byCreatedAt: number
-      byTitleKey: string
-      byStarred: [0 | 1, number] // [starred, updatedAt]
       byTag: TagPath // multiEntry over tagPrefixes
     }
   }
@@ -172,10 +169,10 @@ interface DiagramIndexRow {
   tagPrefixes: TagPath[]
   createdAt: number
   updatedAt: number // ms; from last change timestamp
-  titleKey: string // title folded for sorting (lowercased, NFKD, diacritics stripped)
-  starred: 0 | 1 // mirrored from workspace.starred; number because IDB can't index booleans
-  sourcePreview: string // first ~200 chars
-  sourceText: string // full source, for search (Orama, title boosted)
+  titleKey: string // title folded for sorting (NFKD, diacritics stripped, lowercased)
+  starred: 0 | 1 // mirrored from workspace.starred
+  sourcePreview: string // first 200 characters
+  sourceText?: string // full source, for search; missing on rows written before search used it
   deletedAt?: number // soft delete → "Deleted"
 }
 ```
@@ -190,18 +187,7 @@ interface DiagramIndexRow {
 
 ### Read path
 
-```ts
-async function openDiagram(id: DiagramId): Promise<LoroDoc> {
-  const snap = await db.get("snapshots", id)
-  const doc = snap ? LoroDoc.fromSnapshot(snap.bytes) : new LoroDoc()
-  const logs = await db.getAllFromIndex("updates", "byDiagram", id)
-  if (logs.length) doc.importBatch(logs.map((l) => l.bytes)) // faster than N imports
-  configureDoc(doc) // setRecordTimestamp, pre-commit hook (§4)
-  return doc
-}
-```
-
-`LoroDoc.fromSnapshot`/`import` gives the opened doc a **fresh random peer id**. This is deliberate (see §3).
+`loadDoc` in `docs.ts` makes a `new LoroDoc()`, turns on `setRecordTimestamp(true)`, imports the saved snapshot, then imports each logged update in order. The new doc has a **fresh random peer id**. This is deliberate (see §3).
 
 ### Compaction
 
@@ -238,9 +224,9 @@ function matches(row: DiagramIndexRow, q: LibraryQuery) {
 
 **Strategy:** read every `diagrams` row for each query (roughly 400 B each plus the diagram source). Filter and sort in JS, comparing `titleKey` with `localeCompare` for Title. Queries rerun on local writes and on `index` messages from other tabs. At expected scale this takes well under a frame, and it avoids the IndexedDB limitation that blocks doing this in the database: a `multiEntry` index cannot be compound, so there is no `[tagPrefix, updatedAt]` index over an array field.
 
-The `diagrams` store has two indexes:
+The `diagrams` store has two indexes (`db.ts`):
 
-- `byUpdatedAt`.
+- `byUpdatedAt`, over `updatedAt`. Nothing queries it today, since the library reads every row.
 - `byTag` (multiEntry over `tagPrefixes`): the key `"work"` returns everything under `work/*`. Renaming or deleting a tag uses it to find the diagrams to change.
 
 **Fallback past ~20k diagrams:** add a `tagMembership` store with rows `{ prefix, id, updatedAt, createdAt, titleKey, starred }` and compound indexes `[prefix, updatedAt]` etc., one row per (diagram, tag prefix). Query the most selective chip through its index and filter the remaining chips in memory.
@@ -249,111 +235,78 @@ Sort, grouping, search and chips are view state only and live in the URL hash (`
 
 **Rebuilding the index** (after a migration or corruption): open each diagram doc and the workspace doc, re-derive the rows, and rewrite `diagrams`.
 
-### Thumbnails
+### Library cards
 
-Library cards render live with Pele. A typical diagram renders in well under a millisecond (about 2 ms for a 200-node flowchart), so there is no SVG cache.
+Library cards render live with Pele. A typical diagram renders in well under a millisecond (about 2 ms for a 200-node flowchart), so there is no thumbnails store or SVG cache.
 
 ## 3. Peers and actors
 
 **Peer id.** Loro's `PeerID` is a u64, exposed as a decimal string (`doc.peerIdStr`) or a bigint (`doc.peerId`). Two writers must never share a peer id. Eos therefore keeps the random id Loro assigns to each `LoroDoc` instance, so every tab opening a diagram has its own peer. It never calls `setPeerId` with a persisted value, because two tabs restoring the same stored id would corrupt the doc.
 
-**Actor.** "Peer" is a Loro concept. "Actor" is the Eos concept shown in history:
+**Actor.** "Peer" is a Loro concept. "Actor" is the Eos concept shown in history (`types.ts`):
 
 ```ts
 type Actor =
-  | { kind: "user"; tab: TabId }
-  | { kind: "agent"; tab: TabId; tool: string; client?: string } // WebMCP tool name, optional agent label
-  | { kind: "import"; source: "share-link" | "file" }
-  | { kind: "system"; reason: "migration" | "undo" | "redo" | "restore" }
-
-type TabId = string // random per tab session, kept in sessionStorage; also used as BroadcastChannel sender id
+  | { kind: "user" }
+  | { kind: "agent"; tool: string; changes?: string[] } // WebMCP tool name; what the edit touched, e.g. "source", "tags"
+  | { kind: "import"; source: "share-link" | "backup" }
+  | { kind: "system"; reason: string } // "seed" (the sample diagrams) or "delete-all"
 ```
 
-The user and the agent share a tab, and therefore a peer, so the peer id alone cannot tell them apart. Attribution is carried in the **commit message**, which is persisted and synced. The **origin** is used for local routing only, because Loro does not persist it:
+The person and an agent share a tab, and therefore a peer, so the peer id alone cannot tell them apart. So every commit sets two things. Most go through `commit` in `docs.ts`; the editor's keystrokes and undo steps set them directly.
 
-| Writer                    | `commit({ origin })`              | message `by` |
-| ------------------------- | --------------------------------- | ------------ |
-| Editor keystrokes / UI    | `"user"`                          | `user`       |
-| WebMCP tool call          | `"agent:<tool>"`                  | `agent`      |
-| UndoManager undo/redo     | `"undo"` / `"redo"` (set by Loro) | `system`     |
-| History "restore to here" | `"restore"`                       | `system`     |
+- The **message** is the actor as JSON, e.g. `{"kind":"agent","tool":"update_diagram","changes":["source"]}`. Loro persists and syncs it, so history reads it back. A missing or unreadable message (an old change, or a backup made elsewhere) reads as the person's.
+- The **origin** routes the commit to an undo stack (§4). Loro does not persist it. It is `user`, `agent:<tool>`, `import` or `system`, with a `details:` prefix for title and tag changes. Keystrokes from the editor use `user:editor`, so the editor can skip its own changes.
 
-```ts
-interface ChangeMessage {
-  v: 1
-  actor: Actor
-  summary?: string
-} // JSON in Change.message
-
-function configureDoc(doc: LoroDoc, tab: TabId) {
-  doc.setRecordTimestamp(true)
-  // Catch implicit commits (export/import/checkout also commit) so nothing is unattributed.
-  doc.subscribePreCommit(({ changeMeta, origin, modifier }) => {
-    if (changeMeta.message) return
-    modifier.setMessage(JSON.stringify(actorFromOrigin(origin, tab)))
-  })
-}
-
-// WebMCP tool wrapper
-function agentEdit(doc: LoroDoc, tool: string, fn: () => void, summary?: string) {
-  undo.groupStart()
-  fn()
-  doc.commit({ origin: `agent:${tool}`, message: JSON.stringify({ v: 1, actor: { kind: "agent", tab, tool }, summary }) })
-  undo.groupEnd()
-}
-```
+An undo or redo step is labelled as whoever is undoing (§4), and restoring a version as whoever restored it. Nothing records which tab made a change.
 
 ## 4. Undo/redo and history
 
-### Undo/redo: one stack for you, one for agents
+### Undo/redo: one stack for the person, one for agents
 
-Every commit carries its actor as the origin: `user`, `agent:<tool>`, `import` or `system` (§3). Each open diagram has two `UndoManager`s that filter on it:
+Every commit carries its actor as the origin (§3). Each open diagram has two `UndoManager`s that filter on it (`openDiagram` in `store.ts`):
 
 ```ts
-const undo = new UndoManager(doc, { mergeInterval: 800, maxUndoSteps: 200, excludeOriginPrefixes: ["agent", "import", "system"] })
-const agentUndo = new UndoManager(doc, { mergeInterval: 0, maxUndoSteps: 200, excludeOriginPrefixes: ["user", "import", "system"] })
+const undo = new UndoManager(doc, {
+  mergeInterval: 800,
+  maxUndoSteps: 200,
+  excludeOriginPrefixes: ["agent", "import", "system", "details:"],
+})
+const agentUndo = new UndoManager(doc, {
+  mergeInterval: 0,
+  maxUndoSteps: 200,
+  excludeOriginPrefixes: ["user", "import", "system", "details:"],
+})
 ```
 
-- **⌘Z never undoes an agent.** Your stack skips agent commits; Loro rebases your steps over them, so undoing your line leaves the agent's lines in place. An agent's edit is reversed from history (restore an earlier version) or by the agent itself.
-- **You and agents are equals.** Each has an undo stack of their own edits: your ⌘Z skips the agent's, and `update_diagram({ revert: "undo" })` (which uses `agentUndo`) skips yours, whoever edited last. Loro applies an undo on top of everyone's later edits, so neither overwrites the other. One ⌘Z undoes a whole burst of typing, even when another tab's edits arrived mid-burst.
-- **Edits merge from what each side saw.** The editor sends each keystroke to Loro as an insert or delete, and an agent's new source is applied as the changes it made to the version it edited (`update_diagram`'s `baseVersion`: each tool result that returns source also returns the version that source is at, read with it), so concurrent edits from you, other tabs and agents all survive.
+Title and tag changes carry the `details:` prefix, so they are on neither stack. They are single values, so undoing one would overwrite whatever anyone set since. They still show in history.
+
+- **⌘Z never undoes an agent.** The person's stack skips agent commits; Loro rebases their steps over them, so undoing their line leaves the agent's lines in place. An agent's edit is reversed from history (restore an earlier version) or by the agent itself.
+- **The person and agents are equals.** Each has an undo stack of their own edits: the person's ⌘Z skips the agent's, and `update_diagram({ revert: "undo" })` (which uses `agentUndo`) skips the person's, whoever edited last. Loro applies an undo on top of everyone's later edits, so neither overwrites the other. One ⌘Z undoes a whole burst of typing, even when another tab's edits arrived mid-burst.
+- **Edits merge from what each side saw.** The editor sends each keystroke to Loro as an insert or delete, and an agent's new source is applied as the changes it made to the version it edited (`update_diagram`'s `baseVersion`: each tool result that returns source also returns the version that source is at, read with it), so concurrent edits from the person, other tabs and agents all survive.
 - **Undo commits are labelled too.** Before stepping, the store calls `doc.setNextCommitOptions({ origin, message })` with the actor doing the undo, so the commit an undo makes stays off the other stack and history credits the right person.
 - **One write, one step.** Each store write wraps its change in `groupStart()`/`groupEnd()` on the actor's stack; `editDiagram` commits title and tags as details and the source as one undoable step.
 - Undo stacks live in memory only and do not survive reloads.
 
 ### Shared history
 
-The history panel replaces toasts. It lists changes newest first, grouped into sessions of the same actor within 2 min.
+The history menu replaces toasts. `historyOf` in `docs.ts` builds it from `doc.getAllChanges()`, in causal (Lamport) order, and lists it newest first:
 
 ```ts
 interface HistoryEntry {
-  id: { peer: `${number}`; counter: number }
-  actor: Actor // parsed from Change.message; unknown/missing → { kind: "user", tab: "?" }
+  version: string // "<peer>:<counter>" of the entry's last change; pass it back to preview or restore
+  actor: Actor // parsed from the commit message (§3)
   at: number // Change.timestamp * 1000
-  summary?: string
-  isThisTab: boolean // actor.tab === myTab
-}
-
-function history(doc: LoroDoc): HistoryEntry[] {
-  const out: HistoryEntry[] = []
-  for (const changes of doc.getAllChanges().values()) for (const c of changes) out.push(toEntry(c))
-  return out.sort((a, b) => b.at - a.at || 0)
+  changes?: string[] // for agent entries: everything those edits touched
 }
 ```
 
-For large docs, use `doc.travelChangeAncestors(doc.oplogFrontiers(), cb)` and stop early instead of materialising everything.
+Changes by the same actor less than 2 min apart fold into one entry. Agent edits fold together whichever tool made them, and never with the person's. The menu shows the latest 100 entries, and `get_diagram({ history: true })` up to 200.
 
-Panel actions:
-
-| Action            | Loro API                                                                   | Effect                                                                                                           |
-| ----------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Preview a version | `doc.checkout(frontiers)` → doc becomes detached, read-only                | Renders the diagram at that point. "Back to latest" calls `doc.checkoutToLatest()`.                              |
-| Restore to here   | `doc.revertTo(frontiers)` + `commit({ origin: "restore" })`                | Adds **new** ops that bring the state back. History is preserved and peers converge.                             |
-| Revert one change | `doc.diff(before, after)` → invert → `applyDiff` (or a text-level inverse) | Undoes only that change (e.g. one agent edit). Behind a flag until the inversion is proven (see Open questions). |
-
-Frontiers for a change are `[{ peer, counter: c.counter + c.length - 1 }]`.
-
-While a tab is detached, imports from other tabs are buffered in the oplog and not applied (Loro behaviour). Show a "N new changes" pill in that state.
+- **Preview a version.** Picking an entry shows that version's source and diagram, read with `doc.forkAt(frontiers)` (`getSource` in `store.ts`). The open doc is never checked out, so it keeps taking in edits from other tabs while the person looks. An agent can open the same preview with `set_view({ previewVersion })`.
+- **Restore this version.** `restoreVersion` calls `doc.revertTo(frontiers)` and commits it as an edit by whoever restored it. That adds new ops that bring the old state back, so history is kept and other tabs converge. An agent restores with `update_diagram({ revert: version })`.
+- A version id the diagram doesn't have fails with `UnknownVersionError`, and nothing changes.
+- Only a whole version can be restored. There is no "revert one change": Loro's `revertTo` goes back to a version, and inverting one past change under later edits has no Loro API.
 
 ## 5. Cross-tab sync (BroadcastChannel)
 
@@ -378,33 +331,29 @@ interface SyncMessage {
 A share link carries a **copy of the source**, not the CRDT history. Opening one creates a brand-new diagram with fresh history.
 
 ```
-https://eos.app/#/import?v=1&d=<base64url(deflate-raw(utf8(payload)))>
+https://eos.lil.run/#/import?d=<base64url(deflate-raw(utf8(JSON payload)))>
 ```
 
 ```ts
+// The JSON in the link is { v: 1, ...SharePayload }
 interface SharePayload {
-  v: 1
   title: string
   source: string
   tags?: TagPath[]
 }
-
-async function encodeShare(p: SharePayload): Promise<string> {
-  const raw = new TextEncoder().encode(JSON.stringify(p))
-  const z = await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream("deflate-raw"))).arrayBuffer()
-  return base64url(new Uint8Array(z)) // no padding; + → -, / → _
-}
 ```
 
-- The payload is in the **hash**, so it is never sent to a server or written to server logs.
-- When Eos opens with `#/import`, it decodes the payload, validates it (size cap of 256 KB decompressed, stopping as soon as it passes that; titles up to 1,000 characters; schema check), opening a link that fails any of these the same way as a malformed one, and creates a new `DiagramId`. The `source`/`meta` writes are committed as `{ actor: { kind: "import", source: "share-link" } }`. Eos then persists the new diagram, navigates to it, and uses `history.replaceState` to clear the hash so a reload does not import again.
-- If the source is identical to an existing diagram's (compared by hash of the normalised source), Eos offers "Open existing" instead of creating a duplicate.
-- Links over ~8 KB are not reliably pasteable. Over that size, the export menu warns and offers "Download .mmd" instead.
-- Tags are included only if the sharer opts in, because tags can leak how the sharer organises their work.
+`encodeShare`, `decodeShare` and `shareUrl` live in `share.ts`, with the limits below.
+
+- The payload is in the **hash**, so it is never sent to a server or written to server logs. The base64url has no padding.
+- An encoded link may be up to 32,000 characters (`MAX_SHARE_HASH`). Past that, Copy share link shows "This diagram is too large to share as a link." instead of copying anything.
+- When Eos opens with `#/import`, it decodes the payload and checks it: the link is at most 32,000 characters, it decompresses to at most 256 KB (stopping as soon as it passes that), `v` is 1, `source` is a string and the title is at most 1,000 characters. A missing title becomes "Shared diagram". A link that fails any check goes to the library, as a malformed one does.
+- Otherwise `importShare` in `store.ts` creates the diagram, committed as `{ kind: "import", source: "share-link" }`, unless `findIdentical` finds one that isn't deleted with the same title and the same source. Then Eos opens that one instead, without asking. Either way it replaces the `#/import` URL with the diagram's, so a reload does not import again.
+- The export menu puts only the title and source in a link. A link that carries `tags` gets them on import.
 
 ## 7. Storage persistence
 
-- `Eos.requestPersistence()` calls `navigator.storage.persist()`. The app calls it once per page load, on the first change to the library (`main.tsx`), whether made in this tab or heard from another. The sample diagrams are seeded before it starts listening, so they don't count. Browsers grant this more readily after user engagement (Firefox shows a prompt, while Chromium decides heuristically, and refuses early requests).
+- `Eos.requestPersistence()` calls `navigator.storage.persist()`. The app calls it once per page load, on the first change to the library (`main.tsx`), whether made in this tab or heard from another. The sample diagrams are seeded before it starts listening, so they don't count. Browsers grant this more readily once the person has used the page (Firefox shows a prompt, while Chromium decides heuristically, and refuses early requests).
 - The result isn't stored or shown anywhere. `Eos.storageUsage()` reports whether storage is persisted, but there is no storage-management UI.
 
 ## 8. Settings record
@@ -435,25 +384,25 @@ Backups carry only the theme. Agent settings are the person's say over what agen
 
 ## 9. Lifecycle summary
 
-| Event           | Doc                                              | IndexedDB                                          | Broadcast |
-| --------------- | ------------------------------------------------ | -------------------------------------------------- | --------- |
-| New diagram     | `new LoroDoc()`, set meta, commit `user`         | put snapshot + index row                           | `index`   |
-| Keystroke       | `text.insert/delete` (auto-commit on debounce)   | append `updates`                                   | `update`  |
-| Agent tool      | `agentEdit()`                                    | append `updates`                                   | `update`  |
-| Other tab edit  | `import(bytes)`                                  | —                                                  | —         |
-| Undo            | `undo.undo()`                                    | append `updates`                                   | `update`  |
-| Restore version | `revertTo` + commit                              | append `updates`                                   | `update`  |
-| Star / unstar   | workspace `starred` set/delete                   | workspace `updates`; mirror `starred` in index row | `index`   |
-| Tag emoji       | workspace `tagEmoji` entry                       | workspace `updates`                                | `index`   |
-| Delete          | set `deletedAt` on index row; keep `starred` key | soft delete; purge from Deleted                    | `index`   |
-| Purge           | close the doc; drop its `starred` key            | delete snapshot, `updates` and index row           | `close`   |
-| Open share link | new doc from payload                             | snapshot + index row                               | `index`   |
+| Event           | Doc                                              | IndexedDB                                          | Broadcast                   |
+| --------------- | ------------------------------------------------ | -------------------------------------------------- | --------------------------- |
+| New diagram     | `new LoroDoc()`, set meta, commit as its creator | put snapshot + index row                           | `index`                     |
+| Keystroke       | `text.insert/delete`, committed per edit         | append `updates`                                   | `update`                    |
+| Agent tool      | store write, committed as the agent (§3)         | append `updates`                                   | `update`                    |
+| Other tab edit  | `import(bytes)`                                  | —                                                  | —                           |
+| Undo            | `undo.undo()`                                    | append `updates`                                   | `update`                    |
+| Restore version | `revertTo` + commit                              | append `updates`                                   | `update`                    |
+| Star / unstar   | workspace `starred` set/delete                   | workspace `updates`; mirror `starred` in index row | workspace `update`; `index` |
+| Tag emoji       | workspace `tagEmoji` entry                       | workspace `updates`                                | workspace `update`          |
+| Delete          | — (keeps its `starred` key)                      | set `deletedAt` on the index row                   | `index`                     |
+| Purge           | close the doc; drop its `starred` key            | delete snapshot, `updates` and index row           | `close`                     |
+| Open share link | new doc from payload                             | snapshot + index row                               | `index`                     |
 
 ## 10. WebMCP tools
 
 **Principle:** an agent can do anything a person can do, through a small set of deep tools: one per kind of job, with optional fields rather than extra tools. Agents with tool search and code mode chain calls themselves, so fewer, clearer tools mean fewer wrong picks. Reads, ordinary writes and permanent deletes are separate tools because harnesses approve by annotations, which apply to a whole tool. Reads set `readOnlyHint` (and `untrustedContentHint` when they return people's text); permanent deletes set `consequentialHint`, which Chrome reads, and `destructiveHint`, MCP's name for it. Each tool's input is a Zod (`zod/mini`) schema: it becomes the JSON Schema agents see and checks every call, since browsers pass input through unchecked, so bad input returns `invalid_input` rather than throwing. The browser passes `execute` a `signal` that aborts when the agent cancels the call; a pending confirm then closes as a no.
 
-- **Writes are attributed to the agent** (`{ kind: "agent", tool, changes }`), shown apart from yours in the History panel, and kept off your undo stack (§4).
+- **Writes are attributed to the agent** (`{ kind: "agent", tool, changes }`), shown apart from the person's in the history menu, and kept off the person's undo stack (§4).
 - **Results are typed.** `{ ok: true, … }` or `{ ok: false, code, message }` with codes like `not_found`, `invalid_input`, `parse_error`, `stale`, `user_declined`, and `busy` when another dialog is already open, so nothing was asked.
 - **Mermaid is always checked.** Tools that take or return source report `valid` and, on failure, the error's line and column.
 - **Confirmation is in the page.** Deletes open Eos's own dialog and wait; a model can't get past it. Agents can read but not change agent settings, so they can't turn confirmation off.
@@ -477,11 +426,9 @@ Backups carry only the theme. Agent settings are the person's say over what agen
 
 ## Open questions
 
-1. **Revert-one-change.** Inverting an arbitrary past change with concurrent edits on top is not a first-class Loro API (`revertTo` reverts to a _version_, not a single change). Should v1 ship only "restore to here"?
-2. **History trimming.** Do we ever offer a shallow snapshot (`mode: "shallow-snapshot"`) to drop old history? If we do, links to old history entries break, and other tabs that hold a deeper history need a strategy for reconciling with it.
-3. **Agent identity.** WebMCP may not tell us which agent or client is calling. Is `kind: "agent"` plus the tool name enough, or do we want the user to label sessions?
-4. **Separate undo for user and agent.** Today the tab has one shared stack (§4). If users want "undo only my edits" while an agent works alongside them, the agent needs its own peer, for example a `doc.fork()` per agent session that merges back, with its own `UndoManager`.
-5. **Multiple tag chips.** The default is AND (`#work` + `#q3` shows diagrams tagged with both). Do users expect OR between tags instead?
-6. **Multi-device.** Out of scope for now. The snapshot + update-log layout can be synced as-is later, but if that happens, the `TabId`-based actor should become a device-plus-tab id.
-7. **Starred in share links.** Never included for now. Should the recipient see the sender's tag emoji when tags are shared?
-8. **WebMCP entry point.** The current explainer (webmachinelearning/webmcp) uses `document.modelContext.registerTool(tool, { signal })`. Earlier drafts and some Chrome builds used `navigator.modelContext` (`provideContext`/`registerTool`). We don't know which one Chrome 150 ships, so feature-detect both and keep the registration code in one module. Also unknown: whether a native confirmation or elicitation API will replace our in-page dialog, and whether annotations like `readOnlyHint` will be supported, which we would set for **R** tools.
+1. **History trimming.** Do we ever offer a shallow snapshot (`mode: "shallow-snapshot"`) to drop old history? If we do, links to old history entries break, and other tabs that hold a deeper history need a strategy for reconciling with it.
+2. **Agent identity.** WebMCP may not tell us which agent or client is calling. Is `kind: "agent"` plus the tool name enough, or do we want the person to label sessions?
+3. **Multiple tag chips.** The default is AND (`#work` + `#q3` shows diagrams tagged with both). Do people expect OR between tags instead?
+4. **Multi-device.** Out of scope for now. The snapshot + update-log layout can be synced as-is later, but if that happens, actors may need to say which device made a change.
+5. **Tag emoji in share links.** Never included for now. Should the recipient see the sender's tag emoji when tags are shared?
+6. **Native confirmation.** Deletes ask in Eos's own dialog. If WebMCP adds a native confirmation or elicitation API, should it replace ours?
