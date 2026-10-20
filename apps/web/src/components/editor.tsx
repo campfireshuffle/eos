@@ -114,7 +114,8 @@ export function Editor({ id }: { id: string }) {
 
   const result = useMemo(() => (shown === null ? null : validate(shown)), [shown])
   const lastValid = useRef<string>("")
-  if (result?.ok && shown !== null) lastValid.current = shown
+  // A past version being previewed isn't the latest one, so it never stands in for it.
+  if (result?.ok && shown !== null && !previewing) lastValid.current = shown
 
   const errorLine = result && !result.ok ? result.error.line || null : null
   const status = !result
@@ -279,7 +280,7 @@ export function Editor({ id }: { id: string }) {
             <div className="relative min-h-0 flex-1">
               <Preview
                 source={result?.ok ? (shown ?? "") : lastValid.current}
-                valid={!!result?.ok || !lastValid.current}
+                stale={!result?.ok && !!lastValid.current}
                 onSvg={(el) => (svgRef.current = el)}
               />
               {result && !result.ok && (

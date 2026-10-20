@@ -13,9 +13,10 @@ const FIT_MAX = 2
 /**
  * Live Pele render with our own zoom: "fit" scales the diagram to the pane,
  * any other value is relative to the SVG's natural size (1 = 100%).
- * Keeps the last good diagram on screen while the source has errors.
+ * Always draws `source`. While the text has errors the editor passes the last good diagram,
+ * and `stale` dims it.
  */
-export function Preview({ source, valid, onSvg }: { source: string; valid: boolean; onSvg: (el: SVGSVGElement | null) => void }) {
+export function Preview({ source, stale, onSvg }: { source: string; stale: boolean; onSvg: (el: SVGSVGElement | null) => void }) {
   const scroller = useRef<HTMLDivElement>(null)
   const host = useRef<HTMLDivElement>(null)
   const mounted = useRef<Mounted | null>(null)
@@ -108,7 +109,6 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
   const laidOutSize = useRef<{ w: number; h: number } | null>(null)
 
   useEffect(() => {
-    if (!valid) return
     sourceRef.current = source
     if (!mounted.current) {
       laidOutFor.current = layoutWidth()
@@ -120,13 +120,13 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
     }
     measure()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, valid])
+  }, [source])
 
   useEffect(() => () => mounted.current?.destroy(), [])
 
   // Re-lay out when the pane's width settles on a new value (not on zoom).
   useEffect(() => {
-    if (!box.w || !valid) return
+    if (!box.w) return
     const t = setTimeout(() => {
       const w = layoutWidth()
       if (!mounted.current || w === laidOutFor.current) return
@@ -137,7 +137,7 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
     }, 150)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [box.w, valid])
+  }, [box.w])
 
   useEffect(() => {
     const el = scroller.current!
@@ -306,7 +306,7 @@ export function Preview({ source, valid, onSvg }: { source: string; valid: boole
       )}
     >
       <div className="flex min-h-full w-max min-w-full items-center justify-center" style={{ padding: margin }}>
-        <div ref={host} className="pele-preview transition-opacity data-[stale=true]:opacity-30" data-stale={!valid} />
+        <div ref={host} className="pele-preview transition-opacity data-[stale=true]:opacity-30" data-stale={stale} />
       </div>
     </div>
   )

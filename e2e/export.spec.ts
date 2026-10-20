@@ -52,6 +52,26 @@ test("while a past version is shown, the source export is of that version too", 
   expect(await exported(page, "Mermaid source .mmd")).toBe(old)
 })
 
+test("back from a past version, a broken source still shows the person's last good diagram", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const id = await newDiagram(page, "flowchart LR\n  OLD1 --> OLD2")
+  await openEditor(page, id)
+  await cursorAtEndOf(page, 1)
+  await page.keyboard.type(" --> NEW3")
+  await expect(page.locator(".pele-preview svg")).toContainText("NEW3")
+  // Break it, then look at the first version and come back.
+  await page.keyboard.type(" -->")
+  const versions = async () =>
+    (await tool<{ history: { version: string }[] }>(page, "get_diagram", { id, history: true })).history.map((h) => h.version)
+  await expect.poll(async () => (await versions()).length).toBe(2)
+  await tool(page, "set_view", { diagramId: id, previewVersion: (await versions()).at(-1) })
+  await expect(page.locator(".pele-preview svg")).not.toContainText("NEW3")
+  await page.getByRole("button", { name: "Back to latest" }).click()
+  await expect(page.locator(".pele-preview svg")).toContainText("NEW3")
+  expect(await exported(page, "SVG .svg")).toContain("NEW3")
+})
+
 test("an exported SVG opens at the diagram's own size, whatever the preview's zoom", async ({ context }) => {
   await withAgentTools(context)
   const page = await context.newPage()
