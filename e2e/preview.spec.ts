@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
 
-import { cursorAtEndOf, newDiagram, openEditor, tool, withAgentTools } from "./helpers"
+import { cursorAtEndOf, newDiagram, openEditor, storedText, tool, withAgentTools } from "./helpers"
 
 test.use({ viewport: { width: 1280, height: 860 } })
 
@@ -78,4 +78,25 @@ test("typing into a fitted diagram never zooms it in", async ({ context }) => {
   }
   expect(Math.max(...seen)).toBeLessThanOrEqual(start)
   await expect.poll(async () => (await placement(page)).inside).toBe(true)
+})
+
+test("after a click on the preview, its shortcuts and Space go to it rather than into the source", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const source = chain(2)
+  const id = await newDiagram(page, source)
+  await openEditor(page, id)
+  await expect.poll(() => zoom(page)).toBe(2)
+  // Focus starts in the editor, where a click on the preview used to leave it.
+  await cursorAtEndOf(page, 1)
+  await page.locator(".pele-preview").click()
+  await page.keyboard.press("Shift+Digit0")
+  await expect.poll(() => zoom(page)).toBe(1)
+  await page.keyboard.press("Shift+Digit1")
+  await expect.poll(() => zoom(page)).toBe(2)
+  await page.keyboard.press("Space")
+  // Keys are handled in order, so once this one has zoomed the preview, a typed space would be saved by now.
+  await page.keyboard.press("Shift+Digit0")
+  await expect.poll(() => zoom(page)).toBe(1)
+  expect(await storedText(page, id)).toBe(source)
 })

@@ -132,7 +132,9 @@ export function Editor({ id }: { id: string }) {
   const redo = () => void eos.redo(id).catch(() => {})
 
   const title = diagram?.meta.title ?? ""
-  const actions = useExportActions(title, source ?? "", () => svgRef.current)
+  // Exports are of the version shown, like the preview they're drawn from. Until a past
+  // version's text arrives, the preview still shows the latest, and so do they.
+  const actions = useExportActions(title, shown ?? source ?? "", () => svgRef.current)
 
   useShortcuts(actions)
   const mobile = useIsMobile()
@@ -162,7 +164,8 @@ export function Editor({ id }: { id: string }) {
       <div className="flex items-center gap-1.5 pt-1.5 pr-2 pl-1.5">
         <SidebarToggle />
         <HistoryNav />
-        <TitleInput value={title} onCommit={(t) => eos.renameDiagram(id, t)} />
+        {/* Also committed on leaving, when the diagram may already be gone. */}
+        <TitleInput value={title} onCommit={(t) => void eos.renameDiagram(id, t).catch(() => {})} />
         <div className="flex-1" />
         <IconButton label={diagram.starred ? "Unstar" : "Star"} onClick={() => eos.setStarred(id, !diagram.starred)}>
           <Star className={diagram.starred ? "fill-[var(--eos-champagne)] text-[var(--eos-champagne)]" : ""} />
@@ -302,13 +305,33 @@ function Banner({ children }: { children: React.ReactNode }) {
 
 function TitleInput({ value, onCommit }: { value: string; onCommit: (v: string) => void }) {
   const [draft, setDraft] = useState(value)
-  useEffect(() => setDraft(value), [value])
+  // What's typed and not yet committed; a new title from elsewhere replaces it, as it does the draft.
+  const typed = useRef<string | null>(null)
+  useEffect(() => {
+    setDraft(value)
+    typed.current = null
+  }, [value])
+  const commit = () => {
+    if (typed.current !== null && typed.current !== value) onCommit(typed.current)
+    typed.current = null
+  }
+  // Leaving the diagram (going back, a swipe, an agent opening another page) unmounts this
+  // without a blur, so a title still being typed is committed then. StrictMode's extra
+  // unmount in dev comes before anything is typed, so it commits nothing.
+  const commitRef = useRef(commit)
+  useEffect(() => {
+    commitRef.current = commit
+  })
+  useEffect(() => () => commitRef.current(), [])
   return (
     <input
       aria-label="Diagram title"
       value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => draft !== value && onCommit(draft)}
+      onChange={(e) => {
+        setDraft(e.target.value)
+        typed.current = e.target.value
+      }}
+      onBlur={commit}
       onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
       className="field-sizing-content max-w-full min-w-[4ch] rounded-md bg-transparent px-1.5 py-1 text-body font-medium outline-none hover:bg-accent/50 focus:bg-accent focus-visible:ring-1 focus-visible:ring-ring"
     />
