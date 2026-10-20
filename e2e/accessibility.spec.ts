@@ -7,8 +7,10 @@ const FLOWCHART = "flowchart TD\n  A[Start] --> B{Ready?}\n  B -->|Yes| C[Ship]\
 
 /** Runs axe against the page as it is now, at WCAG 2.2 A and AA. */
 async function audit(page: Page, { menuOpen = false } = {}) {
-  // Let open/close animations finish, so colours are measured at rest.
-  await page.waitForTimeout(250)
+  // Let open/close animations finish, so colours are measured at rest, however slow the machine.
+  await page.waitForFunction(() =>
+    document.getAnimations().every((a) => a.playState !== "running" || a.effect?.getTiming().iterations === Infinity)
+  )
   const axe = new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
   // A Radix menu is modal: it aria-hides the rest of the page and keeps focus inside itself until it closes,
   // so the hidden controls can't be reached; axe only sees that they're focusable.
