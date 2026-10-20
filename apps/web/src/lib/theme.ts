@@ -11,6 +11,9 @@ function resolveDark(mode: ThemeMode) {
 function applyMode(mode: ThemeMode) {
   currentMode = mode
   document.documentElement.classList.toggle("dark", resolveDark(mode))
+  // index.html's theme-color follows the system scheme; follow the mode actually shown instead (Safari tints its bars with it).
+  const background = getComputedStyle(document.body).backgroundColor
+  for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) meta.content = background
   try {
     localStorage.setItem(MODE_KEY, mode) // read by the inline script in index.html to avoid a flash
   } catch {
@@ -22,9 +25,9 @@ media().addEventListener("change", () => currentMode === "system" && applyMode("
 
 /** Applies light/dark mode plus the user's app and diagram CSS variable overrides. */
 export function applyTheme(theme: AppSettings["theme"]) {
-  applyMode(theme.mode)
   setStyle("eos-theme-app", theme.customCss ? sanitizeVars(theme.customCss, /^--/) : "")
   setStyle("eos-theme-diagram", theme.diagramCss ? sanitizeVars(theme.diagramCss, /^--pele-/) : "")
+  applyMode(theme.mode)
 }
 
 function setStyle(id: string, css: string) {
