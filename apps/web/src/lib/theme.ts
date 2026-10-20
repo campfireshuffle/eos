@@ -46,13 +46,31 @@ function setStyle(id: string, css: string) {
  */
 const FETCHES = /\\|(?:url|src|image|image-set|cross-fade)\s*\(/i
 
+/** The custom-property declarations in `css` as [name, value] pairs; comments and everything else are ignored. */
+function parseVars(css: string): [string, string][] {
+  return [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/(--[\w-]+)\s*:\s*([^;{}<>]+);?/g)].map(([, name, value]) => [
+    name,
+    value.trim(),
+  ])
+}
+
 /** Keeps only custom-property declarations whose names match `allow` and whose values can't fetch anything. */
 export function sanitizeVars(css: string, allow: RegExp): string {
-  const decls = [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/(--[\w-]+)\s*:\s*([^;{}<>]+);?/g)]
-    .filter(([, name, value]) => allow.test(name) && !FETCHES.test(value))
-    .map(([, name, value]) => `${name}: ${value.trim()};`)
+  const decls = parseVars(css)
+    .filter(([name, value]) => allow.test(name) && !FETCHES.test(value))
+    .map(([name, value]) => `${name}: ${value};`)
     .join("\n  ")
   return decls ? `:root, .dark {\n  ${decls}\n}` : ""
+}
+
+/**
+ * The declarations in `css` whose values differ from `prefill`, or null if none do. The pre-fill holds one
+ * mode's values and saved CSS applies to both, so saving it whole would carry that mode into the other.
+ */
+export function changedVars(css: string, prefill: string): string | null {
+  const before = new Map(parseVars(prefill))
+  const changed = parseVars(css).filter(([name, value]) => before.get(name) !== value)
+  return changed.length ? `:root {\n${changed.map(([name, value]) => `  ${name}: ${value};`).join("\n")}\n}\n` : null
 }
 
 const APP_VARS: [string, string[]][] = [

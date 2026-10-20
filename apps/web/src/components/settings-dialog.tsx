@@ -11,7 +11,7 @@ import { useEos, useSettings, useStorageUsage } from "@/lib/eos"
 import { useRestoreFocus } from "@/lib/restore-focus"
 import { useCopy } from "@/lib/use-copy"
 import { download } from "@/lib/files"
-import { currentAppCss, DEFAULT_DIAGRAM_CSS } from "@/lib/theme"
+import { changedVars, currentAppCss, DEFAULT_DIAGRAM_CSS } from "@/lib/theme"
 import type { CodeLanguage } from "@/lib/mermaid-language"
 import { askConfirm, setUi, useUi } from "@/lib/ui-state"
 
@@ -170,7 +170,7 @@ function Theming() {
           size="sm"
           onClick={() =>
             save({
-              customCss: appCss === appDefault.current ? null : appCss,
+              customCss: appDefault.current === null ? appCss : changedVars(appCss, appDefault.current),
               diagramCss: diagramCss === DEFAULT_DIAGRAM_CSS ? null : diagramCss,
             })
           }
