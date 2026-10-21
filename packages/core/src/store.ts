@@ -367,7 +367,7 @@ export class Eos {
   }
 
   async setSource(id: DiagramId, source: string, actor: Actor = USER) {
-    await this.mutate(id, actor, (d) => d.text.update(lf(source)))
+    await this.mutate(id, actor, (d) => applyEdits(d.text, diffText(sourceOf(d), lf(source))))
   }
 
   // ── History ────────────────────────────────────────────────────────────────
@@ -1108,11 +1108,13 @@ function changesOf(delta: Delta<string>[]): TextChange[] {
 
 /**
  * The edits that turn `a` into `b`: Loro's minimal diff (as `LoroText.update` makes it), with each
- * inserted line starting at the start of a line where it can. An insertion that holds a line break
- * and ends with the text before it can as well go that much earlier, so a line added above an
- * indented line goes before the indent ("  X\n" before "  A"), not after it ("X\n  " before "A").
- * One at the end of a line's text that extends the line and then adds lines is two insertions there:
- * the extension, and the rest from its first line break ("2", then "\n  B2 --> X").
+ * edit of whole lines beginning at the start of a line where the text allows. An insertion or a
+ * removal that holds a line break and ends with the text before it can as well go that much earlier,
+ * when that makes it whole lines, so a line added above an indented line goes before the indent
+ * ("  X\n" before "  A"), not after it ("X\n  " before "A"), and a removed line takes its own start
+ * ("  A --> B\n"), not the start of the line after it ("B\n  A --> "). An insertion at the end of a
+ * line's text that extends the line and then adds lines is two insertions there: the extension, and
+ * the rest from its first line break ("2", then "\n  B2 --> X").
  */
 function diffText(a: string, b: string): TextChange[] {
   const doc = new LoroDoc()
@@ -1125,17 +1127,20 @@ function diffText(a: string, b: string): TextChange[] {
   const diff = doc.diff(from, doc.frontiers(), false)[0]?.[1]
   const edits = diff?.type === "text" ? changesOf(diff.diff) : []
   return edits.flatMap((e, i) => {
-    if (e.from !== e.to || !e.insert.includes("\n")) return [e]
-    // Back over the text before it while that matches the insertion's end, not into an earlier edit.
+    // Loro's edits each insert or remove, never both.
+    const moved = e.insert || a.slice(e.from, e.to)
+    if (!moved.includes("\n")) return [e]
+    // Back over the text before it while that matches the edit's end, not into an earlier edit.
     const floor = edits[i - 1]?.to ?? 0
     let k = 0
-    while (e.from - k > floor && a[e.from - k - 1] !== "\n" && a[e.from - k - 1] === e.insert[e.insert.length - k - 1]) k++
+    while (e.from - k > floor && a[e.from - k - 1] !== "\n" && a[e.from - k - 1] === moved[moved.length - k - 1]) k++
     const at = e.from - k
-    if (k > 0 && (at === 0 || a[at - 1] === "\n") && k < e.insert.length)
-      return [{ from: at, to: at, insert: a.slice(at, e.from) + e.insert.slice(0, -k) }]
+    // Only when that makes it whole lines: from a line start to just after a line break.
+    if (k > 0 && moved[moved.length - k - 1] === "\n" && (at === 0 || a[at - 1] === "\n"))
+      return [e.insert ? { from: at, to: at, insert: a.slice(at, e.from) + e.insert.slice(0, -k) } : { from: at, to: e.to - k, insert: "" }]
     const br = e.insert.indexOf("\n")
     const lineEnd = e.from === a.length || a[e.from] === "\n"
-    if (br === 0 || !lineEnd || !/\S/.test(a.slice(a.lastIndexOf("\n", e.from - 1) + 1, e.from))) return [e]
+    if (br <= 0 || !lineEnd || !/\S/.test(a.slice(a.lastIndexOf("\n", e.from - 1) + 1, e.from))) return [e]
     return [
       { from: e.from, to: e.from, insert: e.insert.slice(0, br) },
       { from: e.from, to: e.from, insert: e.insert.slice(br) },

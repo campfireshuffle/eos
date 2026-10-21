@@ -195,6 +195,32 @@ describe("Eos store", () => {
     }
   })
 
+  it("merges an edit that removes a line, keeping what the person typed on the line after it", async () => {
+    const eos = await fresh()
+    // The text at the base, the person's keystroke since, the edit made from the base, and the merge.
+    const cases = [
+      ["graph TD\n  A --> B\n  A --> C\n", { from: 21, to: 22, insert: "X" }, "graph TD\n  A --> C\n", "graph TD\n  X --> C\n"],
+      ["graph TD\n  A --> B\n  C --> D\n", { from: 19, to: 19, insert: "%%" }, "graph TD\n  C --> D\n", "graph TD\n%%  C --> D\n"],
+      [
+        "sequenceDiagram\n  A->>B: hi\n  A->>B: yo\n",
+        { from: 31, to: 31, insert: "!" },
+        "sequenceDiagram\n  A->>B: yo\n",
+        "sequenceDiagram\n  A!->>B: yo\n",
+      ],
+      // Both remove the same line, the person from its start.
+      ["graph TD\n  A --> B\n  A --> C\n", { from: 9, to: 19, insert: "" }, "graph TD\n  A --> C\n", "graph TD\n  A --> C\n"],
+      // A removed last line isn't slid onto the line before it when that wouldn't be whole lines.
+      ["graph TD\nA --> B\n  A --> B", { from: 13, to: 14, insert: "X" }, "graph TD\nA --> B", "graph TD\nA --X B"],
+    ] as const
+    for (const [base, keystroke, edit, merged] of cases) {
+      const id = await eos.createDiagram({ source: base })
+      const version = (await eos.getDiagram(id))!.version
+      ;(await eos.bindSource(id)).edit([keystroke])
+      await eos.editDiagram(id, { source: edit }, undefined, { base: version })
+      expect.soft(await eos.getSource(id), JSON.stringify(keystroke)).toBe(merged)
+    }
+  })
+
   it("stars, filters and builds the tag tree", async () => {
     const eos = await fresh()
     const a = await eos.createDiagram({ title: "a", tags: ["work/backend"] })
