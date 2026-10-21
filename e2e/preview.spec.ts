@@ -524,7 +524,14 @@ test("⇧0 and ⇧1 zoom without typing into the source, wherever focus was left
   expect(await storedText(page, id)).toBe(source)
 })
 
-// Safari keeps the source's selection after focus leaves it, and typed into it from wherever focus went.
+/** Selects the last `n` characters of the source's second line. */
+async function selectEndOfLine1(page: Page, n: number) {
+  await cursorAtEndOf(page, 1)
+  for (let i = 0; i < n; i++) await page.keyboard.press("Shift+ArrowLeft")
+}
+
+// The source keeps its selection after focus leaves it (in Safari, or after a click on Star or the preview), and a
+// key, a paste, a cut or committed text from wherever focus went is aimed at it. An editor without focus takes none.
 for (const [how, leave] of [
   ["Escape, then Tab", async (page: Page) => (await page.keyboard.press("Escape"), await focusNext(page))],
   [
@@ -540,21 +547,51 @@ for (const [how, leave] of [
       await expect(page.getByRole("alertdialog")).toBeVisible()
     },
   ],
+  ["clicking the preview", (page: Page) => page.getByLabel("Diagram preview").click()],
 ] as const) {
-  test(`after ${how}, typed letters don't go into the source`, async ({ context }) => {
+  test(`after ${how}, nothing typed, pasted, cut or inserted goes into the source`, async ({ context, browserName }) => {
     await withAgentTools(context)
     const page = await context.newPage()
     const source = "flowchart LR\n  A --> B"
     const id = await newDiagram(page, source)
     await openEditor(page, id)
-    await cursorAtEndOf(page, 1)
+    // Something to paste.
+    await page.getByLabel("Diagram title").click()
+    await page.keyboard.press("ControlOrMeta+a")
+    await page.keyboard.press("ControlOrMeta+c")
+    await selectEndOfLine1(page, 3)
     await leave(page)
     await expect(page.locator(".cm-content").first()).not.toBeFocused()
     await page.keyboard.type("xyz")
+    await page.keyboard.press("ControlOrMeta+v")
+    await page.keyboard.press("ControlOrMeta+x")
+    // After a preview click, Chrome inserts committed text without a beforeinput to cancel (see the backlog).
+    if (!(browserName === "chromium" && how === "clicking the preview")) await page.keyboard.insertText("😀")
     await page.waitForTimeout(300)
     expect(await storedText(page, id)).toBe(source)
+    // The source's own lines: Settings has editors of its own.
+    const shown = await page
+      .locator(".cm-content")
+      .first()
+      .evaluate((e) => [...e.querySelectorAll(".cm-line")].map((l) => l.textContent).join("\n"))
+    expect(shown).toBe(source)
   })
 }
+
+test("Escape, then Tab leaves the source even when Escape collapses a selection", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const source = "mindmap\n  root\n    a\n    b"
+  const id = await newDiagram(page, source)
+  await openEditor(page, id)
+  await cursorAtEndOf(page, 3)
+  await page.keyboard.press("Shift+ArrowLeft")
+  await page.keyboard.press("Escape")
+  await page.keyboard.press("Tab")
+  await expect(page.locator(".cm-content")).not.toBeFocused()
+  await page.waitForTimeout(300)
+  expect(await storedText(page, id)).toBe(source)
+})
 
 test("leaving the source and coming back keeps its caret", async ({ context, browserName }) => {
   await withAgentTools(context)
@@ -571,26 +608,25 @@ test("leaving the source and coming back keeps its caret", async ({ context, bro
   await expect.poll(() => storedText(page, id)).toBe("flowchart LR\n  A --> ZB")
 })
 
-/** Selects the last `n` characters of the source's second line. */
-async function selectEndOfLine1(page: Page, n: number) {
-  await cursorAtEndOf(page, 1)
-  for (let i = 0; i < n; i++) await page.keyboard.press("Shift+ArrowLeft")
-}
-
-test("after leaving the source, ⌘C copies its selection", async ({ context }) => {
-  await withAgentTools(context)
-  const page = await context.newPage()
-  const id = await newDiagram(page, "flowchart LR\n  A --> B")
-  await openEditor(page, id)
-  await page.evaluate(() => {
-    const copies: string[] = ((window as unknown as { copies: string[] }).copies = [])
-    document.addEventListener("copy", () => copies.push(document.getSelection()?.toString() ?? ""), true)
+for (const [how, leave] of [
+  ["clicking Star", (page: Page) => page.getByRole("button", { name: "Star", exact: true }).click()],
+  ["clicking the preview", (page: Page) => page.getByLabel("Diagram preview").click()],
+] as const) {
+  test(`after ${how}, ⌘C copies the source's selection`, async ({ context }) => {
+    await withAgentTools(context)
+    const page = await context.newPage()
+    const id = await newDiagram(page, "flowchart LR\n  A --> B")
+    await openEditor(page, id)
+    await page.evaluate(() => {
+      const copies: string[] = ((window as unknown as { copies: string[] }).copies = [])
+      document.addEventListener("copy", () => copies.push(document.getSelection()?.toString() ?? ""), true)
+    })
+    await selectEndOfLine1(page, 3)
+    await leave(page)
+    await page.keyboard.press("ControlOrMeta+c")
+    expect(await page.evaluate(() => (window as unknown as { copies: string[] }).copies)).toEqual(["> B"])
   })
-  await selectEndOfLine1(page, 3)
-  await page.getByRole("button", { name: "Star", exact: true }).click()
-  await page.keyboard.press("ControlOrMeta+c")
-  expect(await page.evaluate(() => (window as unknown as { copies: string[] }).copies)).toEqual(["> B"])
-})
+}
 
 test("after leaving the source, right-clicking its selection and typing replaces it", async ({ context }) => {
   await withAgentTools(context)

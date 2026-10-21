@@ -116,14 +116,11 @@ export function CodeEditor({
           EditorView.clipboardInputFilter.of((text) => text.replace(/\r\n?/g, "\n")),
           // Shows a "\r", and other invisible control characters, as a marker (␍), so what is typed next to one is where it looks.
           highlightSpecialChars(),
-          // An editor without focus takes no input. WebKit keeps the editor's selection after focus leaves it, and
-          // a key pressed wherever focus went (Settings, a confirm, Star) arrives here as a beforeinput. Cancelled,
-          // nothing is inserted, and the selection stays, so it can still be copied. A drop is its own event.
-          EditorView.domEventHandlers({
-            beforeinput: (e, view) => view.root.activeElement !== view.contentDOM && (e.preventDefault(), true),
-          }),
           EditorState.readOnly.of(readOnly),
           EditorView.editable.of(!readOnly),
+          // Escape arms CodeMirror's Escape-then-Tab exit (see the hint below), whether or not it also collapses a
+          // selection; it returns false, so the default keymap still collapses one.
+          keymap.of([{ key: "Escape", run: (v) => (v.setTabFocusMode(2000), false) }]),
           onUndo
             ? // Undo goes through Loro: the person's own stack, which skips agent edits.
               keymap.of([
@@ -162,6 +159,17 @@ export function CodeEditor({
       }),
     })
     view.current = v
+    // An editor without focus takes no input. Its selection can stay in it after focus leaves (WebKit, a click on
+    // Star or the preview), and a key, a paste, a cut or committed text from wherever focus went (Settings, a
+    // confirm) is sent to it, or to the focused control, as one of these events. They're cancelled at the document,
+    // whatever their target, so nothing changes and the selection stays, to be copied. A drop focuses the editor
+    // first; agent edits, undo and other tabs aren't DOM input.
+    const unfocused = (e: Event) => {
+      const at = getSelection()?.anchorNode
+      if (v.root.activeElement !== v.contentDOM && at && v.contentDOM.contains(at)) e.preventDefault()
+    }
+    const inputs = ["beforeinput", "paste", "cut"] as const
+    if (!readOnly) for (const type of inputs) document.addEventListener(type, unfocused, true)
     if (handleRef) {
       handleRef.current = {
         focusLine(line, column) {
@@ -173,12 +181,12 @@ export function CodeEditor({
       }
     }
     // Changes from elsewhere arrive as edits, in the coordinates of the text the editor shows.
-    const unbind = binding?.onChange((changes) => {
+    const unbind = binding?.onChange((changes, own) => {
       const apply = () => {
-        // Keep a caret at an insertion point after the inserted text, as CodeMirror's own undo does,
-        // so typing after undoing a deletion carries on after the restored text instead of before it.
+        // A caret at an insertion point stays before text someone else inserted (an agent appending a line
+        // doesn't pull it along), but goes after text the person's own undo restores, as CodeMirror's undo does.
         const set = v.state.changes(changes)
-        v.dispatch({ changes: set, selection: v.state.selection.map(set, 1), annotations: external.of(true) })
+        v.dispatch({ changes: set, selection: v.state.selection.map(set, own ? 1 : -1), annotations: external.of(true) })
         // Belt and braces: if the two ever disagree, show what's stored.
         const stored = binding.text()
         if (v.state.doc.toString() !== stored) {
@@ -202,6 +210,7 @@ export function CodeEditor({
     if (!readOnly) window.addEventListener("keydown", onEscape, true)
     return () => {
       window.removeEventListener("keydown", onEscape, true)
+      for (const type of inputs) document.removeEventListener(type, unfocused, true)
       unbind?.()
       v.destroy()
     }

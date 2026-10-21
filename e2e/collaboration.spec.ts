@@ -70,6 +70,19 @@ test("typing after an undone deletion carries on after the restored text", async
   await expectEditor(a, "helloX")
 })
 
+test("an agent's line appended where the person is typing doesn't take their caret", async () => {
+  const id = await openInBoth("graph TD\n  A --> B")
+  await cursorAtEndOf(a, 1)
+  await a.keyboard.type("1")
+  await expectEditor(a, "graph TD\n  A --> B1")
+  const { diagram, version } = await tool<{ diagram: { source: string }; version: string }>(a, "get_diagram", { id })
+  await tool(a, "update_diagram", { id, source: diagram.source + "\n  C --> D", baseVersion: version })
+  await expectEditor(a, "graph TD\n  A --> B1\n  C --> D")
+  await a.keyboard.type("2")
+  await expectEditor(a, "graph TD\n  A --> B12\n  C --> D")
+  expect(await storedText(a, id)).toBe("graph TD\n  A --> B12\n  C --> D")
+})
+
 test("an agent's edit merges with typing done after the version it read", async () => {
   const id = await openInBoth("flowchart TD\n  A --> B")
   // The agent works through tab b; the person types in tab a.

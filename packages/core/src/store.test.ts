@@ -651,6 +651,27 @@ describe("editor binding", () => {
     expect(ed.state.text).toBe(await eos.getSource(id))
     expect(ed.state.text).toContain("B --> C")
   })
+
+  it("reports which changes are the person's own: their undo and redo, not an agent's edit or another tab's", async () => {
+    const name = `own-${n++}`
+    const one = await Eos.create({ dbName: name, seed: false })
+    const id = await one.createDiagram({ source: "flowchart TD\n  A --> B" })
+    const two = await Eos.create({ dbName: name, seed: false })
+    const a = await editor(one, id)
+    const b = await editor(two, id)
+    const own: boolean[] = []
+    a.binding.onChange((_, mine) => own.push(mine))
+    a.type(a.state.text.length, "\n  B --> C")
+    await one.editDiagram(id, { source: a.state.text + "\n  C --> D" }, { kind: "agent", tool: "update_diagram" })
+    expect(own).toEqual([false])
+    await settle()
+    b.type(0, "%% hi\n")
+    await settle()
+    expect(own).toEqual([false, false])
+    expect(await one.undo(id)).toBe(true)
+    expect(await one.redo(id)).toBe(true)
+    expect(own).toEqual([false, false, true, true])
+  })
 })
 
 describe("library events and reads", () => {

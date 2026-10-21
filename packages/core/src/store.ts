@@ -369,7 +369,7 @@ export class Eos {
                 pos += op.delete
               } else if (op.insert !== undefined) changes.push({ from: pos, to: pos, insert: op.insert })
             }
-            if (changes.length) listener(changes)
+            if (changes.length) listener(changes, batch.by === "local" && batch.origin === actorOrigin(USER))
           }
         }),
     }

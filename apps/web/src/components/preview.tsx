@@ -217,9 +217,7 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
     if (e.button !== 0 && e.button !== 1) return
     e.preventDefault() // stops middle-click autoscroll and text selection
     // …and focus moving, so blur whatever had it (the frame too): the preview's shortcuts listen on the page.
-    // Safari still types into an editor that keeps a selection, so clear that too.
     ;(document.activeElement as HTMLElement | null)?.blur()
-    getSelection()?.removeAllRanges()
     try {
       frame.current!.setPointerCapture(e.pointerId)
     } catch {
