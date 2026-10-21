@@ -211,3 +211,40 @@ test("on a phone, a long unbroken tag name keeps the delete confirm's buttons in
     expect(button.x + button.width).toBeLessThanOrEqual(box.x + box.width)
   }
 })
+
+test("a keyboard moves a tag under another, and back to the top level, from its row's drag button", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.goto("/#/")
+  await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+  for (const tag of ["alpha", "beta"]) await tool(page, "create_diagram", { title: tag, tags: [tag], open: false })
+  const tree = page.getByRole("treegrid", { name: "Tags" })
+  await tree.getByRole("row", { name: "alpha", exact: true }).focus()
+  // Across the row: its icon button, then the drag button, which shows while it has focus.
+  await page.keyboard.press("ArrowRight")
+  await page.keyboard.press("ArrowRight")
+  const drag = tree.getByRole("button", { name: "Drag alpha" })
+  await expect(drag).toBeFocused()
+  expect((await drag.boundingBox())!.width).toBeGreaterThan(10)
+  await page.keyboard.press("Enter")
+  // React Aria focuses the first drop target, the row after alpha's.
+  await expect(page.getByRole("button", { name: /^Drop on beta/ })).toBeFocused()
+  await page.keyboard.press("Enter")
+  await expect(tree.getByRole("row", { name: "beta/alpha" })).toBeVisible()
+  const tags = async () =>
+    (await tool<{ diagrams: { title: string; tags: string[] }[] }>(page, "get_library")).diagrams.find((d) => d.title === "alpha")?.tags
+  await expect.poll(tags).toEqual(["beta/alpha"])
+  // Back to the top level: the drop zone goes away, so focus goes to the moved row.
+  await tree.getByRole("row", { name: "beta/alpha" }).focus()
+  await page.keyboard.press("ArrowRight")
+  await page.keyboard.press("ArrowRight")
+  await expect(tree.getByRole("button", { name: "Drag beta/alpha" })).toBeFocused()
+  await page.keyboard.press("Enter")
+  await expect(page.getByRole("button", { name: /^Drop on/ }).first()).toBeFocused()
+  // Tab goes from the tree's drop targets to the top-level zone.
+  await page.keyboard.press("Tab")
+  await expect(page.getByRole("button", { name: "Move to top level" })).toBeFocused()
+  await page.keyboard.press("Enter")
+  await expect.poll(tags).toEqual(["alpha"])
+  await expect(tree.getByRole("row", { name: "alpha", exact: true })).toBeFocused()
+})

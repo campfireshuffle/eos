@@ -1,5 +1,5 @@
-import { ArrowUpToLine, ChevronRight, Smile, Trash2 } from "lucide-react"
-import { useMemo, useRef, useState, type ReactNode } from "react"
+import { ArrowUpToLine, ChevronRight, GripVertical, Smile, Trash2 } from "lucide-react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
   Button as AriaButton,
   Collection,
@@ -38,10 +38,10 @@ const DROP_HIGHLIGHT =
 type Anchored = { tag: TagPath; x: number; y: number; from: HTMLElement }
 
 /**
- * The tag tree, built on React Aria's Tree (works with mouse, touch, keyboard and
- * screen readers). Tags are always alphabetical, so drags only ever drop *onto* a
- * tag (nesting under it) or onto the top-level zone; there are no between-row drops.
- * Dropping diagram cards onto a tag tags them.
+ * The tag tree, built on React Aria's Tree. Rows drag with a mouse or touch; with a keyboard or
+ * screen reader, from each row's drag button (→ from the row, then Enter). Tags are always
+ * alphabetical, so drags only ever drop *onto* a tag (nesting under it) or onto the top-level
+ * zone; there are no between-row drops. Dropping diagram cards onto a tag tags them.
  */
 export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; selected: TagPath | null; sort?: string; group?: string }) {
   const eos = useEos()
@@ -54,10 +54,38 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
   const [dragging, setDragging] = useState<TagPath[]>([])
   const [picker, setPicker] = useState<Anchored | null>(null)
   const [menu, setMenu] = useState<Anchored | null>(null)
+  const treeRef = useRef<HTMLDivElement>(null)
+  // A tag dropped on "Move to top level": the zone that had focus is gone, so focus goes to the
+  // moved row once it renders, unless focus has gone somewhere else by then.
+  const [refocus, setRefocus] = useState<TagPath | null>(null)
+  useEffect(() => {
+    if (!refocus) return
+    // The tree renders a new row a frame or so after its tags change.
+    let frame = 0
+    let tries = 30
+    const attempt = () => {
+      const row = treeRef.current?.querySelector<HTMLElement>(`[role=row][data-key="${CSS.escape(refocus)}"]`)
+      if (!row) {
+        if (tries-- > 0) frame = requestAnimationFrame(attempt)
+        else setRefocus(null)
+        return
+      }
+      const active = document.activeElement
+      // React Aria hands focus to the tree itself when the dragged row is gone.
+      if (!active || active === document.body || active === treeRef.current) row.focus()
+      setRefocus(null)
+    }
+    attempt()
+    return () => cancelAnimationFrame(frame)
+  }, [refocus])
 
   const moveTo = (from: TagPath, parent: TagPath | null) => {
     const to = parent ? `${parent}/${nameOf(from)}` : nameOf(from)
-    if (to !== from && !(parent && tagMatches(parent, from))) void eos.renameTag(from, to).then(() => followTag(from, to))
+    if (to === from || (parent && tagMatches(parent, from))) return
+    return eos.renameTag(from, to).then(() => {
+      followTag(from, to)
+      return to
+    })
   }
 
   const { dragAndDropHooks } = useDragAndDrop({
@@ -75,7 +103,7 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
     },
     onMove: (e) => {
       if (e.target.dropPosition !== "on") return
-      for (const key of e.keys) moveTo(String(key), String(e.target.key))
+      for (const key of e.keys) void moveTo(String(key), String(e.target.key))
     },
     onItemDrop: async (e) => {
       const tag = String(e.target.key)
@@ -104,6 +132,7 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
       }}
     >
       <Tree
+        ref={treeRef}
         aria-label="Tags"
         items={sorted}
         // Rows are cached per item; redraw them when the active tag changes so the highlight follows the URL.
@@ -153,6 +182,14 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
                       {tag.emoji ?? "#"}
                     </AriaButton>
                     <span className="min-w-0 flex-1 truncate">{nameOf(tag.path)}</span>
+                    {/* The keyboard's and screen readers' way to drag the row (React Aria names it "Drag …").
+                        A mouse drags the row itself, so it shows only while it has keyboard focus. */}
+                    <AriaButton
+                      slot="drag"
+                      className="sr-only flex shrink-0 rounded text-muted-foreground outline-none data-[focus-visible]:not-sr-only data-[focus-visible]:ring-1 data-[focus-visible]:ring-ring"
+                    >
+                      <GripVertical className="m-[3px] size-3.5" />
+                    </AriaButton>
                     {hasChildItems && (
                       <AriaButton
                         slot="chevron"
@@ -177,7 +214,11 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
           aria-label="Move to top level"
           getDropOperation={(types) => (types.has(TAG_MIME) ? "move" : "cancel")}
           onDrop={async (e) => {
-            for (const item of e.items) if (item.kind === "text" && item.types.has(TAG_MIME)) moveTo(await item.getText(TAG_MIME), null)
+            for (const item of e.items) {
+              if (item.kind !== "text" || !item.types.has(TAG_MIME)) continue
+              const to = await moveTo(await item.getText(TAG_MIME), null)
+              if (to) setRefocus(to)
+            }
           }}
           className={({ isDropTarget }) =>
             cn(
@@ -201,7 +242,7 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
             onMoveToTop={
               menu.tag.includes("/")
                 ? () => {
-                    moveTo(menu.tag, null)
+                    void moveTo(menu.tag, null)
                     setMenu(null)
                   }
                 : undefined
