@@ -128,6 +128,9 @@ test.describe("selecting", () => {
     await page.keyboard.press("Escape")
 
     await page.evaluate(() => (location.hash = "/?q=crumble"))
+    // The tag view also shows 2 cards, so wait for the search's own: Apple pie gone, Pear crumble shown.
+    await expect(card(page, "Apple pie")).toBeHidden()
+    await expect(card(page, "Pear crumble")).toBeVisible()
     await expect(page.locator("[data-card-id]")).toHaveCount(2)
     await page.keyboard.press("ControlOrMeta+a")
     await expect(page.getByText("2 selected")).toBeVisible()
