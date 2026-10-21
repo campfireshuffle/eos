@@ -33,6 +33,17 @@ describe("relativeTime agrees with the Date heading", () => {
   })
 })
 
+describe("relativeTime on an edit more than a week old", () => {
+  it("gives the year for an edit made in an earlier year", () => {
+    expect(seen(new Date(2024, 9, 18, 12).getTime(), oct(15, 12)).card).toContain("2024")
+  })
+
+  it("leaves the year out for edits made earlier this year", () => {
+    expect(seen(new Date(2026, 2, 18, 12).getTime(), oct(15, 12)).card).not.toContain("2026")
+    expect(seen(oct(1, 12), oct(15, 12)).card).not.toContain("2026")
+  })
+})
+
 describe("relativeTime agrees with the Date heading across a daylight-saving change", () => {
   // Sets process.env.TZ, which Node applies to dates made from then on, and puts it back afterwards.
   beforeAll(() => {

@@ -79,5 +79,7 @@ export function relativeTime(ms: number): string {
   if (h < 24 || d === 0) return `${h}h ago`
   if (d === 1) return "Yesterday"
   if (d < 7) return `${d} days ago`
-  return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+  const date = new Date(ms)
+  const year = date.getFullYear() === new Date().getFullYear() ? undefined : "numeric"
+  return date.toLocaleDateString(undefined, { year, month: "short", day: "numeric" })
 }
