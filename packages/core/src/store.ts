@@ -1107,46 +1107,90 @@ function changesOf(delta: Delta<string>[]): TextChange[] {
 }
 
 /**
- * The edits that turn `a` into `b`: Loro's minimal diff (as `LoroText.update` makes it), with each
- * edit of whole lines beginning at the start of a line where the text allows. An insertion or a
- * removal that holds a line break and ends with the text before it can as well go that much earlier,
- * when that makes it whole lines, so a line added above an indented line goes before the indent
- * ("  X\n" before "  A"), not after it ("X\n  " before "A"), and a removed line takes its own start
- * ("  A --> B\n"), not the start of the line after it ("B\n  A --> "). A removal that runs to the
- * end of the text ("\n  end") is whole lines already, so it stays. An insertion at the end of a
- * line's text that extends the line and then adds lines is two insertions there: the extension, and
- * the rest from its first line break ("2", then "\n  B2 --> X").
+ * The edits that turn `a` into `b`, by Loro's diff (`LoroText.update`). By default Loro tidies a
+ * minimal diff up for reading (a few kept characters among changes are replaced as well); `exact`
+ * keeps it minimal.
  */
-function diffText(a: string, b: string): TextChange[] {
+function charDiff(a: string, b: string, exact = false): TextChange[] {
   const doc = new LoroDoc()
   const text = doc.getText("source")
   text.insert(0, a)
   doc.commit()
   const from = doc.frontiers()
-  text.update(b)
+  text.update(b, { useRefinedDiff: !exact })
   doc.commit()
   const diff = doc.diff(from, doc.frontiers(), false)[0]?.[1]
-  const edits = diff?.type === "text" ? changesOf(diff.diff) : []
-  return edits.flatMap((e, i) => {
-    // Loro's edits each insert or remove, never both.
-    const moved = e.insert || a.slice(e.from, e.to)
-    // A removal that runs to the end of the text ("\n  end") is whole lines already: sliding it would take an earlier copy.
-    if (!moved.includes("\n") || (!e.insert && e.to === a.length)) return [e]
-    // Back over the text before it while that matches the edit's end, not into an earlier edit.
-    const floor = edits[i - 1]?.to ?? 0
-    let k = 0
-    while (e.from - k > floor && a[e.from - k - 1] !== "\n" && a[e.from - k - 1] === moved[moved.length - k - 1]) k++
-    const at = e.from - k
-    // Only when that makes it whole lines: from a line start to just after a line break.
-    if (k > 0 && moved[moved.length - k - 1] === "\n" && (at === 0 || a[at - 1] === "\n"))
-      return [e.insert ? { from: at, to: at, insert: a.slice(at, e.from) + e.insert.slice(0, -k) } : { from: at, to: e.to - k, insert: "" }]
-    const br = e.insert.indexOf("\n")
-    const lineEnd = e.from === a.length || a[e.from] === "\n"
-    if (br <= 0 || !lineEnd || !/\S/.test(a.slice(a.lastIndexOf("\n", e.from - 1) + 1, e.from))) return [e]
-    return [
-      { from: e.from, to: e.from, insert: e.insert.slice(0, br) },
-      { from: e.from, to: e.from, insert: e.insert.slice(br) },
-    ]
+  doc.free()
+  return diff?.type === "text" ? changesOf(diff.diff) : []
+}
+
+/** The runs of lines that differ, in order: lines [i0, i1) of `a` become lines [j0, j1) of `b`. */
+function lineHunks(a: string[], b: string[]) {
+  // Lines that match at the start come first, so of two identical lines it's the first that stays.
+  let pre = 0
+  while (pre < a.length && pre < b.length && a[pre] === b[pre]) pre++
+  let suf = 0
+  while (suf < a.length - pre && suf < b.length - pre && a[a.length - 1 - suf] === b[b.length - 1 - suf]) suf++
+  const mid = { i0: pre, i1: a.length - suf, j0: pre, j1: b.length - suf }
+  // The lines between, one character each (below the surrogates), so a diff of the two strings is a diff of lines.
+  const ids = new Map<string, string>()
+  const encode = (lines: string[]) => lines.map((l) => ids.get(l) ?? ids.set(l, String.fromCharCode(0x100 + ids.size)).get(l)!).join("")
+  const ea = encode(a.slice(mid.i0, mid.i1))
+  const eb = encode(b.slice(mid.j0, mid.j1))
+  if (!ea || !eb || ids.size > 0xd800 - 0x100) return ea || eb ? [mid] : []
+  const hunks: (typeof mid)[] = []
+  let shift = 0 // lines `b` has gained on `a` so far
+  for (const e of charDiff(ea, eb, true)) {
+    const i0 = pre + e.from
+    const last = hunks.at(-1)
+    // A removal and an insertion with no line between them are one run.
+    if (last?.i1 === i0) {
+      last.i1 = pre + e.to
+      last.j1 += e.insert.length
+    } else hunks.push({ i0, i1: pre + e.to, j0: i0 + shift, j1: i0 + shift + e.insert.length })
+    shift += e.insert.length - (e.to - e.from)
+  }
+  return hunks
+}
+
+/**
+ * The edits that turn `a` into `b`, line by line. Invariant: lines `b` keeps are left alone, lines it
+ * adds or removes go in or come out whole between lines, and only lines it changes get a character
+ * diff, so whatever was typed on a kept line stays on that line. Whole lines go in as "  X\n" at the
+ * start of a line, or "\n  X" at the end of the text. In changed lines, an insertion at the end of a
+ * line's text that extends the line and then adds lines is two insertions there: the extension, and
+ * the rest from its first line break ("2", then "\n  B2 --> X").
+ */
+function diffText(a: string, b: string): TextChange[] {
+  const A = a.split("\n")
+  const B = b.split("\n")
+  // Where each line starts.
+  const starts = (lines: string[]) => {
+    const at = [0]
+    for (const l of lines) at.push(at.at(-1)! + l.length + 1)
+    return at
+  }
+  const sa = starts(A)
+  const sb = starts(B)
+  return lineHunks(A, B).flatMap(({ i0, i1, j0, j1 }): TextChange[] => {
+    const lines = B.slice(j0, j1).join("\n")
+    if (i0 === i1) {
+      const at = i0 < A.length ? sa[i0]! : a.length
+      return [{ from: at, to: at, insert: i0 < A.length ? lines + "\n" : "\n" + lines }]
+    }
+    if (j0 === j1) return [i1 < A.length ? { from: sa[i0]!, to: sa[i1]!, insert: "" } : { from: sa[i0]! - 1, to: a.length, insert: "" }]
+    // The changed lines' text, without the line break after the last.
+    const at = sa[i0]!
+    const old = a.slice(at, sa[i1]! - 1)
+    return charDiff(old, b.slice(sb[j0]!, sb[j1]! - 1)).flatMap((e) => {
+      const edit = { from: at + e.from, to: at + e.to, insert: e.insert }
+      const br = e.insert.indexOf("\n")
+      if (br <= 0 || !/\S/.test(old.slice(old.lastIndexOf("\n", e.from - 1) + 1, e.from))) return [edit]
+      return [
+        { ...edit, insert: e.insert.slice(0, br) },
+        { ...edit, insert: e.insert.slice(br) },
+      ]
+    })
   })
 }
 
@@ -1170,9 +1214,9 @@ function editsFromBase(d: Editable, base: string, source: string): TextChange[] 
   }
   const text = old.toString()
   // An insertion goes right after the old character before it, so it stays next to what it
-  // followed even when text was added after that since (at the very start, before the first).
+  // followed even when text was added after that since (at the very start, before anything typed there).
   const insertAt = (i: number) => {
-    if (i === 0) return gapBefore(0)
+    if (i === 0) return 0
     const back = /[\udc00-\udfff]/.test(text[i - 1]!) && i > 1 ? 2 : 1
     return gapAfter(i - back, text.slice(i - back, i))
   }

@@ -209,7 +209,7 @@ describe("Eos store", () => {
       ],
       // Both remove the same line, the person from its start.
       ["graph TD\n  A --> B\n  A --> C\n", { from: 9, to: 19, insert: "" }, "graph TD\n  A --> C\n", "graph TD\n  A --> C\n"],
-      // A removed last line isn't slid onto the line before it when that wouldn't be whole lines.
+      // A removed last line comes out with the line break before it, leaving the identical line above alone.
       ["graph TD\nA --> B\n  A --> B", { from: 13, to: 14, insert: "X" }, "graph TD\nA --> B", "graph TD\nA --X B"],
     ] as const
     for (const [base, keystroke, edit, merged] of cases) {
@@ -246,6 +246,107 @@ describe("Eos store", () => {
       ;(await eos.bindSource(id)).edit([keystroke])
       await eos.editDiagram(id, { source: edit }, undefined, { base: version })
       expect.soft(await eos.getSource(id), JSON.stringify(keystroke)).toBe(merged)
+    }
+  })
+
+  it("merges an edit from an older version line by line: lines the agent kept keep what the person typed on them", async () => {
+    const eos = await fresh()
+    const alice = "sequenceDiagram\n  participant A as Alice\n  participant B as Bob\n  A->>B: Hello Bob\n  B-->>A: Hi\n"
+    const login = "flowchart TD\n  A[Login] --> B{Valid?}\n  B -->|Yes| C[Dashboard]\n  B -->|No| D[Error]\n  D --> A\n"
+    const front = "---\ntitle: Checkout\n---\n"
+    const hi = "sequenceDiagram\n  Alice->>Bob: Hi there\n  Alice->>Bob: Hi"
+    // The text at the base with "^" where the person typed "ob" since, the edit made from the base, and the merge.
+    const cases = [
+      // The agent removes lines around the person's line, or adds one after it, its end like the person's line's end.
+      [
+        alice.replace("Bob\n", "Bob^\n"),
+        "sequenceDiagram\n  participant B as Bob\n  B-->>A: Hi\n",
+        "sequenceDiagram\n  participant B as Bob^\n  B-->>A: Hi\n",
+      ],
+      [
+        "sequenceDiagram\n  participant A as Alice\n  participant B as Bob^\n  B-->>A: Hi\n",
+        "sequenceDiagram\n  participant B as Bob\n  A->>B: Hello Bob\n  B-->>A: Hi\n",
+        "sequenceDiagram\n  participant B as Bob^\n  A->>B: Hello Bob\n  B-->>A: Hi\n",
+      ],
+      [
+        login.replace("Dashboard]", "Dashboard]^"),
+        "flowchart TD\n  B -->|Yes| C[Dashboard]\n  D --> A\n",
+        "flowchart TD\n  B -->|Yes| C[Dashboard]^\n  D --> A\n",
+      ],
+      [
+        "flowchart TD\n  Start --> Check\n  Check --> Done^",
+        "flowchart TD\n  Begin --> Check\n  Check --> Done\n  Retry --> Done",
+        "flowchart TD\n  Begin --> Check\n  Check --> Done^\n  Retry --> Done",
+      ],
+      [
+        "flowchart TD\n  X --> Y\n  A --> C^",
+        "flowchart TD\n  X --> Z\n  A --> C\n  D --> C",
+        "flowchart TD\n  X --> Z\n  A --> C^\n  D --> C",
+      ],
+      [
+        "graph TD\n  A --> G\n  F114 --> D\n  P^22 --> F",
+        "graph TD\n  A --> G2\n  P22 --> F\n  C --> F",
+        "graph TD\n  A --> G2\n  P^22 --> F\n  C --> F",
+      ],
+      // The agent removes a line the person's last line begins like.
+      ["flowchart TD\n  A --> B\n^  A", "flowchart TD\n  A", "flowchart TD\n^  A"],
+      [hi.replace(/Hi$/, "H^i"), "sequenceDiagram\n  Alice->>Bob: Hi", "sequenceDiagram\n  Alice->>Bob: H^i"],
+      // The agent adds lines above the first line, or a line after a line it keeps.
+      ["^flowchart TD\n  A --> B\n", front + "flowchart TD\n  A --> B\n", front + "^flowchart TD\n  A --> B\n"],
+      ["graph TD\nB^", "graph TD\nB\nA --> B", "graph TD\nB^\nA --> B"],
+      ["graph TD\n^B", "graph TD\nB\nA --> B", "graph TD\n^B\nA --> B"],
+    ] as const
+    for (const [marked, edit, merged] of cases) {
+      const at = marked.indexOf("^")
+      const id = await eos.createDiagram({ source: marked.replace("^", "") })
+      const version = (await eos.getDiagram(id))!.version
+      ;(await eos.bindSource(id)).edit([{ from: at, to: at, insert: "ob" }])
+      await eos.editDiagram(id, { source: edit }, undefined, { base: version })
+      expect.soft(await eos.getSource(id), marked).toBe(merged.replace("^", "ob"))
+    }
+  })
+
+  it("merges an edit from an older version keeping what the person replaced on a line the agent kept", async () => {
+    const eos = await fresh()
+    const alice = "sequenceDiagram\n  participant A as Alice\n  participant B as Bob\n  A->>B: Hello Bob\n  B-->>A: Hi\n"
+    // The text at the base, the person's change since, the edit made from the base, and the merge.
+    const cases = [
+      [
+        alice,
+        ["Bob\n", "Robert\n"],
+        "sequenceDiagram\n  participant B as Bob\n  B-->>A: Hi\n",
+        "sequenceDiagram\n  participant B as Robert\n  B-->>A: Hi\n",
+      ],
+      [
+        "flowchart TD\n  A --> B\n",
+        ["flowchart", "graph"],
+        "---\ntitle: Checkout\n---\nflowchart TD\n  A --> B\n",
+        "---\ntitle: Checkout\n---\ngraph TD\n  A --> B\n",
+      ],
+      ["graph TD\n  A --> B2\n  A --> B", [/-->(?= B$)/, "-.->"], "graph TD\n  A --> B", "graph TD\n  A -.-> B"],
+    ] as const
+    for (const [base, [find, replace], edit, merged] of cases) {
+      const id = await eos.createDiagram({ source: base })
+      const version = (await eos.getDiagram(id))!.version
+      const at = typeof find === "string" ? base.indexOf(find) : base.search(find)
+      const length = typeof find === "string" ? find.length : base.match(find)![0].length
+      ;(await eos.bindSource(id)).edit([{ from: at, to: at + length, insert: replace }])
+      await eos.editDiagram(id, { source: edit }, undefined, { base: version })
+      expect.soft(await eos.getSource(id), JSON.stringify(base)).toBe(merged)
+    }
+  })
+
+  it("applies an edit without a base as exactly the text given", async () => {
+    const eos = await fresh()
+    let seed = 1
+    const rnd = (k: number) => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) % k
+    const parts = ["\n", "\n", " ", "  ", "A", "B", "end", "-->", "😀", "é", "\t"]
+    const text = () => Array.from({ length: rnd(30) }, () => parts[rnd(parts.length)]).join("")
+    const id = await eos.createDiagram({ source: "" })
+    for (let i = 0; i < 300; i++) {
+      const source = text()
+      await eos.setSource(id, source)
+      expect(await eos.getSource(id)).toBe(source)
     }
   })
 

@@ -220,3 +220,76 @@ for (const last of [false, true]) {
     })
   }
 }
+
+// An agent's edit that leaves the person's line as it was, though its lines around it end like it or begin like
+// it: the caret, and what the person typed there since the agent read ("ob" with baseVersion), stay on that line.
+// Before ("^" is the caret), the agent's source, and the result.
+const AROUND: [string, string, string, string][] = [
+  [
+    "rename above, drop a line, add one below",
+    "flowchart TD\n  Start --> Check\n  Old --> Check\n  Ch^eck --> Done",
+    "flowchart TD\n  Begin --> Check\n  Check --> Done\n  Retry --> Done",
+    "flowchart TD\n  Begin --> Check\n  Ch^eck --> Done\n  Retry --> Done",
+  ],
+  [
+    "change above, drop the line above mine, add one below",
+    "graph TD\n  A --> G\n  F114 --> D\n  P^22 --> F",
+    "graph TD\n  A --> G2\n  P22 --> F\n  C --> F",
+    "graph TD\n  A --> G2\n  P^22 --> F\n  C --> F",
+  ],
+  [
+    "rename above, add one below, caret at text start",
+    "flowchart TD\n  Start --> Check\n  ^Check --> Done",
+    "flowchart TD\n  Begin --> Check\n  Check --> Done\n  Retry --> Done",
+    "flowchart TD\n  Begin --> Check\n  ^Check --> Done\n  Retry --> Done",
+  ],
+  [
+    "remove above, add one below ending alike",
+    "flowchart TD\n  X --> Y\n  A --> C^",
+    "flowchart TD\n  A --> C\n  D --> C",
+    "flowchart TD\n  A --> C^\n  D --> C",
+  ],
+  [
+    "change above, add one below ending alike",
+    "flowchart TD\n  X --> Y\n  A --> C^",
+    "flowchart TD\n  X --> Z\n  A --> C\n  D --> C",
+    "flowchart TD\n  X --> Z\n  A --> C^\n  D --> C",
+  ],
+  [
+    "rename above, add one below ending alike",
+    "flowchart TD\n  Start --> Check\n  Check --> Done^",
+    "flowchart TD\n  Begin --> Check\n  Check --> Done\n  Retry --> Done",
+    "flowchart TD\n  Begin --> Check\n  Check --> Done^\n  Retry --> Done",
+  ],
+  [
+    "change above, add one above mine",
+    "flowchart TD\n  A --> B\n  ^C --> B",
+    "flowchart TD\n  A --> B2\n  D --> B\n  C --> B",
+    "flowchart TD\n  A --> B2\n  D --> B\n  ^C --> B",
+  ],
+  [
+    "change below, add one below mine",
+    "flowchart TD\n  A --> B^\n  C --> D",
+    "flowchart TD\n  A --> B\n  E --> B\n  C --> D2",
+    "flowchart TD\n  A --> B^\n  E --> B\n  C --> D2",
+  ],
+]
+
+for (const base of [false, true]) {
+  for (const [name, marked, agent, merged] of AROUND) {
+    test(`${base ? "merge" : "an agent"}: ${name}`, async ({ context }) => {
+      const a = await context.newPage()
+      const id = await newDiagram(a, marked.replace("^", ""))
+      await openEditor(a, id)
+      const { version } = await tool<{ version: string }>(a, "get_diagram", { id })
+      await caretAt(a, marked.indexOf("^"))
+      const typed = base ? "ob" : ""
+      await a.keyboard.type(typed)
+      await tool(a, "update_diagram", base ? { id, source: agent, baseVersion: version } : { id, source: agent })
+      await a.keyboard.type("Z")
+      const expected = merged.replace("^", typed + "Z")
+      await expectEditor(a, expected)
+      expect(await storedText(a, id)).toBe(expected)
+    })
+  }
+}
