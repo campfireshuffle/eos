@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 
-import { tool, withAgentTools } from "./helpers"
+import { newDiagram, openEditor, tool, withAgentTools } from "./helpers"
 
 test("importing a file that isn't a backup says why, and changes nothing", async ({ context }) => {
   await withAgentTools(context)
@@ -137,3 +137,31 @@ test("a confirm keeps its text while it fades out", async ({ page }) => {
   expect(closing).toContain("Delete")
   await expect(page.getByRole("alertdialog")).toBeHidden()
 })
+
+for (const delay of [0, 50]) {
+  test(`a confirm that opens ${delay}ms after the last one is answered starts on Cancel`, async ({ context, page }) => {
+    await withAgentTools(context)
+    const id = await newDiagram(page, "flowchart TD\n  A --> B")
+    await tool(page, "update_diagram", { id, addTags: ["alpha"] })
+    await openEditor(page, id)
+    await page.locator(".cm-content").click()
+    type W = { __tools: Record<string, { execute(x: unknown): Promise<unknown> }>; __second: Promise<unknown> }
+    // An agent asking twice in a row: the second confirm can open while the first is still fading out.
+    await page.evaluate((delay) => {
+      const w = window as unknown as W
+      void w.__tools.delete_tag
+        .execute({ path: "alpha" })
+        .then(() => setTimeout(() => (w.__second = w.__tools.delete_all_data.execute({})), delay))
+    }, delay)
+    const dialog = page.getByRole("alertdialog")
+    await expect(dialog).toContainText("alpha")
+    await dialog.getByRole("button", { name: "Delete" }).click()
+    await expect(dialog).toContainText("delete all your diagrams")
+    // The Delete just clicked must not keep focus, or Enter would confirm the new action.
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused()
+    await page.keyboard.press("Enter")
+    expect(await page.evaluate(() => (window as unknown as W).__second)).toMatchObject({ ok: false, code: "user_declined" })
+    // Focus goes back to where it was before the first confirm.
+    await expect(page.locator(".cm-content")).toBeFocused()
+  })
+}
