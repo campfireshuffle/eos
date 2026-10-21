@@ -3,6 +3,7 @@ import { createTools, registerTools, type UiBridge } from "@eos/webmcp"
 
 import { download, svgMarkupToPng, themedSvg } from "./files"
 import { changedVars, currentAppCss, DEFAULT_DIAGRAM_CSS } from "./theme"
+import { isSidebarOpen, setSidebarOpen } from "./layout"
 import { diagramHref, homeHref, navigate, parseRoute } from "./router"
 import { askConfirm, getUi, requestZoom, setUi } from "./ui-state"
 
@@ -10,7 +11,12 @@ import { askConfirm, getUi, requestZoom, setUi } from "./ui-state"
 export function connectWebMcp(eos: Eos): () => void {
   const ui: UiBridge = {
     origin: location.origin,
-    getView: () => ({ route: parseRoute(location.hash), zoom: getUi().zoomScale, settingsOpen: getUi().settingsOpen }),
+    getView: () => ({
+      route: parseRoute(location.hash),
+      zoom: getUi().zoomScale,
+      settingsOpen: getUi().settingsOpen,
+      sidebarOpen: isSidebarOpen(),
+    }),
     openDiagram: (id) => navigate(diagramHref(id)),
     goHome: () => navigate(homeHref()),
     // Filters the agent leaves out, and the grouping and search it can't set, keep their current values.
@@ -25,6 +31,7 @@ export function connectWebMcp(eos: Eos): () => void {
     },
     setZoom: requestZoom,
     openSettings: (open) => setUi({ settingsOpen: open }),
+    openSidebar: setSidebarOpen,
     previewVersion: (id, version, meta) =>
       setUi({ preview: version ? { id, version, at: meta?.at ?? Date.now(), label: meta?.label ?? "" } : null }),
     // Checked before asking: a confirm while another dialog is open would be answered no without the person seeing it.

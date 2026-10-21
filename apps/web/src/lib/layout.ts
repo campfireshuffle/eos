@@ -19,13 +19,22 @@ export function useIsMobile(): boolean {
 /** The desktop sidebar panel, so any toggle button can collapse or expand it. */
 export const sidebarPanel: { current: PanelImperativeHandle | null } = { current: null }
 
+/** Whether the sidebar shows: the drawer on phones, the panel on desktop. */
+export function isSidebarOpen(): boolean {
+  return matchMedia(MOBILE_QUERY).matches ? getUi().mobileNavOpen : !getUi().sidebarCollapsed
+}
+
 export function toggleSidebar() {
+  setSidebarOpen(!isSidebarOpen())
+}
+
+export function setSidebarOpen(open: boolean) {
   if (matchMedia(MOBILE_QUERY).matches) {
-    setUi({ mobileNavOpen: !getUi().mobileNavOpen })
+    setUi({ mobileNavOpen: open })
     return
   }
   const panel = sidebarPanel.current
-  if (!panel) return
+  if (!panel || panel.isCollapsed() !== open) return
   // Animate only this toggle (see app.css); dragging the divider stays instant.
   const group = document.querySelector<HTMLElement>("[data-slot=resizable-panel-group]")
   group?.setAttribute("data-animating", "")
@@ -33,10 +42,9 @@ export function toggleSidebar() {
   animationEnd = setTimeout(() => group?.removeAttribute("data-animating"), SIDEBAR_ANIMATION_MS + 50)
   // Flip the state first: the shell's padding, gutter and corner animate off it in the same motion.
   // (onResize alone would only report "collapsed" once the panel reaches zero, a second stage.)
-  const collapsing = !panel.isCollapsed()
-  setUi({ sidebarCollapsed: collapsing })
-  if (collapsing) panel.collapse()
-  else panel.expand()
+  setUi({ sidebarCollapsed: !open })
+  if (open) panel.expand()
+  else panel.collapse()
 }
 
 export const SIDEBAR_ANIMATION_MS = 220

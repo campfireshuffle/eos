@@ -94,3 +94,27 @@ test("the library's view controls stay put while the cards scroll", async ({ con
   await scrollTo(0)
   await expect.poll(line).toBe("rgba(0, 0, 0, 0)")
 })
+
+test("an agent hides and shows the sidebar as the person's buttons do, and get_view reports it", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.goto("/#/")
+  await page.waitForFunction(() => "__tools" in window && "set_view" in (window as unknown as { __tools: object }).__tools)
+  const view = async () => (await tool<{ view: { sidebarOpen: boolean } }>(page, "get_view")).view.sidebarOpen
+  expect(await view()).toBe(true)
+  await tool(page, "set_view", { sidebarOpen: false })
+  await expect(page.getByRole("button", { name: "Show sidebar" })).toBeVisible()
+  await expect(page.locator(".eos-shell")).toHaveAttribute("data-collapsed", "true")
+  expect(await view()).toBe(false)
+  // Already hidden: nothing to do.
+  await tool(page, "set_view", { sidebarOpen: false })
+  await expect(page.getByRole("button", { name: "Show sidebar" })).toBeVisible()
+  // The same state the button keeps, so it survives a reload.
+  await page.reload()
+  await page.waitForFunction(() => "__tools" in window && "set_view" in (window as unknown as { __tools: object }).__tools)
+  await expect(page.getByRole("button", { name: "Show sidebar" })).toBeVisible()
+  await tool(page, "set_view", { sidebarOpen: true })
+  await expect(page.getByRole("button", { name: "Show sidebar" })).toBeHidden()
+  await expect(page.locator(".eos-shell")).toHaveAttribute("data-collapsed", "false")
+  expect(await view()).toBe(true)
+})

@@ -23,6 +23,8 @@ export interface UiBridge {
   setLibraryView(view: { starred?: boolean; deleted?: boolean; tags?: TagPath[]; sort?: LibrarySort }): void
   setZoom(action: "in" | "out" | "fit" | "actual"): void
   openSettings(open: boolean): void
+  /** Shows or hides the sidebar, as its Hide sidebar / Show sidebar buttons do. */
+  openSidebar(open: boolean): void
   /** Shows a past version read-only in the editor, or returns to the latest. */
   previewVersion(id: DiagramId, version: string | null, meta?: { at: number; label: string }): void
   /** Asks the person to allow a destructive agent action. "declined" also covers `signal` aborting; "busy" means another dialog was already open, so nothing was asked. */
@@ -218,7 +220,8 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
     }),
     tool({
       name: "get_view",
-      description: "What the person is looking at: page, open diagram, library filters, preview zoom, whether Settings is open.",
+      description:
+        "What the person is looking at: page, open diagram, library filters, preview zoom, whether Settings and the sidebar are open.",
       input: {},
       annotations: { readOnlyHint: true },
       execute: async () => ok({ view: await view() }),
@@ -411,7 +414,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
     tool({
       name: "set_view",
       description:
-        'Change what the person sees. page: "library" (with optional filters; filters on their own also show the library) or "diagram" (with diagramId). previewVersion shows a past version of the open diagram read-only, or "latest" to go back. zoom changes the preview. settingsOpen shows or hides Settings.',
+        'Change what the person sees. page: "library" (with optional filters; filters on their own also show the library) or "diagram" (with diagramId). previewVersion shows a past version of the open diagram read-only, or "latest" to go back. zoom changes the preview. settingsOpen shows or hides Settings; sidebarOpen shows or hides the sidebar.',
       input: {
         page: z.optional(z.enum(["library", "diagram"])),
         diagramId: z.optional(z.string()),
@@ -426,6 +429,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
         previewVersion: z.optional(z.string().check(z.describe('A version id from get_diagram\'s history, or "latest"'))),
         zoom: z.optional(z.enum(["in", "out", "fit", "actual"])),
         settingsOpen: z.optional(z.boolean()),
+        sidebarOpen: z.optional(z.boolean()),
       },
       execute: async (i) => {
         // Filters only apply to the library, so asking for them shows it.
@@ -455,6 +459,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
         }
         if (i.zoom !== undefined) ui.setZoom(i.zoom)
         if (i.settingsOpen !== undefined) ui.openSettings(i.settingsOpen)
+        if (i.sidebarOpen !== undefined) ui.openSidebar(i.sidebarOpen)
         return ok({ view: await view() })
       },
     }),

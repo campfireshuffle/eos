@@ -13,6 +13,7 @@ const ui = (confirm: boolean | "busy" = true): UiBridge => ({
   setLibraryView: vi.fn(),
   setZoom: vi.fn(),
   openSettings: vi.fn(),
+  openSidebar: vi.fn(),
   previewVersion: vi.fn(),
   confirm: vi.fn(async () => (confirm === "busy" ? "busy" : confirm ? "confirmed" : "declined")),
   download: vi.fn(),
@@ -197,6 +198,8 @@ describe("webmcp tools", () => {
     // Filters on their own show the library rather than being ignored.
     expect((await call("set_view", { filters: { starred: true } })).ok).toBe(true)
     expect(bridge.setLibraryView).toHaveBeenCalledWith({ starred: true })
+    expect((await call("set_view", { sidebarOpen: false })).ok).toBe(true)
+    expect(bridge.openSidebar).toHaveBeenCalledWith(false)
     // The library shows one tag at a time, so a second is refused rather than dropped.
     expect((await call("set_view", { filters: { tags: ["work", "q3"] } })).code).toBe("invalid_input")
     expect((await call("get_diagram", {})).message).toBe("input.id is required")
