@@ -118,3 +118,15 @@ test("an agent hides and shows the sidebar as the person's buttons do, and get_v
   await expect(page.locator(".eos-shell")).toHaveAttribute("data-collapsed", "false")
   expect(await view()).toBe(true)
 })
+
+test("get_view answers while Eos is in a background tab, which runs no animation frames", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.goto("/#/")
+  await page.waitForFunction(() => "__tools" in window && "get_view" in (window as unknown as { __tools: object }).__tools)
+  // Playwright's pages always count as visible, so stand in for a hidden one: its frame callbacks never run.
+  await page.evaluate(() => (window.requestAnimationFrame = () => 0))
+  const answer = tool<{ ok: boolean }>(page, "get_view").then((r) => r.ok)
+  const timeout = new Promise((r) => setTimeout(() => r("no answer within 2s"), 2000))
+  expect(await Promise.race([answer, timeout])).toBe(true)
+})

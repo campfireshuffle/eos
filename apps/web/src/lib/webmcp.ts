@@ -40,8 +40,13 @@ export function connectWebMcp(eos: Eos): () => void {
     download: (name, data) => download(name, data),
     toPng: svgMarkupToPng,
     toSvg: themedSvg,
-    // Two frames covers React's render plus the preview's layout pass that applies zoom.
-    settled: () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+    // Two frames covers React's render plus the preview's layout pass that applies zoom. A background tab runs no
+    // frames, so a timer stands in there: React's scheduler still runs, so the view is current when it fires.
+    settled: () =>
+      new Promise((resolve) => {
+        setTimeout(resolve, 100)
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      }),
     getTheme: () => ({
       resolvedMode: document.documentElement.classList.contains("dark") ? "dark" : "light",
       appCss: eos.getSettings().theme.customCss ?? currentAppCss(),
