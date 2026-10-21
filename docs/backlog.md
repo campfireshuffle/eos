@@ -169,6 +169,51 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** console noise only; nothing is lost.
   - **Fix:** `.catch(() => {})` on that open, with a comment that the diagram went away underneath.
 
+- **In Settings, Escape doesn't collapse a CSS editor's selection.**
+  - **What:** inside a dialog, `onEscape` (a window capture handler) calls `preventDefault()` so that Radix doesn't close Settings. CodeMirror then ignores the event, so its own Escape (`simplifySelection`) never runs. The selection stays, in all three engines.
+  - **Where:** `apps/web/src/components/code-editor.tsx`, `onEscape`.
+  - **Why low:** cosmetic. Escape then Tab still leaves the editor, and Settings stays open. Round 16 corrected the comment that claimed it collapses.
+  - **Fix:** call `simplifySelection(v)` (from `@codemirror/commands`) in `onEscape` before arming the exit. Add an e2e: select text in the Diagram theme CSS editor, press Escape, and expect the selection to be empty and the dialog open.
+
+- **A word inside a dictionary compound can't be found, and which words can differs by browser.**
+  - **What:** Chromium and WebKit segment `東京タワーの夜景` as `東京タワー|の|夜景`, so "タワー" finds nothing ("東京" does, as a prefix). Firefox splits it as `東京|タワー|の|夜景`. The same title gives different results by browser.
+  - **Where:** `packages/core/src/search.ts`, `segment`.
+  - **Why low:** the whole compound and its first word are found, and the other words of a title usually are too.
+  - **Fix:** if it matters, also index each Han/Kana segment's character bigrams. Measure the index cost first (see the next entry).
+
+- **Building the search index is slow for large Chinese or Japanese libraries.**
+  - **What:** `Intl.Segmenter` runs once per word in unspaced scripts. 1000 Chinese flowcharts of 2 KB take about 480 ms to index: about 48 ms per 100-row slice, where `BUILD_SLICE`'s comment says about 10 ms. English is 50 ms per 1000×300 words since round 16 skips normalising ASCII.
+  - **Where:** `packages/core/src/search.ts`, `segment` and `BUILD_SLICE`.
+  - **Why low:** it only matters with hundreds of long CJK diagrams. The build is sliced, so typing still gets turns.
+  - **Fix:** cache `segment(run)` per index build, in a Map created in `searchIndex` and passed to a per-index tokenizer. With 8 repeated labels this gave 480 → 205 ms. Don't use a module-level Map: it would grow for the session.
+
+- **Accent folding is too broad for Cyrillic and too narrow elsewhere.**
+  - **What:**
+    - **Too broad:** stripping U+0300–036F removes й's breve and ё's diaeresis, so "мои" finds "Мой план".
+    - **Too narrow:** letters that NFD doesn't split (ø, ł, đ, æ), Arabic harakat, Hebrew niqqud and fullwidth forms aren't folded, and ß isn't treated as ss. So "lodz" doesn't find "Łódź", and "مخطط" doesn't find "مُخَطَّط".
+    - **Not segmented:** `UNSPACED` leaves out Tibetan, Javanese and Balinese.
+  - **Where:** `packages/core/src/search.ts`, the tokenizer's fold and `UNSPACED`.
+  - **Why low:** the extra Cyrillic matches are near matches. The missed folds never matched before round 15 either.
+  - **Fix:**
+    - Re-compose й/Й and ё/Ё before stripping, or strip only from Latin, Greek and Vietnamese base letters.
+    - Add an explicit map for ø ł đ æ → o l d ae, strip U+064B–065F and U+0591–05C7, and apply NFKC for fullwidth.
+    - Add the three scripts to `UNSPACED`.
+    - Keep the English equivalence test green.
+
+- **In Settings, Safari's default Tab can't leave the last CSS editor, and WebKit's ⌥Tab doesn't wrap.**
+  - **What:**
+    - **The editor:** in WebKit, Escape then Tab in the Diagram theme CSS editor moves to the next text field. There is none, so Radix's trap sends focus back into the editor.
+    - **⌥Tab:** on Close it doesn't wrap to the top, because Radix's loop ignores Tab with Alt held.
+  - **Where:** `apps/web/src/components/settings-dialog.tsx` (DialogContent's focus scope).
+  - **Why low:** it isn't a trap. Shift+Tab and ⌥Tab, Safari's standard key for every control, both work, and Escape closes Settings once focus is out of the editor.
+  - **Fix:** none cheap. Wrapping on ⌥Tab would need a keydown handler on DialogContent that moves focus to the first or last tabbable when Alt+Tab leaves the ends.
+
+- **A confirm focus-timing e2e test can fail under heavy parallel load.**
+  - **What:** `e2e/confirm.spec.ts` "opened 50ms after the last confirm was answered, answered by Escape: focus goes back to the first one's opener" failed once in Firefox (1 of 1160 tests, 8 workers, all three engines at once). Run 5× on its own, it passed 110/110.
+  - **Where:** `e2e/confirm.spec.ts`, the test named above.
+  - **Why low:** test timing only. The product behaviour is unchanged.
+  - **Fix:** if it recurs, wait for the first confirm to have closed (`toBeHidden`) instead of a fixed 50 ms before opening the second.
+
 ## Refactors to consider (from the round 11 cleanup review)
 
 - **What the preview shows, as one pure function.**
@@ -220,3 +265,12 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `packages/core/src/store.ts` (`flushIndex`).
   - **Why low:** no live bug. It's one method on the public surface.
   - **Fix:** make it `private` the next time store.ts is touched.
+
+- **Escape's tab-focus arming lives in two places.**
+  - **What:** the Escape keymap entry and the dialog-only window handler `onEscape` both call `setTabFocusMode(2000)`.
+  - **Where:** `apps/web/src/components/code-editor.tsx`.
+  - **Why low:** both are correct. Merging them saves about 3 lines.
+  - **Fix:** the next time Escape handling changes (for example the selection-collapse fix above):
+    - let `onEscape` arm the exit whenever the editor has focus, and keep `preventDefault()` (plus `simplifySelection`) only in a dialog;
+    - drop the keymap entry;
+    - run the two Escape tests and accessibility.spec in all three browsers.

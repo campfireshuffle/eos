@@ -216,7 +216,8 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0 && e.button !== 1) return
     e.preventDefault() // stops middle-click autoscroll and text selection
-    // …and focus moving, so blur whatever had it (the frame too): the preview's shortcuts listen on the page.
+    // …and focus moving, so blur whatever had it (the frame too): the preview's zoom shortcuts listen on the page.
+    // Arrow keys pan only while the frame itself has focus (tabbed to), so they don't move it after a click.
     ;(document.activeElement as HTMLElement | null)?.blur()
     try {
       frame.current!.setPointerCapture(e.pointerId)

@@ -94,17 +94,15 @@ interface DiagramMeta {
   createdAt: number // ms epoch; set once at creation
 }
 
-function sourceOf(doc: LoroDoc): LoroText {
-  return doc.getText("source")
-}
-function metaOf(doc: LoroDoc): LoroMap {
-  return doc.getMap("meta")
-}
+// docs.ts reads them from an open diagram, whose `text` is doc.getText("source") and `meta` is doc.getMap("meta").
+function sourceOf(d: { text: LoroText }): string
+// Malformed fields read as their defaults (a backup can come from anywhere), and tags are deduplicated.
+function metaOf(d: { meta: LoroMap }): DiagramMeta
 ```
 
 Notes:
 
-- **Editor binding.** CodeMirror transactions map to `LoroText.insert/delete`. If a whole-buffer replacement comes from an external source, such as an agent's `update_diagram({ source })` or a paste-replace, use `text.update(newSource)`, which runs a minimal diff. That keeps concurrent edits elsewhere in the text intact.
+- **Editor binding.** CodeMirror transactions, a paste included, map to `LoroText.insert/delete`. A whole-buffer replacement from an external source, such as an agent's `update_diagram({ source })`, is applied as a minimal diff (`diffText` in `store.ts`: Loro's, as `text.update` makes it, with each added line starting at the start of a line). That keeps concurrent edits elsewhere in the text intact.
 - **Line breaks.** The editor's only line break is `\n` (`EditorState.lineSeparator`), so it counts every other character, `\r` included, one for one with Loro: their positions always agree, whatever the text holds. A source coming into core (`createDiagram`, `editDiagram`, `setSource`, a share link) has its `\r\n` and lone `\r` made `\n`, and so does text pasted or dropped into the editor. A `\r` saved before that (by an older version, or in a backup, and so in a version a restore brings back) stays as it is: the editor shows it as a marker (␍), and Pele renders the source the same. A share link finds its existing copy with line breaks normalised on both sides.
 - **Tags** go in a `LoroList<string>` under `meta.tags`. `setTags` edits the list in place (deleting tags no longer wanted, inserting missing ones), so concurrent tag edits merge. `normalizeTags` (`tags.ts`) de-duplicates on write and `metaOf` on read, since two sides adding the same tag leave it in the list twice.
 - **`updatedAt` is not stored in the doc.** It is derived from the last change's timestamp (see §4) and cached in the index (§2).
@@ -410,7 +408,7 @@ Backups carry only the theme. Agent settings are the person's say over what agen
 
 - **Writes are attributed to the agent** (`{ kind: "agent", tool, changes }`), shown apart from the person's in the history menu, and kept off the person's undo stack (§4).
 - **Results are typed.** `{ ok: true, … }` or `{ ok: false, code, message }` with codes like `not_found`, `invalid_input`, `parse_error`, `stale`, `user_declined`, and `busy` when another dialog is already open, so nothing was asked.
-- **Mermaid is always checked.** Tools that take or return source report `valid` and, on failure, the error's line and column.
+- **Mermaid is always checked.** Tools that take or return source report `valid` and, on failure, the error's line and column. The exception is `export` with `format: "link"`, which returns only the link.
 - **Confirmation is in the page.** Deletes open Eos's own dialog and wait; a model can't get past it. Agents can read but not change agent settings, so they can't turn confirmation off.
 - **Off switch.** With `settings.agent.webmcpEnabled` false, no tools are registered.
 
