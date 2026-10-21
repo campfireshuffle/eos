@@ -204,7 +204,8 @@ export function Editor({ id }: { id: string }) {
         <ResizablePanel id="source" defaultSize="42%" minSize={mobile ? "120px" : "280px"} className="flex">
           <Panel as="section" split="start" className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <PanelHeader title="Source">
-              {(history.canUndo || history.canRedo) && (
+              {/* A past version is read-only, and undo would change the hidden latest text. */}
+              {!previewing && (history.canUndo || history.canRedo) && (
                 <>
                   <IconButton label="Undo" shortcut="⌘Z" onClick={undo} disabled={!history.canUndo}>
                     <Undo2 />

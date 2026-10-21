@@ -353,3 +353,14 @@ for (const [device, viewport] of [
     expect(Math.abs(rows[0] - rows[1])).toBeLessThan(2)
   })
 }
+
+test("while a past version is shown there's no Undo or Redo to change the hidden latest text", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  // The edit typed before the past version is opened gives Undo something to undo.
+  await previewYesterday(page)
+  await expect(page.getByRole("button", { name: "Undo" })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Redo" })).toHaveCount(0)
+  await page.getByRole("button", { name: "Back to latest" }).click()
+  await expect(page.getByRole("button", { name: "Undo" })).toBeVisible()
+})
