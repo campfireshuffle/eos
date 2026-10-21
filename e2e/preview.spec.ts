@@ -189,8 +189,8 @@ test("zooming only scales the diagram, even once it overflows the pane", async (
   await expect(svg).toBeVisible()
   // A re-layout replaces the SVG, so a mark on it shows the layout was kept.
   await svg.evaluate((el) => el.setAttribute("data-probe", ""))
-  // Zoom in until the diagram is far wider than the pane, past the re-layout delay. Where scrollbars take
-  // up room (WebKit here; macOS with "always show scrollbars"), the pane's inner width then shrinks.
+  // Zoom in until the diagram is far wider than the pane, and wait past the re-layout delay. The pane never
+  // scrolls, so zooming mustn't change the width Pele lays the diagram out to.
   for (let i = 0; i < 6; i++) await tool(page, "set_view", { zoom: "in" })
   await page.waitForTimeout(500)
   await expect(page.locator(".pele-preview svg[data-probe]")).toHaveCount(1)
