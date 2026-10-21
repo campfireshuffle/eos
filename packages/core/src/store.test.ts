@@ -336,6 +336,28 @@ describe("Eos store", () => {
     }
   })
 
+  it("merges an edit from an older version that changes the first line's start, after lines the person added above it", async () => {
+    const eos = await fresh()
+    // The text at the base, the lines the person added at its start since, the edit made from the base, and the merge.
+    const cases = [
+      [
+        "graph TD\n  X --> Y\n",
+        "---\ntitle: Plan\n---\n",
+        "sequenceDiagram\n  X --> Y\n",
+        "---\ntitle: Plan\n---\nsequenceDiagram\n  X --> Y\n",
+      ],
+      ["classDiagram\n  X --> Y\n", "%% note\n", "flowchart TD\n  X --> Y\n", "%% note\nflowchart TD\n  X --> Y\n"],
+      ["A --> B\n  X --> Y\n", "graph TD\n", "  A --> B\n  X --> Y\n", "graph TD\n  A --> B\n  X --> Y\n"],
+    ] as const
+    for (const [base, lines, edit, merged] of cases) {
+      const id = await eos.createDiagram({ source: base })
+      const version = (await eos.getDiagram(id))!.version
+      ;(await eos.bindSource(id)).edit([{ from: 0, to: 0, insert: lines }])
+      await eos.editDiagram(id, { source: edit }, undefined, { base: version })
+      expect.soft(await eos.getSource(id), JSON.stringify(base)).toBe(merged)
+    }
+  })
+
   it("applies an edit without a base as exactly the text given", async () => {
     const eos = await fresh()
     let seed = 1

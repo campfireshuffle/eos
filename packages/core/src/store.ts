@@ -1214,16 +1214,18 @@ function editsFromBase(d: Editable, base: string, source: string): TextChange[] 
   }
   const text = old.toString()
   // An insertion goes right after the old character before it, so it stays next to what it
-  // followed even when text was added after that since (at the very start, before anything typed there).
-  const insertAt = (i: number) => {
-    if (i === 0) return 0
+  // followed even when text was added after that since. At the very start there's no character before:
+  // whole lines go before anything typed there, and part of a line goes onto the old first line's text,
+  // after any lines typed above it.
+  const insertAt = (i: number, insert: string) => {
+    if (i === 0) return insert.endsWith("\n") ? 0 : gapBefore(0)
     const back = /[\udc00-\udfff]/.test(text[i - 1]!) && i > 1 ? 2 : 1
     return gapAfter(i - back, text.slice(i - back, i))
   }
   return diffText(text, source).map(({ from, to, insert }) => {
     if (insert) {
       const afterLine = insert.startsWith("\n") && (from === text.length || text[from] === "\n")
-      const at = afterLine ? gapBefore(from) : insertAt(from)
+      const at = afterLine ? gapBefore(from) : insertAt(from, insert)
       return { from: at, to: at, insert }
     }
     // By code point: a cursor can't sit on the second half of a surrogate pair.
