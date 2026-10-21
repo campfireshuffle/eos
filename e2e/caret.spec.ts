@@ -24,17 +24,25 @@ const INSERTS = {
   "a blank line (\\n)": "\n",
   "an indented blank line (\\n  )": "\n  ",
   "text (no newline)": "X",
+  "text then a line (…\\n…)": "2\n  X --> Y",
 } as const
 
 const doc = (line: string, last = false) => (last ? `graph TD\n${line}` : `graph TD\n${line}\n  C --> D`)
 const HEAD = "graph TD\n".length
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
-/** How far past the insertion's start the caret ends up: someone else's new line ("\n…") goes after the caret unless the caret is at the start of its line's text; anything else, and whatever the person's own undo or redo puts back, goes before it. */
+/**
+ * How far past the insertion's start the caret ends up: someone else's new line ("\n…") goes after the caret unless
+ * the caret is at the start of its line's text, and at the end of a line's text what they insert up to a line break
+ * extends the line, so it goes before the caret and the rest after. Anything else, and whatever the person's own
+ * undo or redo puts back, goes before it.
+ */
 function expectedCaret(line: string, col: number, insert: string, own: boolean) {
   const textStart = line.search(/\S/)
   const atTextStart = textStart >= 0 && col <= textStart
-  return !own && insert.startsWith("\n") && !atTextStart ? 0 : insert.length
+  if (own || atTextStart || !insert.includes("\n")) return insert.length
+  if (insert.startsWith("\n")) return 0
+  return textStart >= 0 && col === line.length ? insert.indexOf("\n") : insert.length
 }
 
 async function caretAt(page: Page, pos: number) {
@@ -63,9 +71,10 @@ const SOURCES = ["another tab", "an agent", "own undo", "own redo"] as const
  * The cells of spot × insertion × source that run. Someone else's line break at the start of a line (or of its text)
  * is where the caret rule has a case of its own, so every one of those runs, as does an agent's line added above
  * before an indent (the diff slides it to the line start). Otherwise each source meets each spot once, the insertion
- * rotating so that it also meets each insertion, plus the own-edit cell that shows undo and redo aren't treated as
- * someone else's. A cell not run follows the same rule as a neighbour that runs, except an agent's line added in
- * the middle of a line, which Loro's diff slides a character off the caret (contrived, so not run).
+ * rotating so that it also meets each of the first six, plus the own-edit cell that shows undo and redo aren't
+ * treated as someone else's. Text then a line, from another tab or an agent, runs at every spot. A cell not run
+ * follows the same rule as a neighbour that runs, except an agent's line added in the middle of a line, which Loro's
+ * diff slides a character off the caret (contrived, so not run).
  */
 function runs(spot: number, insert: number, source: number) {
   const spotName = Object.keys(SPOTS)[spot]!
@@ -74,7 +83,8 @@ function runs(spot: number, insert: number, source: number) {
   if ((by === "another tab" || by === "an agent") && spotName.startsWith("start of") && text.startsWith("\n")) return true
   if (by === "an agent" && spotName === "start of an indented line, before its indent" && text === "  X --> Y\n") return true
   if (by === "own redo" && spotName === "end of a line" && text === "\n  X --> Y") return true
-  return insert === (spot + source) % Object.keys(INSERTS).length
+  if (text === "2\n  X --> Y") return by === "another tab" || by === "an agent"
+  return insert === (spot + source) % 6
 }
 
 test.beforeEach(async ({ context }) => withAgentTools(context))
@@ -171,6 +181,32 @@ for (const [spotName, { line, col, last }] of Object.entries(SPOTS)) {
       const alsoFine = line === "" && c.above === "" ? ["graph TD", personLine, "", ...tail].join("\n") : expected
       await expect.poll(() => editorText(a)).toMatch(new RegExp(`^(${esc(expected)}|${esc(alsoFine)})$`))
       expect([expected, alsoFine]).toContain(await storedText(a, id))
+    })
+  }
+}
+
+// The agent changes the end of the person's line and adds a line after it, as one insertion in Loro's diff: what the
+// person typed at the line's end stays on their line, after the agent's change to it.
+for (const last of [false, true]) {
+  for (const [lineNow, added] of [
+    ["  A --> B2", "  B2 --> X"],
+    ["  A --> Z", "  Y --> Z"],
+  ] as const) {
+    test(`merge: the person types at the end of ${last ? "the last line" : "a line"} while an agent changes it to "${lineNow.trim()}" and adds a line below`, async ({
+      context,
+    }) => {
+      const a = await context.newPage()
+      const id = await newDiagram(a, doc("  A --> B", last))
+      const tail = last ? [] : ["  C --> D"]
+      await openEditor(a, id)
+      const { version } = await tool<{ version: string }>(a, "get_diagram", { id })
+      await caretAt(a, HEAD + "  A --> B".length)
+      await a.keyboard.type("ob")
+      await tool(a, "update_diagram", { id, source: ["graph TD", lineNow, added, ...tail].join("\n"), baseVersion: version })
+      await a.keyboard.type("!")
+      const expected = ["graph TD", `${lineNow}ob!`, added, ...tail].join("\n")
+      await expectEditor(a, expected)
+      expect(await storedText(a, id)).toBe(expected)
     })
   }
 }

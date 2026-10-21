@@ -1111,6 +1111,8 @@ function changesOf(delta: Delta<string>[]): TextChange[] {
  * inserted line starting at the start of a line where it can. An insertion that holds a line break
  * and ends with the text before it can as well go that much earlier, so a line added above an
  * indented line goes before the indent ("  X\n" before "  A"), not after it ("X\n  " before "A").
+ * One at the end of a line's text that extends the line and then adds lines is two insertions there:
+ * the extension, and the rest from its first line break ("2", then "\n  B2 --> X").
  */
 function diffText(a: string, b: string): TextChange[] {
   const doc = new LoroDoc()
@@ -1122,15 +1124,22 @@ function diffText(a: string, b: string): TextChange[] {
   doc.commit()
   const diff = doc.diff(from, doc.frontiers(), false)[0]?.[1]
   const edits = diff?.type === "text" ? changesOf(diff.diff) : []
-  return edits.map((e, i) => {
-    if (e.from !== e.to || !e.insert.includes("\n")) return e
+  return edits.flatMap((e, i) => {
+    if (e.from !== e.to || !e.insert.includes("\n")) return [e]
     // Back over the text before it while that matches the insertion's end, not into an earlier edit.
     const floor = edits[i - 1]?.to ?? 0
     let k = 0
     while (e.from - k > floor && a[e.from - k - 1] !== "\n" && a[e.from - k - 1] === e.insert[e.insert.length - k - 1]) k++
     const at = e.from - k
-    if (k === 0 || (at > 0 && a[at - 1] !== "\n") || k >= e.insert.length) return e
-    return { from: at, to: at, insert: a.slice(at, e.from) + e.insert.slice(0, -k) }
+    if (k > 0 && (at === 0 || a[at - 1] === "\n") && k < e.insert.length)
+      return [{ from: at, to: at, insert: a.slice(at, e.from) + e.insert.slice(0, -k) }]
+    const br = e.insert.indexOf("\n")
+    const lineEnd = e.from === a.length || a[e.from] === "\n"
+    if (br === 0 || !lineEnd || !/\S/.test(a.slice(a.lastIndexOf("\n", e.from - 1) + 1, e.from))) return [e]
+    return [
+      { from: e.from, to: e.from, insert: e.insert.slice(0, br) },
+      { from: e.from, to: e.from, insert: e.insert.slice(br) },
+    ]
   })
 }
 

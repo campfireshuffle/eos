@@ -185,17 +185,30 @@ export function CodeEditor({
     const unbind = binding?.onChange((changes, own) => {
       const apply = () => {
         // The caret stays with the text of its own line. A line someone else adds at the caret ("\n…") goes after
-        // it, unless the caret is at the start of its line's text, where the line is added above; anything else
-        // they insert there (a line above, text within the line) goes before it. Text the person's own undo, redo
-        // or restore puts back goes before the caret, as CodeMirror's undo does.
+        // it, unless the caret is at the start of its line's text, where the line is added above. What they add at
+        // the end of a line's text up to a line break of its own ("2\n…") extends that line, so it goes before the
+        // caret and the rest after. Anything else they insert there (a line above, text within the line) goes
+        // before it. Text the person's own undo, redo or restore puts back goes before the caret, as CodeMirror's
+        // undo does.
         const set = v.state.changes(changes)
-        const assoc = (at: number) => {
-          if (own || !changes.some((c) => c.from === at && c.to === at && c.insert.startsWith("\n"))) return 1
+        /** Which side of what's inserted at the caret the caret goes to, and how far into it when it's split. */
+        const place = (at: number): { assoc: 1 | -1; into: number } => {
+          const inserted = changes
+            .filter((c) => c.from === at && c.to === at)
+            .map((c) => c.insert)
+            .join("")
           const line = v.state.doc.lineAt(at)
-          return at <= line.from + line.text.search(/\S/) ? 1 : -1
+          if (own || !inserted.includes("\n") || at <= line.from + line.text.search(/\S/)) return { assoc: 1, into: 0 }
+          const br = inserted.indexOf("\n")
+          if (br === 0) return { assoc: -1, into: 0 }
+          return at === line.to && /\S/.test(line.text) ? { assoc: -1, into: br } : { assoc: 1, into: 0 }
         }
         const selection = EditorSelection.create(
-          v.state.selection.ranges.map((r) => r.map(set, assoc(r.head))),
+          v.state.selection.ranges.map((r) => {
+            const { assoc, into } = place(r.head)
+            const mapped = r.map(set, assoc)
+            return into && r.empty ? EditorSelection.cursor(mapped.head + into) : mapped
+          }),
           v.state.selection.mainIndex
         )
         v.dispatch({ changes: set, selection, annotations: external.of(true) })

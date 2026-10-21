@@ -170,6 +170,19 @@ describe("Eos store", () => {
       // A line added after a line keeps off what the person typed at that line's end, or on that line if it was empty.
       ["graph TD\n  A --> B", "graph TD\n  A --> Bob", "graph TD\n  A --> B\n  B --> C", "graph TD\n  A --> Bob\n  B --> C"],
       ["graph TD\n\n  C --> D", "graph TD\nob\n  C --> D", "graph TD\n  X --> Y\n\n  C --> D", "graph TD\n  X --> Y\nob\n  C --> D"],
+      // An edit that changes a line's end and adds a line after it: the person's text stays on their line.
+      [
+        "graph TD\n  A --> B\n  C --> D",
+        "graph TD\n  A --> Bob\n  C --> D",
+        "graph TD\n  A --> B2\n  B2 --> X\n  C --> D",
+        "graph TD\n  A --> B2ob\n  B2 --> X\n  C --> D",
+      ],
+      [
+        "graph TD\n  A --> B\n  C --> D",
+        "graph TD\n  A --> Bob\n  C --> D",
+        "graph TD\n  A --> Z\n  Y --> Z\n  C --> D",
+        "graph TD\n  A --> Zob\n  Y --> Z\n  C --> D",
+      ],
       // A line added above an indented line goes before what the person typed before its indent.
       ["graph TD\n  A --> B", "graph TD\nob  A --> B", "graph TD\n  X --> Y\n  A --> B", "graph TD\n  X --> Y\nob  A --> B"],
     ] as const
