@@ -10,7 +10,7 @@ import { clamp, fit, FIT_MAX, holdCentre, pan, panBy, zoomAt, type Size, type Vi
  * Live Pele render with our own pan and zoom. The pane never scrolls: the diagram sits on a stage that one
  * transform moves and scales. "Fit" scales it to the pane; any other zoom is relative to the SVG's natural size
  * (1 = 100%). Always draws `source`. While the text has errors the editor passes the last good diagram,
- * and `stale` dims it.
+ * and `stale` dims it. An empty `source` shows nothing.
  */
 export function Preview({ source, stale, onSvg }: { source: string; stale: boolean; onSvg: (el: SVGSVGElement | null) => void }) {
   const frame = useRef<HTMLDivElement>(null)
@@ -86,7 +86,8 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
   const sourceRef = useRef(source)
 
   const measure = () => {
-    const svg = host.current?.querySelector("svg")
+    // Nothing valid to show (yet): not whatever was drawn before, such as a past version that was being viewed.
+    const svg = sourceRef.current ? host.current?.querySelector("svg") : null
     onSvg(svg ?? null)
     const vb = svg?.viewBox.baseVal
     if (!svg || !vb || vb.width <= 0) return
@@ -279,6 +280,7 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
           ref={host}
           className="pele-preview transition-opacity data-[stale=true]:opacity-30 [&>svg]:block [&>svg]:size-full [&>svg]:max-w-none"
           data-stale={stale}
+          hidden={!source}
         />
       </div>
     </div>

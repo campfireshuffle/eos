@@ -374,6 +374,38 @@ for (const [device, viewport] of [
   })
 }
 
+test("back to latest with no valid version to show leaves the preview empty, with nothing to export", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const now = Date.now()
+  await page.clock.setSystemTime(now - 2 * 86_400_000)
+  const id = await newDiagram(page, "flowchart LR\n  A --> B")
+  await page.clock.setSystemTime(now - 86_400_000)
+  await tool(page, "update_diagram", { id, source: "flowchart LR\n  A --> B --> C" })
+  await page.clock.setSystemTime(now)
+  await openEditor(page, id)
+  await cursorAtEndOf(page, 1)
+  await page.keyboard.type(" -->")
+  await expect.poll(async () => (await tool<{ history: unknown[] }>(page, "get_diagram", { id, history: true })).history.length).toBe(3)
+  // Opened afresh, the latest text has never rendered, so there's no last valid version to fall back on.
+  const later = await context.newPage()
+  await openEditor(later, id)
+  await later.getByRole("button", { name: "Version history" }).click()
+  await later.locator("[data-slot=popover-content] button").last().click()
+  await expect(later.getByText("Viewing the version from")).toBeVisible()
+  await expect(later.locator(".pele-preview svg")).toBeVisible()
+  await later.getByRole("button", { name: "Back to latest" }).click()
+  await expect(later.getByText("Viewing the version from")).toHaveCount(0)
+  await expect(later.locator(".pele-preview svg")).toBeHidden()
+  let downloaded = false
+  later.on("download", () => (downloaded = true))
+  await later.getByRole("button", { name: "Export" }).click()
+  await later.getByRole("menuitem", { name: /^SVG/ }).click()
+  await expect(later.getByRole("alertdialog")).toContainText("Couldn’t export")
+  await expect(later.getByRole("alertdialog")).toContainText("Nothing to export yet.")
+  expect(downloaded).toBe(false)
+})
+
 test("while a past version is shown there's no Undo or Redo to change the hidden latest text", async ({ context }) => {
   await withAgentTools(context)
   const page = await context.newPage()
