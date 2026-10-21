@@ -864,16 +864,6 @@ export class Eos {
     return true
   }
 
-  /** afterChange for another tab's change, keeping the saved row's star (see listenToOtherTabs). */
-  private async rebuildKeepingStar(id: DiagramId, d: DiagramDoc) {
-    const rebuilt = await updateRow(
-      this.db,
-      id,
-      (saved) => saved && { ...this.indexRow(id, d.doc, saved.deletedAt), starred: saved.starred }
-    )
-    if (rebuilt) this.indexChanged(id)
-  }
-
   /** Builds an existing diagram's index row, keeping whether it's deleted; nothing if it's gone. */
   private rowOf(id: DiagramId): RowBuilder {
     return (doc, saved) => saved && this.indexRow(id, doc, saved.deletedAt)
@@ -974,16 +964,26 @@ export class Eos {
         this.settingsCache = withDefaults(await this.db.get("settings", "app"))
         this.emit("settings")
       } else if (data.type === "update" && data.id && data.bytes) {
-        if (data.id === WORKSPACE_ID) this.workspace.doc.import(data.bytes)
-        else if (this.open.has(data.id)) {
+        if (data.id === WORKSPACE_ID) {
+          const before = this.workspace.starred.toJSON() as Record<string, unknown>
+          this.workspace.doc.import(data.bytes)
+          const after = this.workspace.starred.toJSON() as Record<string, unknown>
+          // A row written in either tab before a star reached its workspace has the old star:
+          // rewrite it from the merged one. This transaction runs after any such write queued here.
+          for (const id of new Set([...Object.keys(before), ...Object.keys(after)]))
+            if (!before[id] !== !after[id])
+              void updateRow(this.db, id, (row) => row && { ...row, starred: this.workspace.starred.get(id) ? 1 : 0 }).then(
+                (written) => written && this.indexChanged(id)
+              )
+        } else if (this.open.has(data.id)) {
           const d = await this.openDiagram(data.id)
           const before = JSON.stringify(metaOf(d))
           d.doc.import(data.bytes)
           // The other tab saved a row from its own copy, which can lack a details change made
           // here at the same time: rebuild it from the merged doc. That sends "index", never
-          // "update", so the tabs can't set each other off. It keeps the row's star: a star set
-          // there just after this change reaches this tab's workspace later, and is already saved.
-          if (JSON.stringify(metaOf(d)) !== before) void this.rebuildKeepingStar(data.id, d)
+          // "update", so the tabs can't set each other off. The row's star comes from this tab's
+          // workspace; a star set there that hasn't reached it yet corrects the row when it does.
+          if (JSON.stringify(metaOf(d)) !== before) void this.afterChange(data.id, d)
         }
         // Otherwise a diagram's index row changes with the "index" message that follows (once
         // typing pauses); the workspace holds stars and tag emoji, which the library shows.

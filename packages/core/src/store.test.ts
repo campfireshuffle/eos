@@ -883,6 +883,26 @@ describe("library events and reads", () => {
     expect((await one.getDiagram(id))!.starred).toBe(false)
   })
 
+  it("keeps a star set in one tab while another renames the diagram at the same time", async () => {
+    const lost: string[] = []
+    for (let k = 0; k < 60; k += 3) {
+      const name = `star-race-${n++}`
+      const a = await Eos.create({ dbName: name, seed: false })
+      const b = await Eos.create({ dbName: name, seed: false })
+      const id = await a.createDiagram({ source: "x" })
+      await Promise.all([a.getSource(id), b.getSource(id)])
+      await settle()
+      const star = b.setStarred(id, true)
+      await ticks(k)
+      await a.renameDiagram(id, "Renamed") // before tab a has heard of the star
+      await star
+      await settle(200)
+      const c = await Eos.create({ dbName: name, seed: false }) // a tab opened later
+      if ((await c.listDiagrams())[0]!.starred !== 1) lost.push(`k=${k}`)
+    }
+    expect(lost).toEqual([])
+  }, 60_000)
+
   /** Lets `k` microtasks run, to land a second change at each point in the first one. */
   const ticks = async (k: number) => {
     for (let i = 0; i < k; i++) await Promise.resolve()
