@@ -214,6 +214,12 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** test timing only. The product behaviour is unchanged.
   - **Fix:** if it recurs, wait for the first confirm to have closed (`toBeHidden`) instead of a fixed 50 ms before opening the second.
 
+- **A heavy agent rewrite can drop what the person typed on the line it rewrites.**
+  - **What:** in a `baseVersion` merge, when the agent deletes or rewrites the line the person has typed on since the base, the person's new characters can be lost (for example, base `x\n\t`, the person adds `#P#` after `x`, the agent rewrites the whole text). Both the jsdiff-based merge before round 16 and the Loro-based merge after it lose text in some of these cases, but in different ones. Round 16's fuzzing found the total number of clearly wrong merges went down.
+  - **Where:** `packages/core/src/store.ts`, `editsFromBase` and `diffText`.
+  - **Why low:** the agent's deletion overlaps the person's edit, so there is no clearly right answer. The text is still in history, and the person can undo.
+  - **Fix:** if wanted, keep insertions the person made inside a range the agent deletes, and place them after the agent's replacement.
+
 ## Refactors to consider (from the round 11 cleanup review)
 
 - **What the preview shows, as one pure function.**
