@@ -402,6 +402,37 @@ test("back to latest with no valid version to show leaves the preview empty, wit
   expect(downloaded).toBe(false)
 })
 
+test("a past version that doesn't render shows nothing, not a later version, and has nothing to export", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const now = Date.now()
+  await page.clock.setSystemTime(now - 2 * 86_400_000)
+  const id = await newDiagram(page, "flowchart LR\n  A --> B")
+  await page.clock.setSystemTime(now - 86_400_000)
+  await openEditor(page, id)
+  await cursorAtEndOf(page, 1)
+  await page.keyboard.type(" -->")
+  await expect.poll(async () => (await tool<{ history: unknown[] }>(page, "get_diagram", { id, history: true })).history.length).toBe(2)
+  await page.clock.setSystemTime(now)
+  await tool(page, "update_diagram", { id, source: "flowchart LR\n  X --> Y --> Z" })
+  await expect(page.locator(".pele-preview svg")).toContainText("Z")
+  // The middle version, yesterday's, is the one that doesn't render.
+  await page.getByRole("button", { name: "Version history" }).click()
+  const rows = page.locator("[data-slot=popover-content] button")
+  await expect(rows).toHaveCount(3)
+  await rows.nth(1).click()
+  await expect(page.getByText("Viewing the version from")).toBeVisible()
+  await expect(page.locator(".cm-content")).toContainText("A --> B -->")
+  await expect(page.locator(".pele-preview svg")).toBeHidden()
+  let downloaded = false
+  page.on("download", () => (downloaded = true))
+  await page.getByRole("button", { name: "Export" }).click()
+  await page.getByRole("menuitem", { name: /^SVG/ }).click()
+  await expect(page.getByRole("alertdialog")).toContainText("Couldn’t export")
+  await expect(page.getByRole("alertdialog")).toContainText("Nothing to export yet.")
+  expect(downloaded).toBe(false)
+})
+
 test("on a tablet in portrait the couldn't-render notice fits inside the preview", async ({ context }) => {
   await withAgentTools(context)
   const page = await context.newPage()

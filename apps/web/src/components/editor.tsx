@@ -113,6 +113,9 @@ export function Editor({ id }: { id: string }) {
   const lastValid = useRef<string>("")
   // A past version being previewed isn't the latest one, so it never stands in for it.
   if (result?.ok && shown !== null && !previewing) lastValid.current = shown
+  // A past version that doesn't render shows nothing: the latest never stands in for it.
+  // Until its text arrives (result is still null), the latest stays shown.
+  const fallback = previewing && result ? "" : lastValid.current
 
   const errorLine = result && !result.ok ? result.error.line || null : null
   const status = !result
@@ -276,8 +279,8 @@ export function Editor({ id }: { id: string }) {
             </PanelHeader>
             <div className="relative min-h-0 flex-1">
               <Preview
-                source={result?.ok ? (shown ?? "") : lastValid.current}
-                stale={!result?.ok && !!lastValid.current}
+                source={result?.ok ? (shown ?? "") : fallback}
+                stale={!result?.ok && !!fallback}
                 onSvg={(el) => (svgRef.current = el)}
               />
               {result && !result.ok && (
