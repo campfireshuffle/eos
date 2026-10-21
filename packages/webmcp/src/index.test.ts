@@ -102,6 +102,22 @@ describe("webmcp tools", () => {
     expect(history.some((e: any) => e.actor.kind === "user")).toBe(true)
   })
 
+  it("returns no source when nothing was merged in, whatever line endings it sent", async () => {
+    const { call } = await setup()
+    const { id } = await call("create_diagram", { source: "flowchart TD\n  A --> B\n", open: false })
+    for (const [withBase, line] of [
+      [false, "B --> C"],
+      [true, "C --> D"],
+    ] as const) {
+      const read = await call("get_diagram", { id })
+      const source = `${read.diagram.source}  ${line}\n`.replace(/\n/g, "\r\n")
+      const edit = await call("update_diagram", { id, source, baseVersion: withBase ? read.version : undefined })
+      expect(edit.ok).toBe(true)
+      expect(edit.source).toBeUndefined()
+    }
+    expect((await call("get_diagram", { id })).diagram.source).toBe("flowchart TD\n  A --> B\n  B --> C\n  C --> D\n")
+  })
+
   it("merges its source from the version it edited, keeping what the person typed since", async () => {
     const { call, eos } = await setup()
     const { id } = await call("create_diagram", { source: "line one\nline two", open: false })

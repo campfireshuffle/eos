@@ -377,16 +377,16 @@ test("with the sidebar collapsed the version banner keeps the same gap from the 
   await previewYesterday(page)
   await tool(page, "set_view", { sidebarOpen: false })
   await expect(page.locator(".eos-shell")).toHaveAttribute("data-collapsed", "true")
+  // Once the collapse animation has settled (layout.ts clears data-animating after it), the left gap matches the right one.
+  // Measured once: mid-collapse the left gap slides through the right one's width, so a poll could pass on the way.
+  await expect(page.locator("[data-animating]")).toHaveCount(0)
   const banner = page.getByText("Viewing the version from").locator("..")
-  // Once the collapse animation has settled, the left gap matches the right one.
-  await expect
-    .poll(() =>
-      banner.evaluate((el) => {
-        const r = el.getBoundingClientRect()
-        return Math.round(r.left) === Math.round(innerWidth - r.right) && r.left > 0
-      })
-    )
-    .toBe(true)
+  const gaps = await banner.evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    return { left: Math.round(r.left), right: Math.round(innerWidth - r.right) }
+  })
+  expect(gaps.right).toBeGreaterThan(0)
+  expect(gaps.left).toBe(gaps.right)
 })
 
 test("back to latest with no valid version to show leaves the preview empty, with nothing to export", async ({ context }) => {

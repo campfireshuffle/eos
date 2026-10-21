@@ -393,7 +393,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
         const now = (await eos.getDiagram(id))!
         return ok({
           version: now.version,
-          ...(i.source !== undefined && now.source !== i.source ? { source: now.source } : {}),
+          ...(i.source !== undefined && now.source !== i.source.replace(/\r\n?/g, "\n") ? { source: now.source } : {}), // core stores LF
           ...check(now.source),
           agentUndo: await eos.canUndo(id, "agent"),
         })

@@ -1103,6 +1103,7 @@ describe("library events and reads", () => {
               if (open === "a" || open === "both") await a.getSource(id)
               if (open === "b" || open === "both") await b.getSource(id)
               await settle(20)
+              if (!star) await vi.waitFor(() => expect(starsOf(b)[id]).toBe(true)) // b has the star it's about to remove
               for (const t of [a, b]) t.subscribe("library", () => void t.listDiagrams({ includeDeleted: true }).catch(() => {}))
               const first = b.setStarred(id, star).catch(() => {})
               await ticks(k)
