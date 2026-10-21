@@ -124,12 +124,13 @@ function Shell({ route, children }: { route: Route; children: ReactNode }) {
           <div className="h-full w-full min-w-[180px] overflow-hidden">{sidebar}</div>
         </ResizablePanel>
         {/* Collapsed: no gutter, just an invisible 8px strip to drag the sidebar back open.
-            Its pill sits at the window's edge, above the content, so it shows on hover and keyboard focus. */}
+            Its pill sits at the window's edge, above the content, so it shows on hover and keyboard focus. The strip
+            takes no pointer events, so wheels and clicks there still reach the content; drags are found by position. */}
         <ResizeHandle
           className={cn(
             "transition-[width] duration-200",
             collapsed &&
-              "z-10 justify-start before:absolute before:inset-y-0 before:left-0 before:w-2 before:content-[''] aria-[orientation=vertical]:w-0"
+              "z-10 justify-start before:pointer-events-none before:absolute before:inset-y-0 before:left-0 before:w-2 before:content-[''] aria-[orientation=vertical]:w-0"
           )}
         />
         <ResizablePanel id="content" minSize="360px" className="flex min-w-0">

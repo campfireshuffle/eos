@@ -151,15 +151,13 @@ test("a hidden sidebar takes no focus and isn't read out, and showing it brings 
       .map((n) => n.name!.value)
   }
   const handle = page.getByRole("separator")
-  /** Whether the resize handle's pill is drawn: opaque, not covered and inside the window. */
-  const pillDrawn = () =>
-    handle.evaluate((el) => {
-      const pill = el.firstElementChild as HTMLElement
-      const r = pill.getBoundingClientRect()
-      const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)
-      const shown = getComputedStyle(pill).opacity === "1" && (hit === pill || hit === el)
-      return shown && r.width > 0 && r.height > 0 && r.left >= 0 && r.right <= innerWidth
-    })
+  /** The window's pixels where the resize handle's pill is, which must be a non-empty box inside the window. */
+  const pillArea = async () => {
+    await page.waitForFunction(() => document.getAnimations().length === 0)
+    const r = await handle.evaluate((el) => el.firstElementChild!.getBoundingClientRect().toJSON() as DOMRect)
+    expect(r.width > 0 && r.height > 0 && r.left >= 0 && r.right <= page.viewportSize()!.width).toBe(true)
+    return () => page.screenshot({ clip: { x: r.left, y: r.top, width: r.width, height: r.height } })
+  }
 
   await page.getByRole("button", { name: "Hide sidebar" }).click()
   await expect(show).toBeVisible()
@@ -170,9 +168,12 @@ test("a hidden sidebar takes no focus and isn't read out, and showing it brings 
   // reopens the sidebar with the arrow keys and shows its pill at the window's edge; the next is Show sidebar.
   await page.reload()
   await expect(show).toBeVisible()
+  const pill = await pillArea()
+  const unfocused = await pill()
   await focusNext(page)
   await expect(handle).toBeFocused()
-  await expect.poll(pillDrawn).toBe(true)
+  // Focus is drawn: the pill shows over what was there before.
+  await expect.poll(async () => (await pill()).equals(unfocused)).toBe(false)
   await focusNext(page)
   await expect(show).toBeFocused()
 
@@ -185,4 +186,23 @@ test("a hidden sidebar takes no focus and isn't read out, and showing it brings 
   await expect(settings).toBeVisible()
   await focusNext(page)
   await expect(sidebar.getByRole("link", { name: "Eos" })).toBeFocused()
+})
+
+test("with the sidebar hidden, the window's left edge still scrolls the page, and dragging from it reopens the sidebar", async ({
+  context,
+}) => {
+  const { page } = await library(context, "#/")
+  const scroller = page.locator(".eos-library-scroller")
+  await page.getByRole("button", { name: "Hide sidebar" }).click()
+  await expect(page.locator(".eos-shell")).toHaveAttribute("data-collapsed", "true")
+  await expect(page.locator("[data-animating]")).toHaveCount(0)
+  // Within the 8px strip the collapsed sidebar's resize handle keeps at the edge.
+  await page.mouse.move(4, 400)
+  await page.mouse.wheel(0, 400)
+  await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+  await page.mouse.down()
+  await page.mouse.move(120, 400, { steps: 5 })
+  await page.mouse.move(250, 400, { steps: 5 })
+  await page.mouse.up()
+  await expect(page.locator(".eos-shell")).toHaveAttribute("data-collapsed", "false")
 })
