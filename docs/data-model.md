@@ -105,7 +105,7 @@ function metaOf(doc: LoroDoc): LoroMap {
 Notes:
 
 - **Editor binding.** CodeMirror transactions map to `LoroText.insert/delete`. If a whole-buffer replacement comes from an external source, such as an agent's `update_diagram({ source })` or a paste-replace, use `text.update(newSource)`, which runs a minimal diff. That keeps concurrent edits elsewhere in the text intact.
-- **Tags** go in a `LoroList<string>` under `meta.tags`. `setTags` replaces the whole list on each change, so concurrent tag edits are last-write-wins. `normalizeTags` (`tags.ts`) de-duplicates them on write.
+- **Tags** go in a `LoroList<string>` under `meta.tags`. `setTags` edits the list in place (deleting tags no longer wanted, inserting missing ones), so concurrent tag edits merge. `normalizeTags` (`tags.ts`) de-duplicates on write and `metaOf` on read, since two sides adding the same tag leave it in the list twice.
 - **`updatedAt` is not stored in the doc.** It is derived from the last change's timestamp (see §4) and cached in the index (§2).
 - **Doc-level settings applied on every open:** `doc.setRecordTimestamp(true)`, so each `Change` carries a Unix timestamp in seconds, and `setChangeMergeInterval(0)` (both in `newDiagramDoc`, `docs.ts`). Every commit is its own `Change` with its own timestamp: Loro's default would merge a peer's commits with the same message for up to 1,000 seconds, dating a later edit by an earlier one. History does its own folding (§4).
 
