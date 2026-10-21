@@ -220,6 +220,44 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** the agent's deletion overlaps the person's edit, so there is no clearly right answer. The text is still in history, and the person can undo.
   - **Fix:** if wanted, keep insertions the person made inside a range the agent deletes, and place them after the agent's replacement.
 
+- **Retrying an update_diagram with the same baseVersion applies the edit twice.**
+  - **What:** an agent calls `update_diagram {source, baseVersion: v}`, then repeats the call unchanged, for example after a lost response, or after cancelling the call (execute doesn't stop on abort). The second call merges the diff from `v` again, on top of the first result. With base `graph TD\n  A --> B` and an added `  B --> C`, sending it twice gives `B --> C` twice.
+  - **Where:** `packages/core/src/store.ts`, `editDiagram` (the `fromBase` branch).
+  - **Why low:** the second call returns the merged `source`, which shows the duplicate, and agent undo reverts it. It only happens when an agent reuses a base it has already applied.
+  - **Fix:** skip the merge when `edit.source === sourceOf(d)`: the text already is the agent's text, so the call is a no-op. Add a webmcp test that sends the same call twice and expects one copy.
+
+- **Korean IME composition flashes "No diagrams match." more often since round 16.**
+  - **What:** Hangul words are now matched exactly, so a syllable still being composed (`다이어그래` on the way to `다이어그램`) finds nothing. The library flashes its empty state mid-syllable, then shows the right results once the syllable is complete. It flashed at some states before round 16 too.
+  - **Where:** `apps/web/src/components/home.tsx` (the Search input), `packages/core/src/search.ts`.
+  - **Why low:** it's a brief flash during composition, and the final result is correct.
+  - **Fix:** don't search while `e.nativeEvent.isComposing`, keeping the last results until `compositionend`.
+
+- **Search doesn't treat curly and straight apostrophes, or hyphens and spaces, as the same.**
+  - **What:** "don't" doesn't find a title typed as "don’t" (iOS smart punctuation), and "follow-up" doesn't find "Follow up". The query "don’t" also matches unrelated titles through the token "t". This predates round 16, since Orama's default splitter also kept `'` and `-`.
+  - **Where:** `packages/core/src/search.ts`, the tokenizer.
+  - **Why low:** the other words of the title still find it, and these are near misses rather than wrong results.
+  - **Fix:** fold `’` and `‘` to `'` before tokenizing, and index a hyphenated or apostrophised word's parts as well as the whole word.
+
+- **Sort: Title ignores Thai and Indic vowel signs and sorts numbers as text.**
+  - **What:** a row's `titleKey` strips every `\p{M}`, which drops Thai and Indic vowel signs, and `localeCompare` on it compares digits as text, so "Item 10" comes before "Item 2". The tag tree's collator is numeric.
+  - **Where:** `packages/core/src/store.ts`, `titleKey` (in the row builder) and the `sort === "title"` comparator in `listDiagrams`.
+  - **Why low:** the order is still stable and near-alphabetical.
+  - **Fix:** compare titles with one module-level `Intl.Collator(undefined, { numeric: true, sensitivity: "base" })`, as the tag tree does. `sensitivity: "base"` already ignores accents, so `titleKey` can then go (it's in the stored row and `types.ts`; webmcp strips it).
+
+- **Below about 360px wide, a focused Settings "About" tab isn't scrolled into view (Chromium, Firefox).**
+  - **What:** at 320×568, or at 400% zoom on desktop, Tab from Storage focuses About, but the phone tab row doesn't scroll. Only "(A" of its focus ring shows, under the row's fade mask. WebKit scrolls it into view.
+  - **Where:** `apps/web/src/components/settings-dialog.tsx`, the phone tab row (`max-md:overflow-x-auto`, the hidden scrollbar and the mask).
+  - **Why low:** the tab is partly visible, so it passes WCAG 2.4.11 (Minimum), and Enter opens About. At 390px the whole tab is visible.
+  - **Fix:** `onFocus={(e) => e.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" })}` on the tab buttons, or `scroll-padding-inline` on the row.
+
+- **Mixed-script search: a CJK word's exactness is untested, and a short Latin word gets typo tolerance from the query's length.**
+  - **What:**
+    - Replacing the mixed-query branch with a single search at the old tolerance passes every search test. Results are OR'd, so only ranking changes.
+    - The tolerance for the Latin part is worked out from the whole query, so "登录 api" makes "api" fuzzy (while "api" alone is exact), and "東京 a" matches every diagram.
+  - **Where:** `packages/core/src/search.ts` (the mixed branch), `packages/core/src/search.test.ts`.
+  - **Why low:** it only changes ranking or adds near matches. Every right result is still found.
+  - **Fix:** compute the Latin part's tolerance from the Latin words alone. Add a test that a CJK word in a mixed query stays exact, and one that "登录 api" doesn't match "apx".
+
 ## Refactors to consider (from the round 11 cleanup review)
 
 - **What the preview shows, as one pure function.**
@@ -280,3 +318,17 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
     - let `onEscape` arm the exit whenever the editor has focus, and keep `preventDefault()` (plus `simplifySelection`) only in a dialog;
     - drop the keymap entry;
     - run the two Escape tests and accessibility.spec in all three browsers.
+
+- **diffText: two untested or redundant parts.**
+  - **What:**
+    - Setting the `floor` guard to 0 passes every store, search and caret test. Before round 17's fix, fuzzing found inputs where it then corrupts the text (`a = "😀B\n\n \n\n\n\nB\n \n A😀\nb \n\n\n \n Aab "`, `b = "😀B\n\n A\n😀\nB\n \n A😀\nb \n\n\n \n ab "`).
+    - The split's `!lineEnd` condition changes no result: a mid-line split gives two insertions at one spot, which `applyEdits`, `insertAt` and the editor's `place()` all join again.
+  - **Where:** `packages/core/src/store.ts`, `diffText`.
+  - **Why low:** behaviour is correct today.
+  - **Fix:** add a round-trip property test to store.test.ts: for random pairs (newlines, indents, emoji, repeats), `editDiagram` with no base gives exactly `b`. Drop `!lineEnd`.
+
+- **caret.spec.ts reaches CodeMirror through an internal.**
+  - **What:** `insertAt` finds the view through `.cm-content`'s `cmTile.root.view`, which `@codemirror/view` doesn't document (it's at `^6.43`). A minor update that renames it would fail about 50 tests per engine.
+  - **Where:** `e2e/caret.spec.ts`, `insertAt`.
+  - **Why low:** it's test-only, and it would fail loudly rather than pass wrongly.
+  - **Fix:** dispatch a synthetic paste `ClipboardEvent` on `.cm-content`, which goes through the editor's real paste path, or expose the view on the element in dev builds only.
