@@ -266,3 +266,14 @@ test.describe("touch", () => {
     await expect(search).toBeFocused()
   })
 })
+
+test("a chrome:// address in Settings › MCP says Copied once it's copied", async ({ browserName, context, page }) => {
+  test.skip(browserName !== "chromium", "Only Chromium lets a test grant clipboard access")
+  await context.grantPermissions(["clipboard-read", "clipboard-write"])
+  await page.goto("/#/")
+  await page.getByRole("button", { name: "Settings" }).click()
+  const dialog = page.getByRole("dialog", { name: "Settings" })
+  await dialog.getByRole("button", { name: "MCP", exact: true }).click()
+  await dialog.getByRole("button", { name: /^chrome:\/\/flags\/#enable-webmcp-testing/ }).click()
+  await expect(dialog.getByRole("button", { name: "Copied" })).toBeVisible()
+})

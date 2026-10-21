@@ -253,6 +253,7 @@ function ChromeUrl({ url }: { url: string }) {
     <button
       type="button"
       title="Copy, then paste into the address bar"
+      aria-label={copied ? "Copied" : undefined}
       onClick={() => copy(url)}
       className="flex w-full items-center justify-between gap-2 rounded-md bg-background px-2.5 py-1.5 text-left font-mono text-caption text-foreground hover:bg-accent [&_svg]:size-3.5 [&_svg]:shrink-0"
     >
