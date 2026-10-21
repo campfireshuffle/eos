@@ -198,7 +198,7 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
   const [panning, setPanning] = useState(false)
 
   /**
-   * Pan like a canvas: middle-button drag, Space + drag, plain left-drag or one finger, as `pan` allows.
+   * Pan like a canvas: middle-button drag, plain left-drag or one finger, as `pan` allows.
    * Two fingers pinch-zoom, and the diagram point between them follows their midpoint.
    */
   const pointers = useRef(new Map<number, { x: number; y: number }>())
