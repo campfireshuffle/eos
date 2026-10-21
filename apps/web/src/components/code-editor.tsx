@@ -116,6 +116,12 @@ export function CodeEditor({
           EditorView.clipboardInputFilter.of((text) => text.replace(/\r\n?/g, "\n")),
           // Shows a "\r", and other invisible control characters, as a marker (␍), so what is typed next to one is where it looks.
           highlightSpecialChars(),
+          // An editor without focus takes no input. WebKit keeps the editor's selection after focus leaves it, and
+          // a key pressed wherever focus went (Settings, a confirm, Star) arrives here as a beforeinput. Cancelled,
+          // nothing is inserted, and the selection stays, so it can still be copied. A drop is its own event.
+          EditorView.domEventHandlers({
+            beforeinput: (e, view) => view.root.activeElement !== view.contentDOM && (e.preventDefault(), true),
+          }),
           EditorState.readOnly.of(readOnly),
           EditorView.editable.of(!readOnly),
           onUndo

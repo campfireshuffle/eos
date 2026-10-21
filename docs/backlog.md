@@ -32,7 +32,7 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
 
 - **`updateSettings`'s type hides that it merges.**
   - **What:** `Eos.updateSettings(patch: Partial<AppSettings>)` merges `theme` and `agent` field by field, but its type asks for whole objects.
-  - **Where:** `packages/core/src/store.ts:530`. Callers: `set_theme` in `packages/webmcp/src/index.ts`, which casts `as never`; Settings' Save, which spreads the rendered theme in first; and `importBackup`, which spreads `settingsCache.theme` in first.
+  - **Where:** `packages/core/src/store.ts` (`updateSettings`). Callers: `set_theme` in `packages/webmcp/src/index.ts`, which casts `as never`; Settings' Save, which spreads the rendered theme in first; and `importBackup`, which spreads `settingsCache.theme` in first.
   - **Why low:** behaviour is correct, and every caller works around the type.
   - **Fix:** type the parameter `{ theme?: Partial<AppSettings["theme"]>; agent?: Partial<AppSettings["agent"]> }`, then drop the cast and the two spreads.
 
@@ -101,7 +101,7 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
     - Tag emoji had the same window before round 11.
   - **Where:** `packages/core/src/store.ts`, `Eos.create` (lines 140-146) and `recheckRows`.
   - **Why low:** it needs a star or emoji change to land within a few milliseconds of another tab starting up. It was only reproduced by holding the settings read open (0 of 20 natural interleavings). Disk is right, and a reload fixes it.
-  - **Fix:** open the channel before `loadDoc(db, WORKSPACE_ID)` and hold workspace messages until the doc exists. Or, more simply, re-import the workspace from disk in `recheckRows`. Repro: `r13/probes/probe2.test.ts`.
+  - **Fix:** open the channel before `loadDoc(db, WORKSPACE_ID)` and hold workspace messages until the doc exists. Or, more simply, re-import the workspace from disk in `recheckRows`. Repro: hold the new tab's settings read until the other tab has starred, then check the new tab's library.
 
 - **The editor's shortcuts still act behind Settings or a confirm.**
   - **What:** on a diagram page with Settings or a confirm open:
@@ -111,6 +111,24 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `apps/web/src/components/editor.tsx`, `useShortcuts` (a window `keydown` with no modal check).
   - **Why low:** nothing is lost. The changes are hidden and reversible, and page zoom is still in the browser menu.
   - **Fix:** in `onKey`, return early when `getUi().settingsOpen || getUi().confirm?.open`, or when `e.target` is inside `[role=dialog], [role=alertdialog]`.
+
+- **An agent's replace import asks more mildly than delete_all_data, though it destroys as much.**
+  - **What:** `import_backup {mode: "replace"}` asks "The agent wants to replace all your diagrams with a backup." It wipes everything first (Deleted, stars and tag emoji too), and the backup can be empty (`{"v":1,"diagrams":[]}`). delete_all_data's confirm adds "This can't be undone."; this one doesn't, and it doesn't say what the backup holds.
+  - **Where:** `packages/webmcp/src/index.ts`, `import_backup`.
+  - **Why low:** the text is accurate, a person must click Replace, and only agents (Chrome WebMCP) can replace.
+  - **Fix:** compute `const c = await eos.counts()` once, then ask `` `The agent wants to replace all ${c.all + c.deleted} of your diagrams with a backup of ${backup.diagrams.length}. This can’t be undone.` ``
+
+- **Dropping a dragged card on Search fills it with the card's URL.**
+  - **What:** a card drag carries `text/plain` (its link), so releasing it over the library's Search box types the URL into the search.
+  - **Where:** `apps/web/src/components/home.tsx`, the Search input.
+  - **Why low:** an accidental drop target; the cost is clearing the box.
+  - **Fix:** on the input, `onDragOver`/`onDrop` that `preventDefault()` when `e.dataTransfer.types.includes(DIAGRAM_MIME)`.
+
+- **A core test asserts after a fixed 50 ms wait for another tab.**
+  - **What:** store.test.ts "hears every keystroke in a tab that opens the diagram while another tab's typing is being saved" checks after `settle()` (50 ms). Under heavy machine load (load average 57+) it failed 8/12 with 3 parallel processes. Its siblings that wait on another tab ("merges two tabs typing…", "starts a fresh burst…", "reads the rows once…") have the same pattern.
+  - **Where:** `packages/core/src/store.test.ts:548-563` and the other `settle()` checks in that describe.
+  - **Why low:** it passed in every CI run, in `turbo test`, and with 3 parallel processes at normal load. The product converges within milliseconds.
+  - **Fix:** replace the last `await settle(); expect(...)` with `await expect.poll(() => two.getSource(id), { timeout: 5000 }).toBe(a.state.text)`. This was verified to still catch the bug it guards (onLocalUpdate before the write finishes).
 
 ## Refactors to consider (from the round 11 cleanup review)
 
@@ -158,3 +176,8 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `packages/webmcp/src/index.ts:396`, `packages/core/src/store.ts` (`lf`).
   - **Why low:** it's one line, and it's correct today. It would only drift if core's normalisation changed.
   - **Fix:** the next time either is touched, have `editDiagram` report whether it merged anything (or export `lf`), and drop the copy.
+
+- **`Eos.flushIndex` is public but only `saveNow` calls it.**
+  - **Where:** `packages/core/src/store.ts` (`flushIndex`).
+  - **Why low:** no live bug. It's one method on the public surface.
+  - **Fix:** make it `private` the next time store.ts is touched.

@@ -417,8 +417,7 @@ function useShortcuts(actions: ReturnType<typeof useExportActions>) {
                     ? () => requestZoom("actual")
                     : null
       if (!action) return
-      // ⌘ shortcuts would otherwise zoom or act on the whole page, and Safari types ⇧0/⇧1's ")" and "!"
-      // into the source editor when it still holds the selection, even though it isn't focused.
+      // ⌘ shortcuts would otherwise zoom or act on the whole page; ⇧0 and ⇧1 act only off text fields, where their ")" and "!" have nowhere to go.
       e.preventDefault()
       action()
     }
