@@ -3,7 +3,7 @@ import { type Frontiers, LoroDoc, type LoroMap, type LoroText, UndoManager, type
 import * as z from "zod/mini"
 
 import { fromBase64, toBase64 } from "./base64"
-import { openEosDB, WORKSPACE_ID, type Database, type OpenHooks } from "./db"
+import { openEosDB, WORKSPACE_ID, type Database, type OpenHooks, type StoredRow } from "./db"
 import {
   actorOrigin,
   commit,
@@ -250,7 +250,7 @@ export class Eos {
       meta: metaOf(d),
       source: sourceOf(d),
       version: encodeVersion(d.doc),
-      starred: row.starred === 1,
+      starred: !!this.workspace.starred.get(id),
       updatedAt: row.updatedAt,
       deletedAt: row.deletedAt,
     }
@@ -424,12 +424,14 @@ export class Eos {
   // ── Organisation ───────────────────────────────────────────────────────────
 
   async setStarred(ids: Ids, starred: boolean, actor: Actor = USER) {
+    // A workspace change only (see withStar): no row is written, and other tabs hear the workspace's update.
     try {
       await this.each(ids, async (id) => {
-        await this.patchIndex(id, { starred: starred ? 1 : 0 })
-        // Only once the diagram is known to be there, so a missing one isn't left a star.
+        // A missing diagram isn't left a star.
+        if (!(await this.db.get("diagrams", id))) throw new Error(`Diagram ${id} not found`)
         if (starred) this.workspace.starred.set(id, true)
         else this.workspace.starred.delete(id)
+        this.emit("library", `diagram:${id}`)
       })
     } finally {
       commit(this.workspace.doc, actor)
@@ -869,7 +871,7 @@ export class Eos {
     return (doc, saved) => saved && this.indexRow(id, doc, saved.deletedAt)
   }
 
-  private indexRow(id: DiagramId, doc: LoroDoc, deletedAt?: number): DiagramIndexRow {
+  private indexRow(id: DiagramId, doc: LoroDoc, deletedAt?: number): StoredRow {
     const d = { text: doc.getText("source"), meta: doc.getMap("meta") }
     const meta = metaOf(d)
     const source = sourceOf(d)
@@ -881,7 +883,6 @@ export class Eos {
       createdAt: meta.createdAt,
       updatedAt: lastChangeAt(doc) || Date.now(),
       titleKey: meta.title.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase(),
-      starred: this.workspace.starred.get(id) ? 1 : 0,
       sourcePreview: source.slice(0, 200),
       sourceText: source,
       ...(deletedAt ? { deletedAt } : {}),
@@ -898,22 +899,34 @@ export class Eos {
     }
   }
 
-  private async patchIndex(id: DiagramId, patch: Partial<DiagramIndexRow>) {
+  private async patchIndex(id: DiagramId, patch: Partial<StoredRow>) {
     const patched = await updateRow(this.db, id, (row) => {
       if (!row) return undefined
-      const next = { ...row, ...patch }
+      const next: StoredRow & { starred?: unknown } = { ...row, ...patch }
       if (patch.deletedAt === undefined && "deletedAt" in patch) delete next.deletedAt
+      delete next.starred // left by an older version (see withStar)
       return next
     })
     if (!patched) throw new Error(`Diagram ${id} not found`)
     this.indexChanged(id)
   }
 
+  /**
+   * A stored row as it's read, with its star. Invariant: stars live only in the workspace doc.
+   * Rows on disk never hold a star (an older row's leftover `starred` is overwritten here), and
+   * every read adds it from this tab's workspace, so no row write can save a stale star, and a
+   * star change writes no row. Every change to the workspace's stars emits "library".
+   */
+  private withStar(row: StoredRow): DiagramIndexRow {
+    return { ...row, starred: this.workspace.starred.get(row.id) ? 1 : 0 }
+  }
+
   /** Every index row, from the cache when the library hasn't changed since the last read. */
   private allRows(): Promise<DiagramIndexRow[]> {
-    const read = (this.rows ??= this.db.getAll("diagrams").then((rows) => {
+    const read = (this.rows ??= this.db.getAll("diagrams").then((stored) => {
       // Unchanged rows keep their old object, so views that memoise on a row can skip it.
-      const kept = rows.map((row) => {
+      const kept = stored.map((raw) => {
+        const row = this.withStar(raw)
         const old = this.rowsById.get(row.id)
         return old && sameRow(old, row) ? old : row
       })
@@ -929,9 +942,9 @@ export class Eos {
   private async recheckRows() {
     const cached = this.rowsById
     const rows = await this.db.getAll("diagrams")
-    const differs = (row: DiagramIndexRow) => {
+    const differs = (row: StoredRow) => {
       const old = cached.get(row.id)
-      return !old || !sameRow(old, row)
+      return !old || !sameRow(old, this.withStar(row))
     }
     if (rows.length !== cached.size || rows.some(differs)) this.emit("library")
   }
@@ -965,29 +978,26 @@ export class Eos {
         this.emit("settings")
       } else if (data.type === "update" && data.id && data.bytes) {
         if (data.id === WORKSPACE_ID) {
+          // Stars and tag emoji, which the library shows. Reads add stars from the workspace (see
+          // withStar), so a star needs no row write: the views of each diagram whose star flipped are told.
           const before = this.workspace.starred.toJSON() as Record<string, unknown>
           this.workspace.doc.import(data.bytes)
           const after = this.workspace.starred.toJSON() as Record<string, unknown>
-          // A row written in either tab before a star reached its workspace has the old star:
-          // rewrite it from the merged one. This transaction runs after any such write queued here.
-          for (const id of new Set([...Object.keys(before), ...Object.keys(after)]))
-            if (!before[id] !== !after[id])
-              void updateRow(this.db, id, (row) => row && { ...row, starred: this.workspace.starred.get(id) ? 1 : 0 }).then(
-                (written) => written && this.indexChanged(id)
-              )
-        } else if (this.open.has(data.id)) {
-          const d = await this.openDiagram(data.id)
-          const before = JSON.stringify(metaOf(d))
-          d.doc.import(data.bytes)
-          // The other tab saved a row from its own copy, which can lack a details change made
-          // here at the same time: rebuild it from the merged doc. That sends "index", never
-          // "update", so the tabs can't set each other off. The row's star comes from this tab's
-          // workspace; a star set there that hasn't reached it yet corrects the row when it does.
-          if (JSON.stringify(metaOf(d)) !== before) void this.afterChange(data.id, d)
+          const flipped = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((id) => !before[id] !== !after[id])
+          this.emit("library", ...flipped.map((id) => `diagram:${id}` as const))
+        } else {
+          if (this.open.has(data.id)) {
+            const d = await this.openDiagram(data.id)
+            const before = JSON.stringify(metaOf(d))
+            d.doc.import(data.bytes)
+            // The other tab saved a row from its own copy, which can lack a details change made
+            // here at the same time: rebuild it from the merged doc. That sends "index", never
+            // "update", so the tabs can't set each other off.
+            if (JSON.stringify(metaOf(d)) !== before) void this.afterChange(data.id, d)
+          }
+          // Otherwise a diagram's index row changes with the "index" message that follows (once typing pauses).
+          this.emit(`diagram:${data.id}`)
         }
-        // Otherwise a diagram's index row changes with the "index" message that follows (once
-        // typing pauses); the workspace holds stars and tag emoji, which the library shows.
-        this.emit(data.id === WORKSPACE_ID ? "library" : `diagram:${data.id}`)
       } else if (data.type === "index") {
         this.emit("library", ...(data.ids ?? []).map((id) => `diagram:${id}` as const))
       } else if (data.type === "close") {
@@ -1138,7 +1148,7 @@ function change(
   }
 }
 
-/** Whether two reads of an index row hold the same values. Rows are flat apart from their tag lists. */
+/** Whether two reads of an index row (with their stars, see withStar) hold the same values. Rows are flat apart from their tag lists. */
 function sameRow(a: DiagramIndexRow, b: DiagramIndexRow): boolean {
   const keys = Object.keys(b) as (keyof DiagramIndexRow)[]
   if (keys.length !== Object.keys(a).length) return false

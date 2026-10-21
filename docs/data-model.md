@@ -129,6 +129,7 @@ Reasons for keeping this in a separate doc:
 - **Renaming or moving a tag** (`work/backend` → `eng/backend`): one commit per affected diagram doc rewrites that tag and every tag under it, with a `details:` origin so it is not on the person's undo stack. Then one workspace commit moves their `tagEmoji` keys; a tag merged into one that has its own emoji keeps that one. These are not atomic across docs, but the rename is idempotent, so running it again after an interruption finishes it.
 - **Deleting a tag** removes it and every tag under it from each diagram, then drops their `tagEmoji` keys.
 - **Deleting a diagram** keeps its `starred` key, so it's still starred if restored; purging it removes the key, in a workspace commit made as the person.
+- **`starred` is the only record of stars.** Index rows (§2) never store one: every read adds `starred` from this tab's workspace doc, as the tag tree adds emoji. So no row write can save a stale star, and starring writes no row and sends no `index` (§5).
 - Edits to the workspace doc are committed like a diagram's, with the actor who made them as the commit message (§3): the person, an agent, or `system` for Delete all. Nothing shows the workspace doc's history.
 
 ## 2. IndexedDB schema
@@ -170,12 +171,13 @@ interface DiagramIndexRow {
   createdAt: number
   updatedAt: number // ms; from last change timestamp
   titleKey: string // title folded for sorting (NFKD, diacritics stripped, lowercased)
-  starred: 0 | 1 // mirrored from workspace.starred
   sourcePreview: string // first 200 characters
   sourceText?: string // full source, for search; missing on rows written before search used it
   deletedAt?: number // soft delete → "Deleted"
 }
 ```
+
+Reads (`listDiagrams`, `counts`, `getDiagram`, the starred filter) add `starred: 0 | 1` to each row from `workspace.starred` (§1a). Rows never store it; a `starred` field left in a row by an older version is ignored.
 
 ### Write path
 
@@ -220,7 +222,7 @@ interface LibraryQuery {
 }
 
 function matches(row: DiagramIndexRow, q: LibraryQuery) {
-  return !row.deletedAt && (!q.starred || row.starred === 1) && q.tags.every((t) => row.tagPrefixes.includes(t))
+  return !row.deletedAt && (!q.starred || isStarred(row.id)) && q.tags.every((t) => row.tagPrefixes.includes(t)) // isStarred reads workspace.starred
 }
 ```
 
@@ -231,11 +233,11 @@ The `diagrams` store has two indexes (`db.ts`):
 - `byUpdatedAt`, over `updatedAt`. Nothing queries it today, since the library reads every row.
 - `byTag` (multiEntry over `tagPrefixes`): the key `"work"` returns everything under `work/*`. Renaming or deleting a tag uses it to find the diagrams to change.
 
-**Fallback past ~20k diagrams:** add a `tagMembership` store with rows `{ prefix, id, updatedAt, createdAt, titleKey, starred }` and compound indexes `[prefix, updatedAt]` etc., one row per (diagram, tag prefix). Query the most selective chip through its index and filter the remaining chips in memory.
+**Fallback past ~20k diagrams:** add a `tagMembership` store with rows `{ prefix, id, updatedAt, createdAt, titleKey }` and compound indexes `[prefix, updatedAt]` etc., one row per (diagram, tag prefix). Query the most selective chip through its index and filter the remaining chips in memory.
 
 Sort, grouping, search and chips are view state only and live in the URL hash (`#/?tag=work/backend&starred=1&sort=title`) so Back/Forward work.
 
-**Rebuilding the index** (after a migration or corruption): open each diagram doc and the workspace doc, re-derive the rows, and rewrite `diagrams`.
+**Rebuilding the index** (after a migration or corruption): open each diagram doc, re-derive the rows, and rewrite `diagrams` (stars stay in the workspace doc).
 
 ### Library cards
 
@@ -323,8 +325,8 @@ interface SyncMessage {
 }
 ```
 
-- `update` (`id`, `bytes`): a local change to a diagram, or to the workspace doc (`id: "__workspace"`). `subscribeLocalUpdates(bytes)` posts it once its write to IndexedDB (§2) has finished, or failed, so a tab that opens the doc from disk meanwhile can't miss it; a backup import posts each doc's imported bytes once it has saved them. A receiving tab calls `doc.import(bytes)` if it has that doc open and does not persist the bytes; a tab without it open reads it from disk when it opens it. A diagram's update doesn't refresh the library, whose row changes with the `index` that follows. The exception is a tab that has the diagram open: when the update changes its title or tags, that tab rebuilds the row from the merged doc and sends `index` itself, since the sender's row can lack a details change made there at the same time. The workspace's update does refresh the library (stars, tag emoji). When it changes a diagram's star, the receiving tab also rewrites that row's `starred` from the merged workspace and sends `index`, since a row written in either tab before the star reached its workspace has the old star.
-- `index` (`ids`): these `diagrams` rows changed, so other tabs refresh their grid and tag tree. A change to many diagrams (renaming a tag, a bulk star or delete, a backup import) sends one, listing them all.
+- `update` (`id`, `bytes`): a local change to a diagram, or to the workspace doc (`id: "__workspace"`). `subscribeLocalUpdates(bytes)` posts it once its write to IndexedDB (§2) has finished, or failed, so a tab that opens the doc from disk meanwhile can't miss it; a backup import posts each doc's imported bytes once it has saved them. A receiving tab calls `doc.import(bytes)` if it has that doc open and does not persist the bytes; a tab without it open reads it from disk when it opens it. A diagram's update doesn't refresh the library, whose row changes with the `index` that follows. The exception is a tab that has the diagram open: when the update changes its title or tags, that tab rebuilds the row from the merged doc and sends `index` itself, since the sender's row can lack a details change made there at the same time. The workspace's update does refresh the library (stars, tag emoji), and tells the views of each diagram whose star it changed (`diagram:<id>`, which the editor's Star button listens to). It writes no row: reads take stars from the workspace (§1a).
+- `index` (`ids`): these `diagrams` rows changed, so other tabs refresh their grid and tag tree. A change to many diagrams (renaming a tag, a bulk delete, a backup import) sends one, listing them all. A star sends no `index`: the workspace's `update` refreshes the library.
 - `settings`: settings changed; other tabs re-read them.
 - `close` (`id?`): a diagram was purged, or with no `id` every diagram was deleted. Other tabs close their open copies so they stop saving edits to data that is gone.
 
@@ -386,19 +388,19 @@ Backups carry only the theme. Agent settings are the person's say over what agen
 
 ## 9. Lifecycle summary
 
-| Event           | Doc                                              | IndexedDB                                          | Broadcast                   |
-| --------------- | ------------------------------------------------ | -------------------------------------------------- | --------------------------- |
-| New diagram     | `new LoroDoc()`, set meta, commit as its creator | put snapshot + index row                           | `index`                     |
-| Keystroke       | `text.insert/delete`, committed per edit         | append `updates`                                   | `update`                    |
-| Agent tool      | store write, committed as the agent (§3)         | append `updates`                                   | `update`                    |
-| Other tab edit  | `import(bytes)`                                  | —                                                  | —                           |
-| Undo            | `undo.undo()`                                    | append `updates`                                   | `update`                    |
-| Restore version | `revertTo` + commit                              | append `updates`                                   | `update`                    |
-| Star / unstar   | workspace `starred` set/delete                   | workspace `updates`; mirror `starred` in index row | workspace `update`; `index` |
-| Tag emoji       | workspace `tagEmoji` entry                       | workspace `updates`                                | workspace `update`          |
-| Delete          | — (keeps its `starred` key)                      | set `deletedAt` on the index row                   | `index`                     |
-| Purge           | close the doc; drop its `starred` key            | delete snapshot, `updates` and index row           | `close`                     |
-| Open share link | new doc from payload                             | snapshot + index row                               | `index`                     |
+| Event           | Doc                                              | IndexedDB                                | Broadcast          |
+| --------------- | ------------------------------------------------ | ---------------------------------------- | ------------------ |
+| New diagram     | `new LoroDoc()`, set meta, commit as its creator | put snapshot + index row                 | `index`            |
+| Keystroke       | `text.insert/delete`, committed per edit         | append `updates`                         | `update`           |
+| Agent tool      | store write, committed as the agent (§3)         | append `updates`                         | `update`           |
+| Other tab edit  | `import(bytes)`                                  | —                                        | —                  |
+| Undo            | `undo.undo()`                                    | append `updates`                         | `update`           |
+| Restore version | `revertTo` + commit                              | append `updates`                         | `update`           |
+| Star / unstar   | workspace `starred` set/delete                   | workspace `updates`                      | workspace `update` |
+| Tag emoji       | workspace `tagEmoji` entry                       | workspace `updates`                      | workspace `update` |
+| Delete          | — (keeps its `starred` key)                      | set `deletedAt` on the index row         | `index`            |
+| Purge           | close the doc; drop its `starred` key            | delete snapshot, `updates` and index row | `close`            |
+| Open share link | new doc from payload                             | snapshot + index row                     | `index`            |
 
 ## 10. WebMCP tools
 

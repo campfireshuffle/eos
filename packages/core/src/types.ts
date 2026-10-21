@@ -24,6 +24,7 @@ export interface DiagramIndexRow {
   createdAt: number
   updatedAt: number
   titleKey: string
+  /** From the workspace doc, added when the row is read; never stored (see StoredRow). */
   starred: 0 | 1
   sourcePreview: string
   /** Full source for search. Missing on rows written before search indexed it. */

@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto"
 
 import { LoroDoc, type LoroMap } from "loro-crdt"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { fromBase64, toBase64 } from "./base64"
 import { openEosDB, type Database } from "./db"
@@ -12,6 +12,27 @@ import type { Actor, DiagramIndexRow, TextChange } from "./types"
 
 let n = 0
 const fresh = () => Eos.create({ dbName: `test-${n++}`, seed: false })
+
+/**
+ * Every tab opened since the last disconnectTabs. Tabs share one BroadcastChannel, whatever their database,
+ * so tabs left connected hear every later test's messages, and a test with many tabs slows to a crawl.
+ */
+const connected: Eos[] = []
+const create = Eos.create.bind(Eos)
+Eos.create = async (options) => {
+  const eos = await create(options)
+  connected.push(eos)
+  return eos
+}
+/** Cuts the tabs opened so far off the channel: they stop hearing other tabs, and what they send goes nowhere. */
+function disconnectTabs() {
+  for (const eos of connected.splice(0)) {
+    const tab = eos as unknown as { channel: BroadcastChannel | null }
+    tab.channel?.close()
+    tab.channel = null
+  }
+}
+afterEach(disconnectTabs)
 
 describe("Eos store", () => {
   it("creates, edits and lists diagrams", async () => {
@@ -364,7 +385,7 @@ describe("durability", () => {
       await settle()
       const later = await Eos.create({ dbName: name, seed: false })
       expect((await later.listTags()).map((t) => t.emoji)).toEqual(["🔥"])
-      await later.renameDiagram(id, "Renamed") // rewrites the index row from the saved stars
+      await later.renameDiagram(id, "Renamed") // rewrites the index row; the star still comes from the saved workspace
       expect((await later.listDiagrams())[0]?.starred).toBe(1)
     }
   })
@@ -410,7 +431,7 @@ describe("durability", () => {
     await eos.setStarred(id, true)
     await settle()
     const later = await Eos.create({ dbName: name, seed: false })
-    await later.renameDiagram(id, "Renamed") // rewrites the index row from the saved stars
+    await later.renameDiagram(id, "Renamed") // rewrites the index row; the star still comes from the saved workspace
     expect((await later.listDiagrams())[0]?.starred).toBe(1)
   })
 
@@ -953,6 +974,159 @@ describe("library events and reads", () => {
     expect((await eos.listDiagrams()).map((r) => r.tags)).toEqual([["job"], ["job"]])
     expect((await eos.listTags()).map((t) => [t.path, t.emoji])).toEqual([["job", "💼"]])
   })
+
+  describe("stars, which live only in the workspace", () => {
+    const dbOf = (eos: Eos) => (eos as unknown as { db: Database }).db
+    const starsOf = (eos: Eos) =>
+      (eos as unknown as { workspace: { starred: LoroMap } }).workspace.starred.toJSON() as Record<string, unknown>
+    const tab = (name: string) => Eos.create({ dbName: name, seed: false })
+
+    it("stars many diagrams without sending an index message or reloading other tabs once per diagram", async () => {
+      const { eos, other, ids } = await tabs(200)
+      const sent: string[][] = []
+      const listener = new BroadcastChannel("eos")
+      listener.onmessage = ({ data }: MessageEvent<{ type: string; ids?: string[] }>) => {
+        if (data.type === "index" && data.ids?.some((id) => ids.includes(id))) sent.push(data.ids)
+      }
+      const there = count(other, "library")
+      await eos.setStarred(ids, true)
+      await settle(200)
+      listener.close()
+      expect(sent).toEqual([])
+      expect(there.library).toBeLessThanOrEqual(2)
+      expect((await other.counts()).starred).toBe(200)
+    }, 60_000)
+
+    it("ignores a star an older version saved in a row", async () => {
+      const name = `legacy-star-${n++}`
+      const eos = await Eos.create({ dbName: name, seed: false })
+      const id = await eos.createDiagram({ source: "x" })
+      const row = (await dbOf(eos).get("diagrams", id))!
+      await dbOf(eos).put("diagrams", { ...row, starred: 1 } as typeof row)
+      for (const reader of [eos, await Eos.create({ dbName: name, seed: false })]) {
+        expect((await reader.listDiagrams())[0]!.starred).toBe(0)
+        expect(await reader.listDiagrams({ starred: true })).toEqual([])
+        expect((await reader.counts()).starred).toBe(0)
+        expect((await reader.getDiagram(id))!.starred).toBe(false)
+      }
+      await eos.deleteDiagram(id) // rewrites the row, dropping the leftover
+      expect("starred" in (await dbOf(eos).get("diagrams", id))!).toBe(false)
+    })
+
+    it("never saves a star in a row", async () => {
+      const name = `no-stored-star-${n++}`
+      const eos = await Eos.create({ dbName: name, seed: false })
+      const other = await Eos.create({ dbName: name, seed: false })
+      const id = await eos.createDiagram({ source: "x" })
+      const shut = await eos.createDiagram({ source: "y" })
+      await Promise.all([eos.getSource(id), other.getSource(id)]) // open in both, so the other tab rebuilds its row too
+      await settle()
+      const stored = async () => (await dbOf(eos).getAll("diagrams")).filter((row) => "starred" in row).map((row) => row.id)
+      await eos.setStarred([id, shut], true)
+      expect(await stored()).toEqual([])
+      await eos.renameDiagram(id, "Renamed")
+      await eos.renameDiagram(shut, "Renamed too")
+      await eos.addTags([id, shut], ["work"])
+      await settle(100)
+      expect(await stored()).toEqual([])
+      await eos.importBackup(await eos.exportBackup(), "merge")
+      expect(await stored()).toEqual([])
+      await eos.importBackup(await eos.exportBackup(), "replace")
+      expect(await stored()).toEqual([])
+      expect((await eos.listDiagrams()).map((r) => r.starred)).toEqual([1, 1])
+    })
+
+    it("tells another tab's editor when a diagram there is starred", async () => {
+      const { eos, other, ids } = await tabs(1)
+      const id = ids[0]!
+      const there = count(other, `diagram:${id}`)
+      await eos.setStarred(id, true)
+      await settle()
+      expect(there[`diagram:${id}`]).toBeGreaterThanOrEqual(1)
+      expect((await other.getDiagram(id))!.starred).toBe(true)
+    })
+
+    it("shows a star set in one tab while another, the only one with it open, renames it", async () => {
+      const lost: string[] = []
+      for (let k = 0; k < 60; k += 3) {
+        const name = `star-race-view-${n++}`
+        const a = await tab(name)
+        const b = await tab(name)
+        const id = await a.createDiagram({ source: "x" })
+        await a.getSource(id)
+        await settle()
+        b.subscribe("library", () => void b.listDiagrams()) // as the grid re-reads on each event
+        const star = b.setStarred(id, true)
+        await ticks(k)
+        await a.renameDiagram(id, "Renamed")
+        await star
+        await settle(200)
+        if ((await b.listDiagrams())[0]!.starred !== 1) lost.push(`k=${k}`)
+        disconnectTabs()
+      }
+      expect(lost).toEqual([])
+    }, 60_000)
+
+    /**
+     * Tab b stars or unstars a diagram while tab a makes another change to it, the second landing at
+     * each of several points in the first. After both, every tab lists the stars of the merged workspace.
+     */
+    type Change = (a: Eos, id: string) => Promise<unknown>
+    const second: Record<string, Change> = {
+      rename: (a, id) => a.renameDiagram(id, "Renamed"),
+      addTags: (a, id) => a.addTags(id, ["t"]),
+      editDiagram: (a, id) => a.editDiagram(id, { title: "Edited", addTags: ["q"] }),
+      setSource: (a, id) => a.setSource(id, "flowchart LR\n  A --> Z"),
+      delete: (a, id) => a.deleteDiagram(id),
+      restore: (a, id) => a.restoreDiagram(id),
+      renameTag: (a) => a.renameTag("x", "y"),
+      "opposite star": () => Promise.resolve(), // made in the case, as it depends on the first change
+      "Delete all": (a) => a.deleteAll(),
+      purge: (a, id) => a.purge(id),
+      "merge import": async (a) => a.importBackup(await a.exportBackup(), "merge"),
+      "replace import": async (a) => a.importBackup(await a.exportBackup(), "replace"),
+    }
+    /** Changes after which the star is whatever tab b set: the rest race it, or take the diagram away. */
+    const keepsStar = new Set(["rename", "addTags", "editDiagram", "setSource", "delete", "restore", "renameTag", "merge import"])
+    for (const star of [true, false])
+      for (const name of Object.keys(second))
+        it(`lists the stars every tab agrees on when one ${star ? "stars" : "unstars"} a diagram while another makes a ${name}`, async () => {
+          const wrong: string[] = []
+          for (const open of ["neither", "a", "b", "both"] as const)
+            for (const k of [0, 3, 7, 15, 28]) {
+              const db = `star-matrix-${n++}`
+              const a = await tab(db)
+              const b = await tab(db)
+              const id = await a.createDiagram({ source: "x", tags: ["x"] })
+              if (name === "restore" || name === "purge") await a.deleteDiagram(id)
+              if (!star) await a.setStarred(id, true)
+              if (open === "a" || open === "both") await a.getSource(id)
+              if (open === "b" || open === "both") await b.getSource(id)
+              await settle(20)
+              for (const t of [a, b]) t.subscribe("library", () => void t.listDiagrams({ includeDeleted: true }).catch(() => {}))
+              const first = b.setStarred(id, star).catch(() => {})
+              await ticks(k)
+              const change = name === "opposite star" ? a.setStarred(id, !star) : second[name]!(a, id)
+              await change.catch(() => {})
+              await first
+              await settle(80)
+              const c = await tab(db) // a tab opened later
+              const merged = starsOf(c)
+              for (const [label, t] of [
+                ["a", a],
+                ["b", b],
+                ["c", c],
+              ] as const) {
+                for (const row of await t.listDiagrams({ includeDeleted: true }))
+                  if (row.starred !== (merged[row.id] ? 1 : 0)) wrong.push(`open=${open} k=${k} ${label}: starred=${row.starred}`)
+                if (keepsStar.has(name) && (await t.getDiagram(id))!.starred !== star)
+                  wrong.push(`open=${open} k=${k} ${label}: lost the star`)
+              }
+              disconnectTabs()
+            }
+          expect(wrong).toEqual([])
+        }, 60_000)
+  })
 })
 
 describe("backup import", () => {
@@ -999,7 +1173,7 @@ describe("backup import", () => {
     await new Promise((r) => setTimeout(r, 50))
     const later = await Eos.create({ dbName: name, seed: false })
     expect((await later.listTags()).map((t) => t.emoji)).toEqual(["🔥"])
-    await later.renameDiagram(id, "Renamed") // rewrites the index row from the saved stars
+    await later.renameDiagram(id, "Renamed") // rewrites the index row; the star still comes from the saved workspace
     expect((await later.listDiagrams())[0]?.starred).toBe(1)
   })
 

@@ -1,8 +1,8 @@
 import { LoroDoc, LoroList, type LoroMap, type LoroText } from "loro-crdt"
 import * as z from "zod/mini"
 
-import type { Database } from "./db"
-import type { Actor, DiagramId, DiagramIndexRow, DiagramMeta, HistoryEntry, TagPath } from "./types"
+import type { Database, StoredRow } from "./db"
+import type { Actor, DiagramId, DiagramMeta, HistoryEntry, TagPath } from "./types"
 
 /** Compact the update log into a snapshot once it grows past this many rows. */
 const COMPACT_AFTER = 200
@@ -153,7 +153,7 @@ export function persistDoc(db: Database, id: DiagramId, doc: LoroDoc, onLocalUpd
  * is none), or returns undefined to write nothing. It runs inside the transaction that writes
  * the row, so it sees the latest saved row (another tab's delete, say) and can't race a purge.
  */
-export type RowBuilder = (doc: LoroDoc, saved: DiagramIndexRow | undefined) => DiagramIndexRow | undefined
+export type RowBuilder = (doc: LoroDoc, saved: StoredRow | undefined) => StoredRow | undefined
 
 /**
  * Saves the whole doc as its snapshot and clears its update log. With `row`, its library
@@ -200,7 +200,7 @@ export async function compact(db: Database, id: DiagramId, doc: LoroDoc, row?: R
 export async function updateRow(
   db: Database,
   id: DiagramId,
-  update: (saved: DiagramIndexRow | undefined) => DiagramIndexRow | undefined
+  update: (saved: StoredRow | undefined) => StoredRow | undefined
 ): Promise<boolean> {
   const tx = db.transaction("diagrams", "readwrite")
   const write = async () => {

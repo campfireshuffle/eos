@@ -2,6 +2,13 @@ import { openDB, type DBSchema, type IDBPDatabase } from "idb"
 
 import type { AppSettings, DiagramId, DiagramIndexRow } from "./types"
 
+/**
+ * A `diagrams` row as stored: a DiagramIndexRow without its star. Stars live only in the
+ * workspace doc, and reads add them (see Eos.withStar); rows saved by older versions may still
+ * carry a `starred` field, which reads ignore.
+ */
+export type StoredRow = Omit<DiagramIndexRow, "starred">
+
 export interface EosDB extends DBSchema {
   snapshots: {
     key: DiagramId
@@ -14,7 +21,7 @@ export interface EosDB extends DBSchema {
   }
   diagrams: {
     key: DiagramId
-    value: DiagramIndexRow
+    value: StoredRow
     indexes: { byUpdatedAt: number; byTag: string }
   }
   settings: { key: "app"; value: AppSettings }
