@@ -370,6 +370,25 @@ for (const [device, viewport] of [
   })
 }
 
+test("with the sidebar collapsed the version banner keeps the same gap from the window on both sides", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.setViewportSize({ width: 1280, height: 860 })
+  await previewYesterday(page)
+  await tool(page, "set_view", { sidebarOpen: false })
+  await expect(page.locator(".eos-shell")).toHaveAttribute("data-collapsed", "true")
+  const banner = page.getByText("Viewing the version from").locator("..")
+  // Once the collapse animation has settled, the left gap matches the right one.
+  await expect
+    .poll(() =>
+      banner.evaluate((el) => {
+        const r = el.getBoundingClientRect()
+        return Math.round(r.left) === Math.round(innerWidth - r.right) && r.left > 0
+      })
+    )
+    .toBe(true)
+})
+
 test("back to latest with no valid version to show leaves the preview empty, with nothing to export", async ({ context }) => {
   await withAgentTools(context)
   const page = await context.newPage()

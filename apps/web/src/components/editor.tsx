@@ -299,7 +299,7 @@ export function Editor({ id }: { id: string }) {
 
 function Banner({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 rounded-lg border border-[var(--eos-line-hover)] bg-card px-3 py-1.5 text-body md:mr-2">
+    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 rounded-lg border border-[var(--eos-line-hover)] bg-card px-3 py-1.5 text-body md:mr-2 md:group-data-[collapsed=true]/shell:ml-2">
       {children}
     </div>
   )
