@@ -50,6 +50,13 @@ const MERGE_MS = 800
 /** How long the library index waits for typing to pause. */
 const INDEX_MS = 300
 
+/**
+ * A source with \n line breaks only, as every source coming in is stored. A `\r` already stored (by
+ * an older version, or in a backup) is kept as it is: the editor counts it as a character like any
+ * other, so the editor and the doc still agree on every position.
+ */
+const lf = (source: string) => source.replace(/\r\n?/g, "\n")
+
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: { mode: "system", customCss: null, diagramCss: null },
   agent: { webmcpEnabled: true, confirmDestructive: true },
@@ -263,7 +270,7 @@ export class Eos {
     meta.set("title", input.title?.trim() || "Untitled")
     meta.set("createdAt", Date.now())
     setTags(meta, normalizeTags(input.tags ?? []))
-    doc.getText("source").insert(0, input.source ?? "flowchart TD\n  A[Start] --> B[End]\n")
+    doc.getText("source").insert(0, lf(input.source ?? "flowchart TD\n  A[Start] --> B[End]\n"))
     commit(doc, actor)
     await compact(this.db, id, doc, () => this.indexRow(id, doc))
     this.indexChanged(id)
@@ -282,6 +289,7 @@ export class Eos {
     actor: Actor = USER,
     { base }: { base?: string } = {}
   ) {
+    if (edit.source !== undefined) edit = { ...edit, source: lf(edit.source) }
     await this.mutate(id, actor, (d) => {
       // Work out the source edits first: reading the old version forks the doc, which
       // would otherwise save this edit's other changes early, without their label.
@@ -367,7 +375,7 @@ export class Eos {
   }
 
   async setSource(id: DiagramId, source: string, actor: Actor = USER) {
-    await this.mutate(id, actor, (d) => d.text.update(source))
+    await this.mutate(id, actor, (d) => d.text.update(lf(source)))
   }
 
   // ── History ────────────────────────────────────────────────────────────────
@@ -649,7 +657,8 @@ export class Eos {
   }
 
   /** Imports a shared diagram, or returns the existing one if it's byte-for-byte the same. */
-  async importShare(payload: SharePayload): Promise<DiagramId> {
+  async importShare(shared: SharePayload): Promise<DiagramId> {
+    const payload = { ...shared, source: lf(shared.source) }
     const existing = await this.findIdentical(payload.title, payload.source)
     if (existing) return existing
     return this.createDiagram(payload, { kind: "import", source: "share-link" })
@@ -657,10 +666,11 @@ export class Eos {
 
   private async findIdentical(title: string, source: string): Promise<DiagramId | null> {
     const candidates = (await this.allRows()).filter(
-      (r) => !r.deletedAt && r.title === (title.trim() || "Untitled") && r.sourceText === source
+      // Line breaks aside: a diagram saved before they were normalised can still hold \r.
+      (r) => !r.deletedAt && r.title === (title.trim() || "Untitled") && r.sourceText !== undefined && lf(r.sourceText) === source
     )
     // The index can trail an edit by a moment, so check the diagram itself before reusing it.
-    for (const row of candidates) if ((await this.getSource(row.id)) === source) return row.id
+    for (const row of candidates) if (lf(await this.getSource(row.id)) === source) return row.id
     return null
   }
 

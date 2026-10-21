@@ -1,6 +1,6 @@
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands"
 import { Annotation, EditorState, StateEffect, StateField } from "@codemirror/state"
-import { Decoration, EditorView, keymap, lineNumbers, drawSelection, type DecorationSet } from "@codemirror/view"
+import { Decoration, EditorView, keymap, lineNumbers, drawSelection, highlightSpecialChars, type DecorationSet } from "@codemirror/view"
 import { useEffect, useId, useRef } from "react"
 
 import type { SourceBinding, TextChange } from "@eos/core"
@@ -107,6 +107,13 @@ export function CodeEditor({
           gutter ? lineNumbers() : [],
           drawSelection(),
           EditorState.tabSize.of(2),
+          // "\n" is the only line break, so the editor counts a "\r" (in a diagram saved before sources were
+          // normalised) as a character, as Loro does, and their positions always match. A "\r" pasted or
+          // dropped in is a line break, as it is anywhere else.
+          EditorState.lineSeparator.of("\n"),
+          EditorView.clipboardInputFilter.of((text) => text.replace(/\r\n?/g, "\n")),
+          // Shows a "\r", and other invisible control characters, as a marker (␍), so what is typed next to one is where it looks.
+          highlightSpecialChars(),
           EditorState.readOnly.of(readOnly),
           EditorView.editable.of(!readOnly),
           onUndo

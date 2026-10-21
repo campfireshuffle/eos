@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { fromBase64, toBase64 } from "./base64"
 import { openEosDB, type Database } from "./db"
-import { compact, loadDoc } from "./docs"
+import { compact, loadDoc, newDiagramDoc, setTags } from "./docs"
 import { decodeShare, encodeShare } from "./share"
 import { Eos, UnknownVersionError } from "./store"
 import type { Actor, DiagramIndexRow, TextChange } from "./types"
@@ -1339,6 +1339,55 @@ describe("share imports", () => {
     expect(await eos.importShare({ title: "Same", source: 'pie\n  "a": 1' })).toBe(id)
     expect(await eos.importShare({ title: "Same", source: 'pie\n  "a": 2' })).not.toBe(id)
     expect((await eos.listDiagrams()).length).toBe(2)
+  })
+})
+describe("line endings", () => {
+  // Every source coming in is stored with \n line breaks only.
+  for (const [ending, eol] of [
+    ["CRLF", "\r\n"],
+    ["lone CR", "\r"],
+  ] as const) {
+    const crlf = (lines: string[]) => lines.join(eol) + eol
+    const want = (lines: string[]) => lines.join("\n") + "\n"
+    const one = ["flowchart TD", "  A --> B"]
+    const two = ["flowchart TD", "  A --> C"]
+
+    it(`stores a source that arrives with ${ending} line endings with \\n line breaks`, async () => {
+      const eos = await fresh()
+      const id = await eos.createDiagram({ source: crlf(one) })
+      expect(await eos.getSource(id)).toBe(want(one))
+      await eos.editDiagram(id, { source: crlf(two) })
+      expect(await eos.getSource(id)).toBe(want(two))
+      const base = (await eos.getDiagram(id))!.version
+      await eos.setSource(id, crlf(one))
+      expect(await eos.getSource(id)).toBe(want(one))
+      await eos.editDiagram(id, { source: crlf([...two, "  C --> D"]) }, undefined, { base }) // merged from an older version
+      expect(await eos.getSource(id)).not.toContain("\r")
+      const shared = await eos.importShare({ title: "Shared", source: crlf(two) })
+      expect(await eos.getSource(shared)).toBe(want(two))
+      // A link with the same diagram finds the copy it made.
+      expect(await eos.importShare({ title: "Shared", source: crlf(two) })).toBe(shared)
+    })
+  }
+
+  it("reuses a diagram an older version made from a CRLF share link when the link is opened again", async () => {
+    // Saved as it came, as versions before line endings were normalised did.
+    const name = `crlf-share-${n++}`
+    const source = "flowchart TD\r\n  A --> B\r\n"
+    const old = await Eos.create({ dbName: name, seed: false })
+    const id = await old.createDiagram({ title: "Shared" })
+    const doc = newDiagramDoc()
+    doc.getMap("meta").set("title", "Shared")
+    doc.getMap("meta").set("createdAt", Date.now())
+    setTags(doc.getMap("meta"), [])
+    doc.getText("source").insert(0, source)
+    doc.commit()
+    const db = (old as unknown as { db: Database }).db
+    await db.put("snapshots", { id, bytes: doc.export({ mode: "snapshot" }), savedAt: Date.now() })
+    await db.put("diagrams", { ...(await db.get("diagrams", id))!, sourceText: source, sourcePreview: source })
+    const eos = await Eos.create({ dbName: name, seed: false })
+    expect(await eos.importShare({ title: "Shared", source })).toBe(id)
+    expect((await eos.listDiagrams()).length).toBe(1)
   })
 })
 
