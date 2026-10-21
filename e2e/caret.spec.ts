@@ -87,6 +87,16 @@ function runs(spot: number, insert: number, source: number) {
   return insert === (spot + source) % 6
 }
 
+// What's checked here is the same in every engine: the caret rule maps CodeMirror's state, and the merges are core's
+// diff. So every test runs on Chromium, and these few on every engine too, for the wiring.
+const EVERY_ENGINE = new Set([
+  "another tab: a blank line (\\n) at the caret at the middle of a line",
+  "another tab: a line after (\\n…) at the caret at the start of an indented line's text",
+  "an agent: text then a line (…\\n…) at the caret at the end of a line",
+  "own redo: a line after (\\n…) at the caret at the end of a line",
+  'merge: the person types at the end of a line while an agent changes it to "A --> B2" and adds a line below',
+])
+test.beforeEach(({ browserName }, info) => test.skip(browserName !== "chromium" && !EVERY_ENGINE.has(info.title)))
 test.beforeEach(async ({ context }) => withAgentTools(context))
 
 for (const [spot, [spotName, { line, col, last }]] of Object.entries(SPOTS).entries()) {
