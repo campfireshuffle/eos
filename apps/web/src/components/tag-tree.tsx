@@ -13,7 +13,7 @@ import {
   type Key,
 } from "react-aria-components"
 
-import { findEmoji, type TagPath, type TagRecord } from "@eos/core"
+import { findEmoji, tagMatches, type TagPath, type TagRecord } from "@eos/core"
 import { Popover, PopoverAnchor, PopoverContent } from "@workspace/ui/components/popover"
 import { cn } from "@workspace/ui/lib/utils"
 
@@ -30,7 +30,6 @@ const TAG_MIME = "application/x-eos-tag"
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" })
 const nameOf = (path: TagPath) => path.split("/").pop()!
 const parentOf = (path: TagPath) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : null)
-const isWithin = (path: TagPath, ancestor: TagPath) => path === ancestor || path.startsWith(ancestor + "/")
 
 const DROP_HIGHLIGHT =
   "bg-[color-mix(in_srgb,var(--eos-champagne)_14%,transparent)] text-foreground shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--eos-champagne)_55%,transparent)]"
@@ -58,7 +57,7 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
 
   const moveTo = (from: TagPath, parent: TagPath | null) => {
     const to = parent ? `${parent}/${nameOf(from)}` : nameOf(from)
-    if (to !== from && !(parent && isWithin(parent, from))) void eos.renameTag(from, to).then(() => followTag(from, to))
+    if (to !== from && !(parent && tagMatches(parent, from))) void eos.renameTag(from, to).then(() => followTag(from, to))
   }
 
   const { dragAndDropHooks } = useDragAndDrop({
@@ -71,7 +70,7 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
       if (target.type !== "item" || target.dropPosition !== "on") return "cancel"
       const key = String(target.key)
       if (types.has(DIAGRAM_MIME)) return allowed.includes("copy") ? "copy" : allowed[0]
-      if (dragging.some((d) => isWithin(key, d) || parentOf(d) === key)) return "cancel"
+      if (dragging.some((d) => tagMatches(key, d) || parentOf(d) === key)) return "cancel"
       return "move"
     },
     onMove: (e) => {
