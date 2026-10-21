@@ -5,6 +5,7 @@ import { mergeProps, useLongPress } from "react-aria"
 import { renderSvg, type DiagramIndexRow } from "@eos/core"
 
 import { useEos } from "@/lib/eos"
+import { relativeTime } from "@/lib/grouping"
 import { diagramHref } from "@/lib/router"
 import { getSelection, startCardDrag, toggleSelected, useSelected } from "@/lib/selection"
 import { cn } from "@workspace/ui/lib/utils"
@@ -185,17 +186,4 @@ function thumbnailSvg(id: string, source: string): string {
   rendered.set(id, { source, svg })
   if (rendered.size > RENDERED_MAX) rendered.delete(rendered.keys().next().value!)
   return svg
-}
-
-function relativeTime(ms: number): string {
-  const diff = Date.now() - ms
-  const min = Math.round(diff / 60000)
-  if (min < 1) return "Just now"
-  if (min < 60) return `${min}m ago`
-  const h = Math.round(min / 60)
-  if (h < 24) return `${h}h ago`
-  const d = Math.round(h / 24)
-  if (d === 1) return "Yesterday"
-  if (d < 7) return `${d} days ago`
-  return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }
