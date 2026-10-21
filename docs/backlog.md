@@ -161,7 +161,7 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **What:** a tab writes the row from its own doc when its typing pauses (300 ms). If the other tab's last keystroke hasn't reached it by then, the row lacks that keystroke. The receiving tab rebuilds rows only for meta changes, so the card preview and search text lag the doc until the next edit.
   - **Where:** `packages/core/src/store.ts`, the channel's `"update"` handler and `refreshIndexSoon`.
   - **Why low:** only when one tab's write plus broadcast takes over 300 ms. The doc itself is right, and any later edit corrects the row.
-  - **Fix:** in the `"update"` handler, also call `refreshIndexSoon(id, d)` when a source change arrives for an open diagram. Repro: `r15/core/packages/core/src/r15-stale-row.test.ts` (it delays one write by 400 ms).
+  - **Fix:** in the `"update"` handler, also call `refreshIndexSoon(id, d)` when a source change arrives for an open diagram. Repro: in a core test with two tabs on one diagram, delay one tab's index write by 400 ms while both type, then check the other tab's row against its doc.
 
 - **An open that fails in the cross-tab update branch is an uncaught rejection.**
   - **What:** the channel's `"update"` branch does `await this.openDiagram(data.id)` with no catch. If that open fails ("not found", e.g. during a purge or a replace import in another tab), it surfaces as an uncaught exception.
