@@ -1112,7 +1112,8 @@ function changesOf(delta: Delta<string>[]): TextChange[] {
  * removal that holds a line break and ends with the text before it can as well go that much earlier,
  * when that makes it whole lines, so a line added above an indented line goes before the indent
  * ("  X\n" before "  A"), not after it ("X\n  " before "A"), and a removed line takes its own start
- * ("  A --> B\n"), not the start of the line after it ("B\n  A --> "). An insertion at the end of a
+ * ("  A --> B\n"), not the start of the line after it ("B\n  A --> "). A removal that runs to the
+ * end of the text ("\n  end") is whole lines already, so it stays. An insertion at the end of a
  * line's text that extends the line and then adds lines is two insertions there: the extension, and
  * the rest from its first line break ("2", then "\n  B2 --> X").
  */
@@ -1129,7 +1130,8 @@ function diffText(a: string, b: string): TextChange[] {
   return edits.flatMap((e, i) => {
     // Loro's edits each insert or remove, never both.
     const moved = e.insert || a.slice(e.from, e.to)
-    if (!moved.includes("\n")) return [e]
+    // A removal that runs to the end of the text ("\n  end") is whole lines already: sliding it would take an earlier copy.
+    if (!moved.includes("\n") || (!e.insert && e.to === a.length)) return [e]
     // Back over the text before it while that matches the edit's end, not into an earlier edit.
     const floor = edits[i - 1]?.to ?? 0
     let k = 0

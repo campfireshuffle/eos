@@ -221,6 +221,34 @@ describe("Eos store", () => {
     }
   })
 
+  it("merges an edit that removes the last lines, keeping what the person typed on an identical line above", async () => {
+    const eos = await fresh()
+    // The text at the base, the person's keystroke since, the edit made from the base, and the merge.
+    const subgraphs = "flowchart TD\n  subgraph a\n    A\n  end\n  subgraph b\n    B\n  end"
+    const cases = [
+      [
+        subgraphs,
+        { from: 37, to: 37, insert: "\n  C --> A" },
+        "flowchart TD\n  subgraph a\n    A\n  end",
+        "flowchart TD\n  subgraph a\n    A\n  end\n  C --> A",
+      ],
+      [
+        subgraphs,
+        { from: 37, to: 37, insert: " %% a" },
+        "flowchart TD\n  subgraph a\n    A\n  end",
+        "flowchart TD\n  subgraph a\n    A\n  end %% a",
+      ],
+      ["graph TD\n  A --> B\n  A --> B", { from: 18, to: 18, insert: "ob" }, "graph TD\n  A --> B", "graph TD\n  A --> Bob"],
+    ] as const
+    for (const [base, keystroke, edit, merged] of cases) {
+      const id = await eos.createDiagram({ source: base })
+      const version = (await eos.getDiagram(id))!.version
+      ;(await eos.bindSource(id)).edit([keystroke])
+      await eos.editDiagram(id, { source: edit }, undefined, { base: version })
+      expect.soft(await eos.getSource(id), JSON.stringify(keystroke)).toBe(merged)
+    }
+  })
+
   it("stars, filters and builds the tag tree", async () => {
     const eos = await fresh()
     const a = await eos.createDiagram({ title: "a", tags: ["work/backend"] })
