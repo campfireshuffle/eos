@@ -158,3 +158,14 @@ test("the Tags menu closes once its change takes the selected cards out of view"
   await expect(page.getByPlaceholder("Find or create a tag")).toBeHidden()
   expect(await page.evaluate(() => document.activeElement?.matches("input[placeholder='Find or create a tag']"))).toBe(false)
 })
+
+test("the Tags menu finds a tag typed as the sidebar shows it, with its #", async ({ context }) => {
+  const page = await viewing(context, "work")
+  await tool(page, "create_diagram", { title: "Untagged", open: false })
+  await page.evaluate(() => (location.hash = "/"))
+  await page.locator("[data-card-id]", { hasText: "Untagged" }).click({ button: "right" })
+  await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Tags" }).click()
+  await page.getByPlaceholder("Find or create a tag").fill("#work")
+  await expect(page.getByRole("checkbox", { name: "work" })).toBeVisible()
+  await expect(page.getByText("No tags yet.")).toBeHidden()
+})

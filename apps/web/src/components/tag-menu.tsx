@@ -30,9 +30,9 @@ export function TagMenu({ ids }: { ids: string[] }) {
     return n === 0 ? "none" : n === ids.length ? "all" : "some"
   }
 
-  const q = query.trim().toLowerCase()
-  const matches = all.filter((t) => !q || t.path.includes(q))
   const newTag = normalizeTag(query)
+  const q = newTag ?? ""
+  const matches = all.filter((t) => !q || t.path.includes(q))
   const canCreate = !!newTag && !all.some((t) => t.path === newTag)
 
   const toggle = (path: string) => {
