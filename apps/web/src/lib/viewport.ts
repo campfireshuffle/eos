@@ -14,9 +14,9 @@ const MARGIN = 24
 // However far it's panned, this much of the diagram stays in the pane on each axis.
 const KEEP = 40
 
-/** The scale that fits `diagram` in `pane`, at most `cap`. */
+/** The scale that fits `diagram` in `pane`, at most `cap` (and at least the smallest zoom, in a pane too small for the margin). */
 export const fitScale = (pane: Size, diagram: Size, cap = FIT_MAX) =>
-  Math.min((pane.w - 2 * MARGIN) / diagram.w, (pane.h - 2 * MARGIN) / diagram.h, cap)
+  Math.max(MIN_ZOOM, Math.min((pane.w - 2 * MARGIN) / diagram.w, (pane.h - 2 * MARGIN) / diagram.h, cap))
 
 /** The diagram fitted to the pane and centred in it. */
 export function fit(pane: Size, diagram: Size, cap = FIT_MAX): View {
@@ -31,6 +31,15 @@ export function zoomAt(v: View, k: number, px: number, py: number): View {
 }
 
 export const panBy = (v: View, dx: number, dy: number): View => ({ k: v.k, x: v.x + dx, y: v.y + dy })
+
+/** Which axes the person can pan along: those where the diagram is bigger than the pane. */
+export const pannable = (v: View, pane: Size, diagram: Size) => ({ x: diagram.w * v.k > pane.w, y: diagram.h * v.k > pane.h })
+
+/** Pans as a drag, wheel or arrow key does: only along an axis where the diagram is bigger than the pane. */
+export function pan(v: View, dx: number, dy: number, pane: Size, diagram: Size): View {
+  const can = pannable(v, pane, diagram)
+  return panBy(v, can.x ? dx : 0, can.y ? dy : 0)
+}
 
 /** Keeps the diagram within reach: at least KEEP pixels of it (all of it, if it's smaller) stay in the pane. */
 export function clamp(v: View, pane: Size, diagram: Size): View {

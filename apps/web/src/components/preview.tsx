@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { setUi, useUi } from "@/lib/ui-state"
-import { clamp, fit, FIT_MAX, fitScale, holdCentre, panBy, zoomAt, type Size, type View } from "@/lib/viewport"
+import { clamp, fit, FIT_MAX, holdCentre, pan, panBy, pannable, zoomAt, type Size, type View } from "@/lib/viewport"
 
 /**
  * Live Pele render with our own pan and zoom. The pane never scrolls: the diagram sits on a stage that one
@@ -48,31 +48,36 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
   }
   /** Puts the diagram at `v`, kept within reach. */
   const show = (v: View) => {
-    view.current = natural ? clamp(v, pane, natural) : v
-    const { x, y, k } = view.current
+    view.current = v
+    const { x, y, k } = v
     Object.assign(stage.current!.style, { transform: `translate(${x}px, ${y}px) scale(${k / drawn.current})`, willChange: "transform" })
     clearTimeout(settle.current)
     settle.current = window.setTimeout(draw, 200)
     setScale(k)
   }
-  /** Moves the diagram as the person asked, so it stops following the fit. */
+  const within = (v: View) => (natural ? clamp(v, pane, natural) : v)
+  /** Moves the diagram as the person asked. If that moved it at all, it stops following the fit. */
   const move = (v: View) => {
+    const { x, y, k } = (v = within(v))
+    if (x === view.current.x && y === view.current.y && k === view.current.k) return
     setFitting(false)
     show(v)
   }
+  /** Pans as a drag, wheel or arrow key does, along an axis the diagram overflows. */
+  const panFrom = (v: View, dx: number, dy: number) => move(natural ? pan(v, dx, dy, pane, natural) : v)
   // For the listeners added once, below.
-  const moveRef = useRef(move)
-  moveRef.current = move
+  const latest = useRef({ move, panFrom })
+  latest.current = { move, panFrom }
   /** A point on screen, in the pane's coordinates. */
   const inPane = (x: number, y: number) => {
     const r = frame.current!.getBoundingClientRect()
     return [x - r.left, y - r.top] as const
   }
 
-  // A fitted diagram follows the pane and its own size. A zoomed one stays put: the stage's transform already
-  // keeps the diagram point at the pane's centre there as Pele draws a new layout of a different size.
+  // A fitted diagram follows the pane and its own size. A zoomed one keeps its top-left corner, and so every
+  // diagram point, where it is as Pele draws a new layout: the first two nodes of a growing chain stay put.
   useLayoutEffect(() => {
-    if (natural && pane.w) show(fitting ? fit(pane, natural, fitCap) : view.current)
+    if (natural && pane.w) show(within(fitting ? fit(pane, natural, fitCap) : view.current))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitting, natural, pane, fitCap])
   useLayoutEffect(() => setUi({ zoomScale: scale }), [scale])
@@ -162,11 +167,8 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
       // Firefox counts a mouse wheel in lines, and some wheels in pages.
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? el.clientHeight : 1
       const v = view.current
-      moveRef.current(
-        e.ctrlKey || e.metaKey
-          ? zoomAt(v, v.k * 2 ** (-e.deltaY * unit * 0.01), ...inPane(e.clientX, e.clientY))
-          : panBy(v, -e.deltaX * unit, -e.deltaY * unit)
-      )
+      if (e.ctrlKey || e.metaKey) latest.current.move(zoomAt(v, v.k * 2 ** (-e.deltaY * unit * 0.01), ...inPane(e.clientX, e.clientY)))
+      else latest.current.panFrom(v, -e.deltaX * unit, -e.deltaY * unit)
     }
     const off = new AbortController()
     el.addEventListener("wheel", onWheel, { passive: false, signal: off.signal })
@@ -191,40 +193,29 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
   }, [zoomRequest])
 
   const [panning, setPanning] = useState(false)
-  const [spaceHeld, setSpaceHeld] = useState(false)
-
-  // Hold Space to show the hand cursor (as in Figma), unless something focused uses Space (typing, a button).
-  useEffect(() => {
-    const down = (e: KeyboardEvent) => e.code === "Space" && e.target === document.body && (e.preventDefault(), setSpaceHeld(true))
-    const up = (e: KeyboardEvent) => e.code === "Space" && setSpaceHeld(false)
-    const off = new AbortController()
-    window.addEventListener("keydown", down, { signal: off.signal })
-    window.addEventListener("keyup", up, { signal: off.signal })
-    window.addEventListener("blur", () => setSpaceHeld(false), { signal: off.signal })
-    return () => off.abort()
-  }, [])
 
   /**
-   * Pan like a canvas: middle-button drag, Space + drag, plain left-drag or one finger.
-   * Two fingers pinch-zoom, and the diagram point between them follows their midpoint.
+   * Pan like a canvas: middle-button drag, Space + drag, plain left-drag or one finger, along an axis the
+   * diagram overflows. Two fingers pinch-zoom, and the diagram point between them follows their midpoint.
    */
   const pointers = useRef(new Map<number, { x: number; y: number }>())
-  // Where the gesture started: the view, and the pointers' midpoint and spread.
-  const gesture = useRef<{ view: View; x: number; y: number; spread: number } | null>(null)
+  // Where the gesture started: the view, and the pointers' midpoint and spread. A drag starts once it has
+  // gone a few pixels, so a slightly shaky click doesn't count.
+  const gesture = useRef<{ view: View; x: number; y: number; spread: number; dragging: boolean } | null>(null)
   const touch = () => {
     const [a, b = a] = pointers.current.values()
     return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, spread: Math.hypot(a.x - b.x, a.y - b.y) }
   }
 
   const startGesture = () => {
-    gesture.current = pointers.current.size ? { view: view.current, ...touch() } : null
+    gesture.current = pointers.current.size ? { view: view.current, ...touch(), dragging: pointers.current.size > 1 } : null
     setPanning(pointers.current.size === 1)
   }
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0 && e.button !== 1) return
     e.preventDefault() // stops middle-click autoscroll and text selection
-    // …and focus moving, so blur whatever had it: the preview's shortcuts and Space-to-pan listen on the page.
+    // …and focus moving, so blur whatever had it (the frame too): the preview's shortcuts listen on the page.
     // Safari still types into an editor that keeps a selection, so clear that too.
     ;(document.activeElement as HTMLElement | null)?.blur()
     getSelection()?.removeAllRanges()
@@ -242,8 +233,11 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
     if (!g || !pointers.current.has(e.pointerId)) return
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
     const now = touch()
-    const k = pointers.current.size > 1 ? (g.view.k * now.spread) / (g.spread || 1) : g.view.k
-    move(panBy(zoomAt(g.view, k, ...inPane(g.x, g.y)), now.x - g.x, now.y - g.y))
+    const [dx, dy] = [now.x - g.x, now.y - g.y]
+    if (!g.dragging && Math.hypot(dx, dy) < 4) return
+    g.dragging = true
+    if (pointers.current.size === 1) return panFrom(g.view, dx, dy)
+    move(panBy(zoomAt(g.view, (g.view.k * now.spread) / (g.spread || 1), ...inPane(g.x, g.y)), dx, dy))
   }
 
   const onPointerEnd = (e: React.PointerEvent) => {
@@ -252,20 +246,34 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
     startGesture()
   }
 
-  const zoomedIn = !!natural && scale > fitScale(pane, natural, fitCap) + 0.001
+  // Arrow keys pan by a step, or with Shift by most of the pane.
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const [dx, dy] = { ArrowLeft: [1, 0], ArrowRight: [-1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] }[e.key] ?? []
+    if (dx === undefined) return
+    e.preventDefault()
+    const step = (size: number) => (e.shiftKey ? size * 0.9 : 40)
+    panFrom(view.current, dx * step(pane.w), dy * step(pane.h))
+  }
+
+  const can = natural && pannable(view.current, pane, natural)
 
   return (
     <div
       ref={frame}
       data-preview-frame
+      tabIndex={0}
+      role="group"
+      aria-label="Diagram preview"
+      onKeyDown={onKeyDown}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerEnd}
       onPointerCancel={onPointerEnd}
+      onLostPointerCapture={onPointerEnd}
       onAuxClick={(e) => e.button === 1 && e.preventDefault()}
       className={cn(
-        "relative h-full w-full touch-none overflow-clip overscroll-contain select-none",
-        panning ? "cursor-grabbing" : zoomedIn || spaceHeld ? "cursor-grab" : "cursor-default"
+        "relative h-full w-full touch-none overflow-clip outline-none select-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset",
+        can && (can.x || can.y) ? (panning ? "cursor-grabbing" : "cursor-grab") : "cursor-default"
       )}
     >
       <div ref={stage} className="absolute top-0 left-0 w-max origin-top-left">

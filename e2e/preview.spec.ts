@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
 
-import { cursorAtEndOf, newDiagram, openEditor, storedText, tool, withAgentTools } from "./helpers"
+import { cursorAtEndOf, focusNext, newDiagram, openEditor, storedText, tool, withAgentTools } from "./helpers"
 
 test.use({ viewport: { width: 1280, height: 860 } })
 
@@ -55,6 +55,40 @@ test("a zoomed preview keeps its zoom, and the part of the diagram in view, as i
   await expect.poll(() => zoom(page)).toBeCloseTo(1.6)
   // What was in the middle of the pane (the first two nodes) still is, rather than the diagram drifting off into a corner.
   await expect.poll(async () => (await placement(page)).overCentre).toBe(true)
+})
+
+test("a slightly shaky click or a wheel tick doesn't stop a fitted preview fitting", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const grow = await opened(page)
+  const pane = (await page.locator("[data-preview-frame]").boundingBox())!
+  const [x, y] = [pane.x + pane.width / 2, pane.y + pane.height / 2]
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(x + 2, y + 1)
+  await page.mouse.up()
+  await page.mouse.wheel(0, 100)
+  await grow()
+  await expect.poll(() => zoom(page)).toBeLessThan(2)
+  await expect.poll(async () => (await placement(page)).inside).toBe(true)
+})
+
+test("the preview can be reached with Tab and panned with the arrow keys", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await opened(page)
+  for (let i = 0; i < 4; i++) await tool(page, "set_view", { zoom: "in" })
+  await page.getByRole("button", { name: "Export" }).focus()
+  await focusNext(page)
+  const preview = page.getByRole("group", { name: "Diagram preview" })
+  await expect(preview).toBeFocused()
+  const left = () => page.locator(".pele-preview svg").evaluate((svg) => svg.getBoundingClientRect().left)
+  const before = await left()
+  await page.keyboard.press("ArrowRight")
+  await expect.poll(left).toBeCloseTo(before - 40, 0)
+  // A click doesn't leave focus on it, so shortcuts and Space still go to the page.
+  await preview.click()
+  await expect(preview).not.toBeFocused()
 })
 
 test("typing into a fitted diagram never zooms it in", async ({ context }) => {

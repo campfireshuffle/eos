@@ -25,7 +25,7 @@ export function standaloneSvg(svgEl: SVGSVGElement): string {
     .flatMap((rule) => ("style" in rule ? [...(rule as CSSStyleRule).style] : []))
     .filter((p) => p.startsWith("--pele-"))
   const style = [...new Set(vars)].map((v) => `${v}:${computed.getPropertyValue(v).trim()}`).join(";")
-  // Drop the preview's sizing at its current zoom, so the width and height attributes size the file.
+  // Drop any inline sizing (such as Pele's responsive max-width), so the width and height attributes size the file.
   for (const p of ["width", "height", "max-width", "display"]) clone.style.removeProperty(p)
   clone.setAttribute("style", `${clone.getAttribute("style") ?? ""};${style};background:${computed.getPropertyValue("--pele-bg").trim()}`)
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg")

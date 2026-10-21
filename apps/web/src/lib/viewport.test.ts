@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { clamp, fit, fitScale, holdCentre, panBy, zoomAt, type View } from "./viewport"
+import { clamp, fit, fitScale, holdCentre, pan, panBy, zoomAt, type View } from "./viewport"
 
 const pane = { w: 600, h: 400 }
 /** Where the diagram point at (px, py) in the pane sits, in the diagram's own units. */
@@ -13,6 +13,10 @@ describe("fit", () => {
 
   it("won't blow a small diagram up past 200%", () => {
     expect(fit(pane, { w: 50, h: 50 })).toEqual({ k: 2, x: 250, y: 150 })
+  })
+
+  it("never goes to zero or below, in a pane smaller than its margin", () => {
+    expect(fitScale({ w: 30, h: 20 }, { w: 100, h: 100 })).toBe(0.1)
   })
 
   it("honours a lower cap", () => {
@@ -46,6 +50,19 @@ describe("panBy", () => {
   })
 })
 
+describe("pan", () => {
+  const diagram = { w: 400, h: 300 }
+
+  it("moves the diagram only along an axis where it's bigger than the pane", () => {
+    // 800 × 600 against a 600 × 400 pane: both axes.
+    expect(pan({ x: 0, y: 0, k: 2 }, -30, -20, pane, diagram)).toEqual({ x: -30, y: -20, k: 2 })
+    // 520 × 390: neither, so a fitted diagram stays put.
+    expect(pan({ x: 40, y: 5, k: 1.3 }, -30, -20, pane, diagram)).toEqual({ x: 40, y: 5, k: 1.3 })
+    // 640 × 480: across, but not up and down.
+    expect(pan({ x: 0, y: 0, k: 1.6 }, -30, -20, { w: 600, h: 500 }, diagram)).toEqual({ x: -30, y: 0, k: 1.6 })
+  })
+})
+
 describe("clamp", () => {
   const diagram = { w: 400, h: 300 }
 
@@ -62,6 +79,10 @@ describe("clamp", () => {
   it("keeps all of a diagram smaller than that", () => {
     expect(clamp({ x: -50, y: 900, k: 1 }, pane, { w: 20, h: 10 })).toEqual({ x: 0, y: 390, k: 1 })
   })
+
+  it("keeps an empty diagram's corner in the pane", () => {
+    expect(clamp({ x: -50, y: 900, k: 1 }, pane, { w: 0, h: 0 })).toEqual({ x: 0, y: 400, k: 1 })
+  })
 })
 
 describe("holding the centre", () => {
@@ -72,11 +93,5 @@ describe("holding the centre", () => {
     const held = pointAt(holdCentre(v, pane, to), to.w / 2, to.h / 2)
     expect(held.x).toBeCloseTo(centre.x, 9)
     expect(held.y).toBeCloseTo(centre.y, 9)
-  })
-
-  it("keeps it across a re-layout, which only changes the diagram's size", () => {
-    const v = { x: -120, y: 30, k: 1.5 }
-    expect(clamp(v, pane, { w: 900, h: 400 })).toEqual(v)
-    expect(clamp(v, pane, { w: 600, h: 200 })).toEqual(v)
   })
 })
