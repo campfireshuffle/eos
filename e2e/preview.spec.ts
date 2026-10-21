@@ -314,7 +314,7 @@ test("a diagram an agent shrinks while it's panned can be brought back into view
   for (let i = 0; i < 6; i++) await page.keyboard.press("Shift+ArrowRight")
   await tool(page, "update_diagram", { id, source: chain(2) })
   await expect.poll(async () => (await placement(page)).inside).toBe(false)
-  // Each arrow key moves it only towards being in view, so pressing them all brings it in on both axes.
+  // A key never moves it further out of view, so pressing them all brings it in on both axes.
   for (let i = 0; i < 20; i++) for (const key of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]) await page.keyboard.press(key)
   await expect.poll(async () => (await placement(page)).inside).toBe(true)
 })
