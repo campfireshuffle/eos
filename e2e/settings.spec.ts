@@ -119,3 +119,21 @@ test("resetting the theme after a save shows the default app CSS again", async (
   // In WebKit the editor used to keep #ff0000, which then became the baseline, so the next Save did nothing.
   await expect(line).toContainText("--eos-line: #dddad3;")
 })
+
+test("a confirm keeps its text while it fades out", async ({ page }) => {
+  await page.goto("/#/")
+  await page.getByRole("button", { name: "Settings" }).click()
+  const dialog = page.getByRole("dialog", { name: "Settings" })
+  await dialog.getByRole("button", { name: "Storage", exact: true }).click()
+  await dialog.getByRole("button", { name: "Delete all diagrams" }).click()
+  await expect(page.getByRole("alertdialog")).toBeVisible()
+  // The dialog stays mounted for a frame after Cancel while its exit animation runs.
+  const closing = await page.evaluate(async () => {
+    const alert = document.querySelector("[role=alertdialog]")!
+    ;[...alert.querySelectorAll("button")].find((b) => b.textContent === "Cancel")!.click()
+    await new Promise(requestAnimationFrame)
+    return document.querySelector("[role=alertdialog]")?.textContent
+  })
+  expect(closing).toContain("Delete")
+  await expect(page.getByRole("alertdialog")).toBeHidden()
+})

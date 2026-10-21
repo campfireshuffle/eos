@@ -1,3 +1,5 @@
+import { useState } from "react"
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,6 +17,9 @@ import { setUi, useUi } from "@/lib/ui-state"
 /** In-page confirmation for destructive actions, including ones an agent requests, and alerts. */
 export function ConfirmDialog() {
   const confirm = useUi((s) => s.confirm)
+  // Keeps showing the last dialog's text while it animates closed.
+  const [shown, setShown] = useState(confirm)
+  if (confirm && confirm !== shown) setShown(confirm)
   const restoreFocus = useRestoreFocus()
   const answer = (ok: boolean) => {
     confirm?.resolve(ok)
@@ -24,14 +29,14 @@ export function ConfirmDialog() {
     <AlertDialog open={!!confirm} onOpenChange={(open) => !open && answer(false)}>
       <AlertDialogContent {...restoreFocus}>
         <AlertDialogHeader>
-          <AlertDialogTitle>{confirm?.title}</AlertDialogTitle>
-          <AlertDialogDescription className="[overflow-wrap:anywhere]">{confirm?.message}</AlertDialogDescription>
+          <AlertDialogTitle>{shown?.title}</AlertDialogTitle>
+          <AlertDialogDescription className="[overflow-wrap:anywhere]">{shown?.message}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel onClick={() => answer(false)}>{confirm?.action ? "Cancel" : "OK"}</AlertDialogCancel>
-          {confirm?.action && (
+          <AlertDialogCancel onClick={() => answer(false)}>{shown?.action ? "Cancel" : "OK"}</AlertDialogCancel>
+          {shown?.action && (
             <AlertDialogAction variant="destructive" onClick={() => answer(true)}>
-              {confirm.action}
+              {shown.action}
             </AlertDialogAction>
           )}
         </AlertDialogFooter>
