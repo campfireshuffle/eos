@@ -802,6 +802,21 @@ describe("library events and reads", () => {
       for (const tab of [one, two, three]) expect((await tab.getDiagram(id))?.meta.tags.sort()).toEqual(["x", "y"])
     })
 
+  for (const open of [false, true])
+    it(`has one copy of a tag two tabs add at once to a diagram open in ${open ? "both" : "neither"}`, async () => {
+      const name = `tag-tabs-${n++}`
+      const one = await Eos.create({ dbName: name, seed: false })
+      const two = await Eos.create({ dbName: name, seed: false })
+      const id = await one.createDiagram({ source: "a" })
+      if (open) await Promise.all([one.getSource(id), two.getSource(id)])
+      await Promise.all([one.addTags(id, ["x"]), two.addTags(id, ["x"])])
+      await settle(100)
+      const three = await Eos.create({ dbName: name, seed: false })
+      expect((await three.getDiagram(id))?.meta.tags).toEqual(["x"])
+      expect((await three.listDiagrams())[0]!.tags).toEqual(["x"])
+      expect((await three.listTags()).map((t) => [t.path, t.count])).toEqual([["x", 1]])
+    })
+
   it("lists, in every tab, both of two tags two tabs add at once to a diagram open in both", async () => {
     const name = `tag-tabs-${n++}`
     const one = await Eos.create({ dbName: name, seed: false })
