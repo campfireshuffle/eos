@@ -34,22 +34,12 @@ export const panBy = (v: View, dx: number, dy: number): View => ({ k: v.k, x: v.
 
 /**
  * Where a pan may take the diagram along one axis, from `at`: anywhere if it's bigger than the pane, and
- * otherwise only between where it is and the nearest place it's fully in view. So a pan can bring a diagram
- * that's partly out of view back in, but never pushes one out, and leaves one that's in view where it is.
+ * otherwise anywhere it's fully in view (or as far as it already is past that). So a diagram that fits can be
+ * moved around the pane, and one that's partly out of view brought back in, but a pan never pushes one out.
  */
 function reach(at: number, size: number, room: number): [number, number] {
   if (size > room) return [-Infinity, Infinity]
-  const inView = Math.min(room - size, Math.max(0, at))
-  return [Math.min(at, inView), Math.max(at, inView)]
-}
-
-/** Whether a drag, wheel or arrow key would move the diagram at all. */
-export function canPan(v: View, pane: Size, diagram: Size) {
-  const axis = (at: number, size: number, room: number) => {
-    const [lo, hi] = reach(at, size, room)
-    return lo < hi
-  }
-  return axis(v.x, diagram.w * v.k, pane.w) || axis(v.y, diagram.h * v.k, pane.h)
+  return [Math.min(at, 0), Math.max(at, room - size)]
 }
 
 /** Pans as a drag, wheel or arrow key does, as far as `reach` lets it. */

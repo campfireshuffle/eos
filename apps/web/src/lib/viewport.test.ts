@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { canPan, clamp, fit, fitScale, holdCentre, pan, panBy, zoomAt, type View } from "./viewport"
+import { clamp, fit, fitScale, holdCentre, pan, panBy, zoomAt, type View } from "./viewport"
 
 const pane = { w: 600, h: 400 }
 /** Where the diagram point at (px, py) in the pane sits, in the diagram's own units. */
@@ -59,20 +59,21 @@ describe("pan", () => {
     expect(pan({ x: -700, y: 300, k: 2 }, -500, 500, pane, diagram)).toEqual({ x: -1200, y: 800, k: 2 })
   })
 
-  it("leaves a diagram that's in view, on an axis where it fits, where it is", () => {
-    // 520 × 390: fits both ways, so a fitted diagram stays put.
-    expect(pan({ x: 40, y: 5, k: 1.3 }, -30, -20, pane, diagram)).toEqual({ x: 40, y: 5, k: 1.3 })
-    // 640 × 480 in a 600 × 500 pane: across, but not up and down.
+  it("moves a diagram that fits anywhere it stays fully in view", () => {
+    // 520 × 390 in a 600 × 400 pane, so it can be dragged off centre, up to the pane's edges.
+    expect(pan({ x: 40, y: 5, k: 1.3 }, -30, -20, pane, diagram)).toEqual({ x: 10, y: 0, k: 1.3 })
+    expect(pan({ x: 40, y: 5, k: 1.3 }, 1000, 1000, pane, diagram)).toEqual({ x: 80, y: 10, k: 1.3 })
+    // 640 × 480 in a 600 × 500 pane: freely across, and within the pane up and down.
     expect(pan({ x: 0, y: 0, k: 1.6 }, -30, -20, { w: 600, h: 500 }, diagram)).toEqual({ x: -30, y: 0, k: 1.6 })
   })
 
-  it("brings a diagram that fits but is partly out of view back in, no further", () => {
+  it("brings a diagram that fits but is partly out of view back in, and on across the pane", () => {
     // 200 × 150, hanging off the left and the bottom.
     const v = { x: -160, y: 300, k: 0.5 }
-    expect(pan(v, 100, -100, pane, diagram)).toEqual({ x: -60, y: 250, k: 0.5 })
-    expect(pan(v, 1000, -1000, pane, diagram)).toEqual({ x: 0, y: 250, k: 0.5 })
+    expect(pan(v, 100, -100, pane, diagram)).toEqual({ x: -60, y: 200, k: 0.5 })
+    expect(pan(v, 1000, -1000, pane, diagram)).toEqual({ x: 400, y: 0, k: 0.5 })
     // Off the right and the top.
-    expect(pan({ x: 500, y: -100, k: 0.5 }, -1000, 1000, pane, diagram)).toEqual({ x: 400, y: 0, k: 0.5 })
+    expect(pan({ x: 500, y: -100, k: 0.5 }, -1000, 1000, pane, diagram)).toEqual({ x: 0, y: 250, k: 0.5 })
   })
 
   it("can drag back a diagram that zooming out left mostly off the pane", () => {
@@ -87,21 +88,6 @@ describe("pan", () => {
     // A drag measured from where it started can go back there, but no further.
     expect(pan(v, 30, 0, pane, diagram)).toEqual({ x: -130, y: 300, k: 0.5 })
     expect(pan(v, -10, 0, pane, diagram)).toEqual(v)
-  })
-})
-
-describe("canPan", () => {
-  const diagram = { w: 400, h: 300 }
-
-  it("says whether a pan would move the diagram", () => {
-    // Bigger than the pane.
-    expect(canPan({ x: 0, y: 0, k: 2 }, pane, diagram)).toBe(true)
-    // Fits, and in view.
-    expect(canPan({ x: 40, y: 5, k: 1.3 }, pane, diagram)).toBe(false)
-    expect(canPan({ x: 0, y: 250, k: 0.5 }, pane, diagram)).toBe(false)
-    // Fits, but partly out of view on one axis.
-    expect(canPan({ x: -1, y: 50, k: 0.5 }, pane, diagram)).toBe(true)
-    expect(canPan({ x: 50, y: 251, k: 0.5 }, pane, diagram)).toBe(true)
   })
 })
 

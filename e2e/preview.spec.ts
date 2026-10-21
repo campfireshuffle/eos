@@ -21,7 +21,8 @@ const placement = (page: Page) =>
     const p = svg.closest("[data-preview-frame]")!.getBoundingClientRect()
     const [cx, cy] = [p.left + p.width / 2, p.top + p.height / 2]
     return {
-      inside: s.left >= p.left && s.top >= p.top && s.right <= p.right && s.bottom <= p.bottom,
+      // Half a pixel's grace: a diagram pushed flush against an edge can measure a hair past it.
+      inside: s.left >= p.left - 0.5 && s.top >= p.top - 0.5 && s.right <= p.right + 0.5 && s.bottom <= p.bottom + 0.5,
       overCentre: s.left <= cx && cx <= s.right && s.top <= cy && cy <= s.bottom,
     }
   })
@@ -57,7 +58,7 @@ test("a zoomed preview keeps its zoom, and the part of the diagram in view, as i
   await expect.poll(async () => (await placement(page)).overCentre).toBe(true)
 })
 
-test("a slightly shaky click or a wheel tick doesn't stop a fitted preview fitting", async ({ context }) => {
+test("a slightly shaky click doesn't stop a fitted preview fitting", async ({ context }) => {
   await withAgentTools(context)
   const page = await context.newPage()
   const grow = await opened(page)
@@ -67,9 +68,30 @@ test("a slightly shaky click or a wheel tick doesn't stop a fitted preview fitti
   await page.mouse.down()
   await page.mouse.move(x + 2, y + 1)
   await page.mouse.up()
-  await page.mouse.wheel(0, 100)
   await grow()
   await expect.poll(() => zoom(page)).toBeLessThan(2)
+  await expect.poll(async () => (await placement(page)).inside).toBe(true)
+})
+
+test("a diagram that fits can be dragged around the pane, but not out of it", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await opened(page)
+  const svg = () => page.locator(".pele-preview svg").evaluate((el) => el.getBoundingClientRect().toJSON() as DOMRect)
+  const before = await svg()
+  const [x, y] = [before.x + before.width / 2, before.y + before.height / 2]
+  const drag = async (dx: number, dy: number) => {
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    for (let i = 1; i <= 5; i++) await page.mouse.move(x + (dx * i) / 5, y + (dy * i) / 5)
+    await page.mouse.up()
+  }
+  // The fit leaves a margin of at least 24px all round, so a 20px drag moves it the whole way.
+  await drag(-20, -20)
+  await expect.poll(async () => (await svg()).x).toBeCloseTo(before.x - 20, 0)
+  await expect.poll(async () => (await svg()).y).toBeCloseTo(before.y - 20, 0)
+  // A long drag stops at the pane's edge.
+  await drag(-2000, -2000)
   await expect.poll(async () => (await placement(page)).inside).toBe(true)
 })
 
@@ -263,8 +285,6 @@ test("a diagram zoomed out near the pane's edge can be dragged back into view", 
   for (let i = 1; i <= 10; i++) await page.mouse.move(pane.x + 100 + i * 35, y)
   await page.mouse.up()
   await expect.poll(async () => (await placement(page)).inside).toBe(true)
-  // Once it's all in view, a pan has nothing to move.
-  await expect.poll(() => cursor(page)).toBe("default")
 })
 
 test("a diagram zoomed out near the pane's edge can be swiped back into view", async ({ context }) => {

@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { setUi, useUi } from "@/lib/ui-state"
-import { canPan, clamp, fit, FIT_MAX, holdCentre, pan, panBy, zoomAt, type Size, type View } from "@/lib/viewport"
+import { clamp, fit, FIT_MAX, holdCentre, pan, panBy, zoomAt, type Size, type View } from "@/lib/viewport"
 
 /**
  * Live Pele render with our own pan and zoom. The pane never scrolls: the diagram sits on a stage that one
@@ -27,8 +27,6 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
   const view = useRef<View>({ x: 0, y: 0, k: 1 })
   // The zoom on screen, for the readout.
   const [scale, setScale] = useState(1)
-  // Whether a pan would move the diagram, for the cursor.
-  const [movable, setMovable] = useState(false)
   const zoomRequest = useUi((s) => s.zoomRequest)
   // Ignore zoom requests made before this preview mounted (e.g. on another diagram).
   const handled = useRef(zoomRequest?.n ?? 0)
@@ -56,7 +54,6 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
     clearTimeout(settle.current)
     settle.current = window.setTimeout(draw, 200)
     setScale(k)
-    setMovable(!!natural && canPan(v, pane, natural))
   }
   const within = (v: View) => (natural ? clamp(v, pane, natural) : v)
   /** Moves the diagram as the person asked. If that moved it at all, it stops following the fit. */
@@ -274,7 +271,7 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
       onAuxClick={(e) => e.button === 1 && e.preventDefault()}
       className={cn(
         "relative h-full w-full touch-none overflow-clip outline-none select-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset",
-        movable ? (panning ? "cursor-grabbing" : "cursor-grab") : "cursor-default"
+        panning ? "cursor-grabbing" : "cursor-grab"
       )}
     >
       <div ref={stage} className="absolute top-0 left-0 w-max origin-top-left">
