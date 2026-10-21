@@ -63,7 +63,7 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
     setFitting(false)
     show(v)
   }
-  /** Pans as a drag, wheel or arrow key does: freely where the diagram overflows, and otherwise only back into view. */
+  /** Pans as a drag, wheel or arrow key does: freely where the diagram overflows, and otherwise anywhere it stays fully in view (see `reach`). */
   const panFrom = (v: View, dx: number, dy: number) => move(natural ? pan(v, dx, dy, pane, natural) : v)
   // For the listeners added once, below.
   const latest = useRef({ move, panFrom })

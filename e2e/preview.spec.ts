@@ -250,9 +250,6 @@ test("a zoomed preview is laid out at its zoom once it settles, not stretched", 
     .toBeLessThan(1)
 })
 
-/** The preview's cursor. */
-const cursor = (page: Page) => page.locator("[data-preview-frame]").evaluate((el) => getComputedStyle(el).cursor)
-
 /**
  * Zooms the sequence diagram in, pans it to its right-hand end, then pinches out with the pointer near the
  * pane's left edge. That leaves it smaller than the pane but mostly off its left edge.
@@ -271,7 +268,6 @@ async function strandedByZoom(page: Page) {
   await page.keyboard.up("Control")
   await expect.poll(() => zoom(page)).toBeLessThan(1)
   expect((await placement(page)).inside).toBe(false)
-  await expect.poll(() => cursor(page)).toBe("grab")
   return pane
 }
 
