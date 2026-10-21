@@ -851,6 +851,38 @@ describe("library events and reads", () => {
     expect((await one.getDiagram(id))!.meta.tags).toEqual(["z"])
   })
 
+  it("keeps a star set right after a tag change while another tab has the diagram open", async () => {
+    const name = `star-tabs-${n++}`
+    const one = await Eos.create({ dbName: name, seed: false })
+    const two = await Eos.create({ dbName: name, seed: false })
+    const id = await one.createDiagram({ source: "a" })
+    await Promise.all([one.getSource(id), two.getSource(id)])
+    await settle(100)
+    // The agent's update_diagram { addTags, starred }: editDiagram, then setStarred
+    const agent: Actor = { kind: "agent", tool: "update_diagram", changes: ["addTags", "starred"] }
+    await one.editDiagram(id, { addTags: ["x"] }, agent)
+    await one.setStarred(id, true, agent)
+    await settle(200)
+    const three = await Eos.create({ dbName: name, seed: false }) // a tab opened later
+    expect((await three.listDiagrams())[0]!.starred).toBe(1)
+    expect((await one.counts()).starred).toBe(1)
+  })
+
+  it("keeps an unstar made right after a rename while another tab has the diagram open", async () => {
+    const name = `star-tabs-${n++}`
+    const one = await Eos.create({ dbName: name, seed: false })
+    const two = await Eos.create({ dbName: name, seed: false })
+    const id = await one.createDiagram({ source: "a" })
+    await one.setStarred(id, true)
+    await Promise.all([one.getSource(id), two.getSource(id)])
+    await settle(100)
+    await one.renameDiagram(id, "Renamed") // the editor's title field
+    await one.setStarred(id, false) // then the Star button
+    await settle(200)
+    expect((await one.counts()).starred).toBe(0)
+    expect((await one.getDiagram(id))!.starred).toBe(false)
+  })
+
   /** Lets `k` microtasks run, to land a second change at each point in the first one. */
   const ticks = async (k: number) => {
     for (let i = 0; i < k; i++) await Promise.resolve()
@@ -961,6 +993,19 @@ describe("backup import", () => {
     await eos.importBackup(backup, "merge")
     expect((await eos.getDiagram(id))?.starred).toBe(true)
     expect((await eos.listTags()).map((t) => t.emoji)).toEqual(["🚀"])
+  })
+
+  it("lists a diagram open here as starred when a merged backup brings in its star", async () => {
+    const eos = await fresh()
+    const id = await eos.createDiagram({ source: "x" })
+    await eos.getSource(id) // open here, so the merge rebuilds its row from the open doc
+    // The same diagram starred in another library, whose backup is merged back in here.
+    const elsewhere = await fresh()
+    await elsewhere.importBackup(await eos.exportBackup(), "merge")
+    await elsewhere.setStarred(id, true)
+    await eos.importBackup(await elsewhere.exportBackup(), "merge")
+    expect((await eos.listDiagrams())[0]?.starred).toBe(1)
+    expect((await eos.listDiagrams({ starred: true })).map((r) => r.id)).toEqual([id])
   })
 
   it("keeps a local unstar and emoji change on a diagram and tag already there when merging", async () => {
