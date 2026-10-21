@@ -914,6 +914,17 @@ describe("backup import", () => {
     expect((await eos.listTags()).map((t) => t.emoji)).toEqual([null])
   })
 
+  it("reads a tag emoji a backup brings in that isn't a string as none", async () => {
+    const eos = await fresh()
+    await eos.createDiagram({ source: "x", tags: ["work"] })
+    const workspace = new LoroDoc()
+    workspace.getMap("tagEmoji").set("work", { a: 1 })
+    workspace.commit()
+    const backup = { v: 1, workspace: toBase64(workspace.export({ mode: "snapshot" })), diagrams: [] }
+    await eos.importBackup(JSON.stringify(backup), "merge")
+    expect((await eos.listTags()).map((t) => t.emoji)).toEqual([null])
+  })
+
   it("brings back only the stars of diagrams the backup has when replacing the library", async () => {
     const eos = await fresh()
     const id = await eos.createDiagram({ source: "x" })

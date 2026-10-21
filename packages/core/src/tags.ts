@@ -30,7 +30,11 @@ export function tagMatches(tag: TagPath, filter: TagPath): boolean {
   return tag === filter || tag.startsWith(filter + "/")
 }
 
-export function buildTagTree(rows: DiagramIndexRow[], emoji: Record<TagPath, string | null>): TagRecord[] {
+/**
+ * The tag tree of the diagrams not deleted. Emoji can come from a backup made anywhere, so one
+ * that isn't a string reads as none.
+ */
+export function buildTagTree(rows: DiagramIndexRow[], emoji: Record<TagPath, unknown>): TagRecord[] {
   const counts = new Map<TagPath, number>()
   for (const row of rows) {
     if (row.deletedAt) continue
@@ -39,7 +43,8 @@ export function buildTagTree(rows: DiagramIndexRow[], emoji: Record<TagPath, str
   const nodes = new Map<TagPath, TagRecord>()
   const roots: TagRecord[] = []
   for (const path of [...counts.keys()].sort()) {
-    const node: TagRecord = { path, emoji: emoji[path] ?? null, count: counts.get(path)!, children: [] }
+    const e = emoji[path]
+    const node: TagRecord = { path, emoji: typeof e === "string" ? e : null, count: counts.get(path)!, children: [] }
     nodes.set(path, node)
     const parent = path.includes("/") ? nodes.get(path.slice(0, path.lastIndexOf("/"))) : undefined
     ;(parent ? parent.children : roots).push(node)

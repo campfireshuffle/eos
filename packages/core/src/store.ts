@@ -230,7 +230,7 @@ export class Eos {
 
   async listTags(): Promise<TagRecord[]> {
     const rows = await this.allRows()
-    return buildTagTree(rows, this.workspace.tagEmoji.toJSON() as Record<string, string | null>)
+    return buildTagTree(rows, this.workspace.tagEmoji.toJSON())
   }
 
   async counts(): Promise<{ all: number; starred: number; deleted: number }> {
