@@ -130,6 +130,45 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** it passed in every CI run, in `turbo test`, and with 3 parallel processes at normal load. The product converges within milliseconds.
   - **Fix:** replace the last `await settle(); expect(...)` with `await expect.poll(() => two.getSource(id), { timeout: 5000 }).toBe(a.state.text)`. This was verified to still catch the bug it guards (onLocalUpdate before the write finishes).
 
+- **After a click on the preview, a Chromium text commit still lands in the source.**
+  - **What:**
+    1. Select or place the caret in the source.
+    2. Click the preview. Focus goes to the page body, and the selection stays in the source.
+    3. Commit text in Chrome without a keystroke: the emoji picker or dictation (reproduced with CDP `Input.insertText`).
+
+    The text is inserted at the old selection. Chrome fires no `beforeinput` for it: it focuses the editor itself (`input`, then `focusin`) and inserts, so the editor's "no input without focus" guard never sees an event it could cancel.
+
+  - **Where:** `apps/web/src/components/code-editor.tsx` (the unfocused-input guard), `apps/web/src/components/preview.tsx` (`onPointerDown`).
+  - **Why low:**
+    - It's Chromium only, and only after a preview click.
+    - It needs a commit that isn't a keystroke; typed keys, ⌘V and ⌘X are refused.
+    - The editor ends up focused with the text visible, and ⌘Z removes it.
+    - Round 15 deliberately dropped the `removeAllRanges()` that hid this, because it broke ⌘C after a preview click.
+  - **Fix:** none cheap. Focusing the preview frame on click, instead of blurring to the body, would give Chrome a focused target, so the guard would see a `beforeinput`. Check the preview's page-level shortcuts first.
+
+- **The emoji picker's search takes focus on touch, raising the iPhone keyboard.**
+  - **What:** choosing Change icon on a tag opens the picker with its search box focused. On a phone, the keyboard then covers most of the picker.
+  - **Where:** `apps/web/src/components/tag-emoji-picker.tsx` (`<Input autoFocus …>`).
+  - **Why low:** the picker still works; the keyboard can be dismissed or scrolled past.
+  - **Fix:** do as `tag-menu.tsx` does: `onOpenAutoFocus={(e) => matchMedia("(pointer: coarse)").matches && e.preventDefault()}` on the popover, and drop `autoFocus`, or focus it only on a fine pointer.
+
+- **At 320px the Tags popover sits flush against the right edge of the screen.**
+  - **Where:** `apps/web/src/components/tag-menu.tsx` (PopoverContent).
+  - **Why low:** cosmetic; everything fits and works.
+  - **Fix:** give the popover a collision padding (e.g. `collisionPadding={8}`).
+
+- **Two tabs typing in one diagram can leave its library row stale until the next edit.**
+  - **What:** a tab writes the row from its own doc when its typing pauses (300 ms). If the other tab's last keystroke hasn't reached it by then, the row lacks that keystroke. The receiving tab rebuilds rows only for meta changes, so the card preview and search text lag the doc until the next edit.
+  - **Where:** `packages/core/src/store.ts`, the channel's `"update"` handler and `refreshIndexSoon`.
+  - **Why low:** only when one tab's write plus broadcast takes over 300 ms. The doc itself is right, and any later edit corrects the row.
+  - **Fix:** in the `"update"` handler, also call `refreshIndexSoon(id, d)` when a source change arrives for an open diagram. Repro: `r15/core/packages/core/src/r15-stale-row.test.ts` (it delays one write by 400 ms).
+
+- **An open that fails in the cross-tab update branch is an uncaught rejection.**
+  - **What:** the channel's `"update"` branch does `await this.openDiagram(data.id)` with no catch. If that open fails ("not found", e.g. during a purge or a replace import in another tab), it surfaces as an uncaught exception.
+  - **Where:** `packages/core/src/store.ts`, the `"update"` handler (about line 1000).
+  - **Why low:** console noise only; nothing is lost.
+  - **Fix:** `.catch(() => {})` on that open, with a comment that the diagram went away underneath.
+
 ## Refactors to consider (from the round 11 cleanup review)
 
 - **What the preview shows, as one pure function.**
@@ -167,7 +206,7 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
 
 - **Tag moves followed in one place.**
   - **What:** every caller of `renameTag` or `deleteTag` has to remember `followTag`, and webmcp re-normalises the paths itself.
-  - **Where:** `apps/web/src/lib/router.ts:72-76`, `tag-tree.tsx:57, 213`, `packages/webmcp/src/index.ts:409-412, 503-505`.
+  - **Where:** `apps/web/src/lib/router.ts:72-76`, `tag-tree.tsx` (the `followTag` calls after `renameTag` and `deleteTag`), `packages/webmcp/src/index.ts:409-412, 503-505`.
   - **Why low:** every current caller does it.
   - **Fix:** have `renameTag` and `deleteTag` return the normalised `{ from, to }` they applied, or null when nothing changed, and pass that to `followTag` (cleanup #9).
 
