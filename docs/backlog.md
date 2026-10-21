@@ -6,6 +6,12 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
 
 ## Defects
 
+- **Error line is off after comments, directives or front matter.**
+  - **What:** Pele strips `%%` comment lines, `%%{…}%%` directives, front matter and leading blank lines before parsing, then reports lines in that stripped text. So an error below them is reported a line or more too early.
+  - **Where:** `packages/core/src/render.ts`, `validate`.
+  - **Why low:** the error is still shown, and on the right line when there are no comments above it.
+  - **Fix:** in Pele, report positions in the original text. Round 11 tried mapping it back in Eos by copying Pele 1.6.0's preprocessing (~110 lines). That was turned down as too coupled to Pele's internals for a low issue.
+
 - **Error snippet clipped on long lines.**
   - **What:** under the source, the error snippet `<pre>` is cut off at the pane's edge and can't be scrolled. For an error past about column 50 (column 86, say), the `^` caret can't be seen.
   - **Where:** `apps/web/src/components/editor.tsx`, the snippet `<pre>`.
