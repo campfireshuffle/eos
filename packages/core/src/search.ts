@@ -60,19 +60,36 @@ export async function searchIndex(all: DiagramIndexRow[], stale: () => boolean =
       all.slice(i, i + BUILD_SLICE).map((r) => ({ id: r.id, title: r.title, source: r.sourceText ?? r.sourcePreview }))
     )
   }
+  const find = async (term: string, tolerance: number) =>
+    (
+      (await search(db, {
+        term,
+        properties: ["title", "source"],
+        boost: { title: TITLE_BOOST },
+        tolerance,
+        limit: all.length,
+      })) as { hits: { score: number; document: { id: string } }[] }
+    ).hits
   return async (rows, query) => {
     const position = new Map(rows.map((r, i) => [r.id, i]))
-    const result = (await search(db, {
-      term: query,
-      properties: ["title", "source"],
-      boost: { title: TITLE_BOOST },
-      tolerance: query.length > 3 && !SHORT_WORDS.test(query) ? 1 : 0,
-      limit: all.length,
-    })) as { hits: { score: number; document: { id: string } }[] }
+    // A typo is allowed per word: none in a word of a short-word script, one elsewhere once the query is over 3
+    // characters. Orama sets tolerance per search and adds up each word's score, so a query with both kinds of
+    // word is searched once per kind and the scores are added.
+    const tolerance = query.length > 3 ? 1 : 0
+    const words = tokenizer.tokenize(query)
+    const short = words.filter((w) => SHORT_WORDS.test(w))
+    const hits =
+      short.length === 0
+        ? await find(query, tolerance)
+        : short.length === words.length
+          ? await find(query, 0)
+          : [...(await find(words.filter((w) => !SHORT_WORDS.test(w)).join(" "), tolerance)), ...(await find(short.join(" "), 0))]
+    const score = new Map<string, number>()
+    for (const h of hits) score.set(h.document.id, (score.get(h.document.id) ?? 0) + h.score)
     // Equal scores keep the order the rows came in (the library's sort), not the index's.
-    return result.hits
-      .filter((h) => position.has(h.document.id))
-      .sort((a, b) => b.score - a.score || position.get(a.document.id)! - position.get(b.document.id)!)
-      .map((h) => rows[position.get(h.document.id)!]!)
+    return [...score.keys()]
+      .filter((id) => position.has(id))
+      .sort((a, b) => score.get(b)! - score.get(a)! || position.get(a)! - position.get(b)!)
+      .map((id) => rows[position.get(id)!]!)
   }
 }

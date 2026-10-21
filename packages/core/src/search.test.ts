@@ -90,6 +90,20 @@ describe("search", () => {
     expect(await titlesFound(["재고 관리", "주문 처리"], "재고 관리")).toEqual(["재고 관리"])
   })
 
+  it("allows a typo in the other words of a query that also holds Chinese", async () => {
+    expect(await titlesFound(["登录 login flow", "登录 logout flow", "login page"], "登录 logn")).toEqual([
+      "登录 login flow",
+      "login page",
+      "登录 logout flow",
+    ])
+    expect(await titlesFound(["API 接口 gateway", "Payment 接口"], "gatway 接口")).toEqual(["API 接口 gateway", "Payment 接口"])
+    expect(await titlesFound(["Checkout 流程", "Checkout page", "Order 流程"], "chekout 流程")).toEqual([
+      "Checkout 流程",
+      "Checkout page",
+      "Order 流程",
+    ])
+  })
+
   it("finds a word with or without its accents", async () => {
     expect(await titlesFound(["A naïve plan", "Other"], "naive")).toEqual(["A naïve plan"])
     expect(await titlesFound(["Résumé flow", "Other"], "resume")).toEqual(["Résumé flow"])
