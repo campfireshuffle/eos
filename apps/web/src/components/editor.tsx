@@ -170,22 +170,25 @@ export function Editor({ id }: { id: string }) {
       {previewing && (
         <Banner>
           <HistoryIcon className="size-4 text-muted-foreground" />
-          <span className="min-w-0 grow basis-48 truncate">
+          {/* Wraps rather than being cut off, and the buttons move to the next row together. */}
+          <span className="min-w-0 grow basis-48">
             Viewing the version from {formatWhen(previewing.at)} · {previewing.label}
           </span>
-          <Button
-            size="xs"
-            className="text-label"
-            onClick={async () => {
-              await eos.restoreVersion(id, previewing.version)
-              setUi({ preview: null })
-            }}
-          >
-            Restore this version
-          </Button>
-          <Button size="xs" variant="ghost" className="text-label" onClick={() => setUi({ preview: null })}>
-            Back to latest
-          </Button>
+          <div className="flex gap-x-2.5">
+            <Button
+              size="xs"
+              className="text-label"
+              onClick={async () => {
+                await eos.restoreVersion(id, previewing.version)
+                setUi({ preview: null })
+              }}
+            >
+              Restore this version
+            </Button>
+            <Button size="xs" variant="ghost" className="text-label" onClick={() => setUi({ preview: null })}>
+              Back to latest
+            </Button>
+          </div>
         </Banner>
       )}
       {!previewing && diagram.deletedAt && (

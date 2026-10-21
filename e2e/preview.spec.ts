@@ -303,33 +303,53 @@ test("a diagram an agent shrinks while it's panned can be brought back into view
   await expect.poll(async () => (await placement(page)).inside).toBe(true)
 })
 
+/** Makes a diagram yesterday, types an edit today, and shows the version from yesterday. */
+async function previewYesterday(page: Page) {
+  // A version from an earlier day has the longest label: its date as well as its time ("Oct 19, 2:05 PM").
+  const now = Date.now()
+  await page.clock.setSystemTime(now - 86_400_000)
+  const id = await newDiagram(page, "flowchart LR\n  A --> B")
+  await page.clock.setSystemTime(now)
+  await openEditor(page, id)
+  await cursorAtEndOf(page, 1)
+  await page.keyboard.type(" --> C")
+  await expect.poll(async () => (await tool<{ history: unknown[] }>(page, "get_diagram", { id, history: true })).history.length).toBe(2)
+  await page.getByRole("button", { name: "Version history" }).click()
+  await page.locator("[data-slot=popover-content] button").last().click()
+  await expect(page.getByText("Viewing the version from")).toBeVisible()
+  return id
+}
+
 for (const [device, viewport] of [
   ["a phone", { width: 390, height: 844 }],
+  ["a large phone", { width: 430, height: 932 }],
+  ["a tablet", { width: 834, height: 1194 }],
   ["a desktop", { width: 1280, height: 860 }],
 ] as const) {
   test(`on ${device} the version banner says in full which version is shown`, async ({ context }) => {
     await withAgentTools(context)
     const page = await context.newPage()
     await page.setViewportSize(viewport)
-    const id = await newDiagram(page, "flowchart LR\n  A --> B")
-    await openEditor(page, id)
-    await cursorAtEndOf(page, 1)
-    await page.keyboard.type(" --> C")
-    await expect.poll(async () => (await tool<{ history: unknown[] }>(page, "get_diagram", { id, history: true })).history.length).toBe(2)
-    await page.getByRole("button", { name: "Version history" }).click()
-    await page.locator("[data-slot=popover-content] button").last().click()
+    await previewYesterday(page)
     const text = page.getByText("Viewing the version from")
-    await expect(text).toBeVisible()
+    // The date is shown, as well as the time.
+    await expect(text).toHaveText(/Viewing the version from [A-Z][a-z]+ \d+\D.*\d:\d\d.* · \S/)
     expect(await text.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
     const banner = (await text.locator("..").boundingBox())!
     const line = (await text.boundingBox())!
+    expect(line.x >= banner.x && line.x + line.width <= banner.x + banner.width).toBe(true)
+    const rows: number[] = []
     for (const name of ["Restore this version", "Back to latest"]) {
       const b = (await page.getByRole("button", { name }).boundingBox())!
       expect(
         b.x >= banner.x && b.y >= banner.y && b.x + b.width <= banner.x + banner.width && b.y + b.height <= banner.y + banner.height
       ).toBe(true)
+      rows.push(b.y + b.height / 2)
       // A desktop has room for it all on one row; a phone puts the buttons on their own.
-      expect(Math.abs(b.y + b.height / 2 - (line.y + line.height / 2)) < 2).toBe(device === "a desktop")
+      if (device === "a phone" || device === "a desktop")
+        expect(Math.abs(b.y + b.height / 2 - (line.y + line.height / 2)) < 2).toBe(device === "a desktop")
     }
+    // The two buttons move together, so they always share a row.
+    expect(Math.abs(rows[0] - rows[1])).toBeLessThan(2)
   })
 }
