@@ -196,6 +196,23 @@ test("zooming only scales the diagram, even once it overflows the pane", async (
   await expect(page.locator(".pele-preview svg[data-probe]")).toHaveCount(1)
 })
 
+test("a slightly shaky click doesn't pan a zoomed preview either", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await opened(page)
+  for (let i = 0; i < 4; i++) await tool(page, "set_view", { zoom: "in" })
+  const left = () => page.locator(".pele-preview svg").evaluate((svg) => svg.getBoundingClientRect().left)
+  const before = await left()
+  const pane = (await page.locator("[data-preview-frame]").boundingBox())!
+  const [x, y] = [pane.x + pane.width / 2, pane.y + pane.height / 2]
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(x + 2, y + 1)
+  await page.mouse.up()
+  await page.waitForTimeout(300)
+  expect(await left()).toBe(before)
+})
+
 /** The preview's cursor. */
 const cursor = (page: Page) => page.locator("[data-preview-frame]").evaluate((el) => getComputedStyle(el).cursor)
 
