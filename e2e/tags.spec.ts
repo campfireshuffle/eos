@@ -169,3 +169,26 @@ test("the Tags menu finds a tag typed as the sidebar shows it, with its #", asyn
   await expect(page.getByRole("checkbox", { name: "work" })).toBeVisible()
   await expect(page.getByText("No tags yet.")).toBeHidden()
 })
+
+test("on a phone, a long unbroken tag name keeps the delete confirm's buttons inside it", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto("/#/")
+  await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+  const tag = "kubernetes_clusterautoscaler_migration_plan"
+  await tool(page, "create_diagram", { title: "Cluster", tags: [tag], open: false })
+  await page.getByRole("button", { name: "Show sidebar" }).click()
+  await page.getByRole("row", { name: tag }).click({ button: "right" })
+  await page.getByRole("button", { name: "Delete tag" }).click()
+  const dialog = page.getByRole("alertdialog")
+  await expect(dialog).toBeVisible()
+  // Measure once it has finished zooming in.
+  await dialog.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
+  const box = (await dialog.boundingBox())!
+  for (const name of ["Delete", "Cancel"]) {
+    const button = (await dialog.getByRole("button", { name }).boundingBox())!
+    expect(button.x).toBeGreaterThanOrEqual(box.x)
+    expect(button.x + button.width).toBeLessThanOrEqual(box.x + box.width)
+  }
+})

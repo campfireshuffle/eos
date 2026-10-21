@@ -25,7 +25,7 @@ export function ConfirmDialog() {
       <AlertDialogContent {...restoreFocus}>
         <AlertDialogHeader>
           <AlertDialogTitle>{confirm?.title}</AlertDialogTitle>
-          <AlertDialogDescription>{confirm?.message}</AlertDialogDescription>
+          <AlertDialogDescription className="[overflow-wrap:anywhere]">{confirm?.message}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel onClick={() => answer(false)}>{confirm?.action ? "Cancel" : "OK"}</AlertDialogCancel>
