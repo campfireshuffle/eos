@@ -402,6 +402,24 @@ test("back to latest with no valid version to show leaves the preview empty, wit
   expect(downloaded).toBe(false)
 })
 
+test("on a tablet in portrait the couldn't-render notice fits inside the preview", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.setViewportSize({ width: 820, height: 1180 })
+  const id = await newDiagram(page, "flowchart LR\n  A --> B")
+  await openEditor(page, id)
+  await cursorAtEndOf(page, 1)
+  await page.keyboard.type(" -->")
+  const pill = page.getByText("Couldn’t render")
+  await expect(pill).toBeVisible()
+  const box = (await pill.boundingBox())!
+  const pane = (await page.locator("[data-preview-frame]").boundingBox())!
+  expect(box.x).toBeGreaterThanOrEqual(pane.x)
+  expect(box.y).toBeGreaterThanOrEqual(pane.y)
+  expect(box.x + box.width).toBeLessThanOrEqual(pane.x + pane.width)
+  expect(box.y + box.height).toBeLessThanOrEqual(pane.y + pane.height)
+})
+
 test("while a past version is shown there's no Undo or Redo to change the hidden latest text", async ({ context }) => {
   await withAgentTools(context)
   const page = await context.newPage()

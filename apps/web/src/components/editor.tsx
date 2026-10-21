@@ -281,8 +281,8 @@ export function Editor({ id }: { id: string }) {
                 onSvg={(el) => (svgRef.current = el)}
               />
               {result && !result.ok && (
-                <div className="absolute bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-[var(--eos-line-active)] bg-accent px-3 py-1.5 text-caption whitespace-nowrap text-muted-foreground">
-                  <TriangleAlert className="size-3.5 text-destructive" /> Couldn’t render — showing the last valid version
+                <div className="absolute bottom-5 left-1/2 flex w-max max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-2xl border border-[var(--eos-line-active)] bg-accent px-3 py-1.5 text-center text-caption text-muted-foreground">
+                  <TriangleAlert className="size-3.5 shrink-0 text-destructive" /> Couldn’t render — showing the last valid version
                 </div>
               )}
             </div>
