@@ -460,6 +460,27 @@ describe("durability", () => {
     expect((await loadDoc(db, id)).getText("source").toString()).toBe("base one two")
   })
 
+  it("keeps undo working in a diagram that's open while it compacts in changes another tab saved", async () => {
+    const eos = await fresh()
+    const id = await eos.createDiagram({ source: "base" })
+    await eos.setSource(id, "base mine")
+    await settle()
+    // Another tab, whose updates never reach this one, logs two changes.
+    const db = dbOf(eos)
+    const there = await loadDoc(db, id)
+    for (const word of [" one", " two"]) {
+      const before = there.version()
+      there.getText("source").insert(there.getText("source").length, word)
+      there.commit()
+      await db.add("updates", { id, bytes: there.export({ mode: "update", from: before }), at: Date.now() })
+    }
+    await compact(db, id, (await eos.openDiagram(id)).doc)
+    expect((await eos.canUndo(id)).canUndo).toBe(true)
+    await eos.renameDiagram(id, "Renamed")
+    expect(await eos.undo(id)).toBe(true)
+    expect(await eos.getSource(id)).toBe("base one two")
+  })
+
   it("saves a new diagram whole or not at all", async () => {
     const eos = await fresh()
     const restore = failWrites("put", "diagrams")

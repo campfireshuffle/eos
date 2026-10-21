@@ -158,7 +158,10 @@ export async function compact(db: Database, id: DiagramId, doc: LoroDoc, row?: R
       log.getAllKeys(id),
       row && tx.objectStore("diagrams").get(id),
     ])
-    doc.importBatch([...(saved ? [saved.bytes] : []), ...logged.map((u) => u.bytes)])
+    // One at a time: Loro takes a batch of several that brings in new changes as a checkout,
+    // which empties an open doc's undo stacks and breaks them until its next local edit.
+    if (saved) doc.import(saved.bytes)
+    for (const u of logged) doc.import(u.bytes)
     const next = row?.(doc, savedRow)
     if (row && !next) return false
     await Promise.all([
