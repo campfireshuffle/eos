@@ -1,6 +1,6 @@
 import { expect, test, type BrowserContext } from "@playwright/test"
 
-import { tool, withAgentTools } from "./helpers"
+import { focusNext, tool, withAgentTools } from "./helpers"
 
 /** A library long enough to scroll, open at `hash`. */
 async function library(context: BrowserContext, hash: string) {
@@ -129,4 +129,55 @@ test("get_view answers while Eos is in a background tab, which runs no animation
   const answer = tool<{ ok: boolean }>(page, "get_view").then((r) => r.ok)
   const timeout = new Promise((r) => setTimeout(() => r("no answer within 2s"), 2000))
   expect(await Promise.race([answer, timeout])).toBe(true)
+})
+
+test("a hidden sidebar takes no focus and isn't read out, and showing it brings both back", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto("/#/")
+  const sidebar = page.locator("aside")
+  // Playwright's role queries don't treat inert as hidden, so these still find the sidebar's controls.
+  const settings = sidebar.getByRole("button", { name: "Settings" })
+  const show = page.getByRole("button", { name: "Show sidebar" })
+  const isChromium = page.context().browser()?.browserType().name() === "chromium"
+  /** The names the browser's own accessibility tree gives the sidebar's controls (Chromium exposes it). */
+  const readOut = async () => {
+    const cdp = await page.context().newCDPSession(page)
+    const { nodes } = (await cdp.send("Accessibility.getFullAXTree")) as {
+      nodes: { ignored: boolean; role?: { value: string }; name?: { value: string } }[]
+    }
+    await cdp.detach()
+    return nodes
+      .filter((n) => !n.ignored && n.role?.value === "button" && ["Settings", "Hide sidebar"].includes(n.name?.value ?? ""))
+      .map((n) => n.name!.value)
+  }
+  /** Tabs from the top of a fresh page until `target` has focus, returning how many stops were in the sidebar. */
+  const sidebarStopsBefore = async (target: typeof show) => {
+    await page.reload()
+    await expect(target).toBeVisible()
+    let inSidebar = 0
+    for (let i = 0; i < 4 && !(await target.evaluate((el) => el === document.activeElement)); i++) {
+      await focusNext(page)
+      if (await sidebar.evaluate((el) => el.contains(document.activeElement))) inSidebar++
+    }
+    await expect(target).toBeFocused()
+    return inSidebar
+  }
+
+  await page.getByRole("button", { name: "Hide sidebar" }).click()
+  await expect(show).toBeVisible()
+  await settings.evaluate((el: HTMLElement) => el.focus())
+  await expect(settings).not.toBeFocused()
+  if (isChromium) await expect.poll(readOut).toEqual([])
+  // From the top of the page, Tab reaches the visible Show sidebar without stopping on anything hidden in the sidebar.
+  expect(await sidebarStopsBefore(show)).toBe(0)
+
+  await show.click()
+  await expect(settings).toBeVisible()
+  await settings.evaluate((el: HTMLElement) => el.focus())
+  await expect(settings).toBeFocused()
+  if (isChromium) await expect.poll(readOut).toEqual(["Hide sidebar", "Settings"])
+  await page.reload()
+  await expect(settings).toBeVisible()
+  await focusNext(page)
+  await expect(sidebar.getByRole("link", { name: "Eos" })).toBeFocused()
 })

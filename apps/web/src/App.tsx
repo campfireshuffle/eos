@@ -117,8 +117,11 @@ function Shell({ route, children }: { route: Route; children: ReactNode }) {
             if (!document.querySelector("[data-animating]")) setUi({ sidebarCollapsed: size.inPixels < 1 })
           }}
         >
-          {/* Keeps its width while the panel animates, so it slides out of view instead of re-wrapping. */}
-          <div className="h-full w-full min-w-[180px] overflow-hidden">{sidebar}</div>
+          {/* Keeps its width while the panel animates, so it slides out of view instead of re-wrapping.
+              Inert while hidden, so its controls take no focus and screen readers skip them. */}
+          <div inert={collapsed} className="h-full w-full min-w-[180px] overflow-hidden">
+            {sidebar}
+          </div>
         </ResizablePanel>
         {/* Collapsed: no gutter, just an invisible 8px strip to drag the sidebar back open. */}
         <ResizeHandle
