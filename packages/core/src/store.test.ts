@@ -790,6 +790,40 @@ describe("library events and reads", () => {
       for (const tab of [one, two, three]) expect((await tab.getDiagram(id))?.meta.tags.sort()).toEqual(["x", "y"])
     })
 
+  it("lists, in every tab, both of two tags two tabs add at once to a diagram open in both", async () => {
+    const name = `tag-tabs-${n++}`
+    const one = await Eos.create({ dbName: name, seed: false })
+    const two = await Eos.create({ dbName: name, seed: false })
+    const id = await one.createDiagram({ source: "a" })
+    await Promise.all([one.getSource(id), two.getSource(id)])
+    await settle(100)
+    await Promise.all([one.addTags(id, ["x"]), two.addTags(id, ["y"])])
+    await settle(200)
+    const three = await Eos.create({ dbName: name, seed: false }) // a tab opened later
+    for (const tab of [one, two, three]) {
+      expect((await tab.getDiagram(id))!.meta.tags.sort()).toEqual(["x", "y"])
+      expect([...(await tab.listDiagrams())[0]!.tags].sort()).toEqual(["x", "y"])
+      expect((await tab.listDiagrams({ tags: ["x"] })).map((r) => r.id)).toEqual([id])
+    }
+  })
+
+  it("lists a tag change from another tab that reached this one after its own tag change", async () => {
+    const name = `tag-tabs-${n++}`
+    const one = await Eos.create({ dbName: name, seed: false })
+    const two = await Eos.create({ dbName: name, seed: false })
+    const id = await one.createDiagram({ source: "a", tags: ["base"] })
+    await Promise.all([one.getSource(id), two.getSource(id)])
+    await settle(60)
+    await one.addTags(id, ["x"]) // saved, and broadcast
+    await two.removeTags(id, ["base"]) // before tab two has heard of "x"
+    await settle(200)
+    expect((await one.getDiagram(id))!.meta.tags).toEqual(["x"])
+    expect((await one.listDiagrams())[0]!.tags).toEqual(["x"])
+    // A rename finds diagrams by their row, so it reaches this one only if the row has "x".
+    await one.renameTag("x", "z")
+    expect((await one.getDiagram(id))!.meta.tags).toEqual(["z"])
+  })
+
   /** Lets `k` microtasks run, to land a second change at each point in the first one. */
   const ticks = async (k: number) => {
     for (let i = 0; i < k; i++) await Promise.resolve()

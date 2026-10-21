@@ -965,9 +965,17 @@ export class Eos {
         this.emit("settings")
       } else if (data.type === "update" && data.id && data.bytes) {
         if (data.id === WORKSPACE_ID) this.workspace.doc.import(data.bytes)
-        else if (this.open.has(data.id)) (await this.openDiagram(data.id)).doc.import(data.bytes)
-        // A diagram's index row changes only with the "index" message that follows (once typing
-        // pauses); the workspace holds stars and tag emoji, which the library shows.
+        else if (this.open.has(data.id)) {
+          const d = await this.openDiagram(data.id)
+          const before = JSON.stringify(metaOf(d))
+          d.doc.import(data.bytes)
+          // The other tab saved a row from its own copy, which can lack a details change made
+          // here at the same time: rebuild it from the merged doc. That sends "index", never
+          // "update", so the tabs can't set each other off.
+          if (JSON.stringify(metaOf(d)) !== before) void this.afterChange(data.id, d)
+        }
+        // Otherwise a diagram's index row changes with the "index" message that follows (once
+        // typing pauses); the workspace holds stars and tag emoji, which the library shows.
         this.emit(data.id === WORKSPACE_ID ? "library" : `diagram:${data.id}`)
       } else if (data.type === "index") {
         this.emit("library", ...(data.ids ?? []).map((id) => `diagram:${id}` as const))
