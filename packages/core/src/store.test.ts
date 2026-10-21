@@ -777,6 +777,19 @@ describe("library events and reads", () => {
     expect((await eos.getDiagram(id))?.meta.tags).toEqual(["x", "y"])
   })
 
+  for (const open of [false, true])
+    it(`keeps both of two tags two tabs add at once to a diagram open in ${open ? "both" : "neither"}`, async () => {
+      const name = `tag-tabs-${n++}`
+      const one = await Eos.create({ dbName: name, seed: false })
+      const two = await Eos.create({ dbName: name, seed: false })
+      const id = await one.createDiagram({ source: "a" })
+      if (open) await Promise.all([one.getSource(id), two.getSource(id)])
+      await Promise.all([one.addTags(id, ["x"]), two.addTags(id, ["y"])])
+      await settle(100)
+      const three = await Eos.create({ dbName: name, seed: false })
+      for (const tab of [one, two, three]) expect((await tab.getDiagram(id))?.meta.tags.sort()).toEqual(["x", "y"])
+    })
+
   /** Lets `k` microtasks run, to land a second change at each point in the first one. */
   const ticks = async (k: number) => {
     for (let i = 0; i < k; i++) await Promise.resolve()
@@ -949,6 +962,17 @@ describe("backup import", () => {
       await eos.importBackup(backup, "merge")
       expect((await eos.listDiagrams()).map((r) => r.id)).toEqual([id])
     }
+  })
+
+  it("keeps the tags each device added when merging one's backup into the other", async () => {
+    const here = await fresh()
+    const id = await here.createDiagram({ source: "a", tags: ["base"] })
+    const laptop = await fresh()
+    await laptop.importBackup(await here.exportBackup(), "merge")
+    await laptop.addTags(id, ["from-laptop"])
+    await here.addTags(id, ["from-here"])
+    await here.importBackup(await laptop.exportBackup(), "merge")
+    expect((await here.getDiagram(id))?.meta.tags.sort()).toEqual(["base", "from-here", "from-laptop"])
   })
 
   /** A backup of one diagram whose doc `tamper` has changed. */

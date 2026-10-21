@@ -19,12 +19,15 @@ export function sourceOf(d: { text: LoroText }): string {
   return d.text.toString()
 }
 
-/** A diagram's meta. Docs can come from a backup made anywhere, so anything malformed reads as missing. */
+/**
+ * A diagram's meta. Docs can come from a backup made anywhere, so anything malformed reads as missing.
+ * Tags are deduped: two tabs or devices adding the same one at once leave it in the list twice.
+ */
 export function metaOf(d: { meta: LoroMap }): DiagramMeta {
   const json = d.meta.toJSON() as Record<string, unknown>
   return {
     title: typeof json.title === "string" ? json.title : "Untitled",
-    tags: Array.isArray(json.tags) ? json.tags.filter((t): t is TagPath => typeof t === "string") : [],
+    tags: Array.isArray(json.tags) ? [...new Set(json.tags.filter((t): t is TagPath => typeof t === "string"))] : [],
     createdAt: typeof json.createdAt === "number" ? json.createdAt : 0,
   }
 }
@@ -41,9 +44,22 @@ export function actorOrigin(actor: Actor): string {
   return actor.kind === "agent" ? `agent:${actor.tool}` : actor.kind
 }
 
+/**
+ * Edits the tag list in place, deleting the tags not kept and inserting the missing ones where
+ * `tags` has them. Concurrent edits to one list merge, so a tag another tab or a merged backup
+ * added meanwhile is kept; replacing the list would throw one side's away.
+ */
 export function setTags(meta: LoroMap, tags: TagPath[]) {
-  const list = meta.setContainer("tags", new LoroList())
-  tags.forEach((tag, i) => list.insert(i, tag))
+  const found = meta.get("tags")
+  const list = found instanceof LoroList ? found : meta.setContainer("tags", new LoroList())
+  const keep = new Set<unknown>(tags)
+  const items = list.toArray()
+  // Back to front, so the indexes still to visit don't shift. Drops repeats too.
+  for (let i = items.length - 1; i >= 0; i--) if (!keep.has(items[i]) || items.indexOf(items[i]) < i) list.delete(i, 1)
+  const have = new Set(list.toArray())
+  tags.forEach((tag, i) => {
+    if (!have.has(tag)) list.insert(Math.min(i, list.length), tag)
+  })
 }
 
 /**

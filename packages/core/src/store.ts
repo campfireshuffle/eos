@@ -748,8 +748,8 @@ export class Eos {
    * Opening a diagram sets up its undo stacks (and keeps it in memory), which a details
    * change doesn't need, so one to a diagram that isn't open is made on a copy loaded for
    * it and freed after: a change to many diagrams (renaming a tag) doesn't leave them all
-   * open. Such changes to one diagram run one at a time, each on what the last one saved,
-   * since setting tags replaces the whole list. Either way the change is committed, saved,
+   * open. Such changes to one diagram run one at a time, each on what the last one saved.
+   * Either way the change is committed, saved,
    * and its index row rebuilt from the row saved now, and a diagram purged meanwhile is
    * left gone: that throws "not found".
    */
