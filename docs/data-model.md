@@ -153,7 +153,7 @@ interface EosDB {
   /** Denormalised rows for the library grid and tag tree. Rebuildable from snapshots+updates. */
   diagrams: {
     key: DiagramId
-    value: DiagramIndexRow
+    value: StoredRow
     indexes: {
       byUpdatedAt: number
       byTag: TagPath // multiEntry over tagPrefixes
@@ -163,7 +163,8 @@ interface EosDB {
   settings: { key: "app"; value: AppSettings }
 }
 
-interface DiagramIndexRow {
+// db.ts. A read adds `starred` to it, which makes it the DiagramIndexRow of types.ts.
+interface StoredRow {
   id: DiagramId
   title: string
   tags: TagPath[]
@@ -178,7 +179,7 @@ interface DiagramIndexRow {
 }
 ```
 
-Reads (`listDiagrams`, `counts`, `getDiagram`, the starred filter) add `starred: 0 | 1` to each row from `workspace.starred` (§1a). Rows never store it; a `starred` field left in a row by an older version is ignored.
+Reads (`listDiagrams`, `counts`, `getDiagram`, the starred filter) add `starred: 0 | 1` to each row from `workspace.starred` (§1a), giving a `DiagramIndexRow`. Rows never store it; a `starred` field left in a row by an older version is ignored.
 
 ### Write path
 

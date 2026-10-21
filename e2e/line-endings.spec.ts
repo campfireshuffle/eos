@@ -102,3 +102,33 @@ test("pasting CRLF text saves what the editor shows", async ({ context, page, br
   await expect.poll(() => editorText(page)).toBe("flowchart TD\n  A --> B\n  B --> C\n  C --> DX\n")
   await expect.poll(() => storedText(page, id)).toBe("flowchart TD\n  A --> B\n  B --> C\n  C --> DX\n")
 })
+
+for (const colorScheme of ["light", "dark"] as const)
+  test(`in ${colorScheme} mode a stray \\r's marker has the contrast of text`, async ({ context, page }) => {
+    await page.emulateMedia({ colorScheme })
+    await withAgentTools(context)
+    await importOldCrlf(page)
+    await openEditor(page, OLD_ID)
+    const marker = page.locator(".cm-specialChar").first()
+    await expect(marker).toHaveText("␍")
+    // axe skips text made only of symbols, so measure it: the marker's colour on the first opaque background behind it.
+    const ratio = await marker.evaluate((el) => {
+      const ctx = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!
+      const rgb = (color: string) => {
+        ctx.clearRect(0, 0, 1, 1)
+        ctx.fillStyle = color
+        ctx.fillRect(0, 0, 1, 1)
+        return [...ctx.getImageData(0, 0, 1, 1).data]
+      }
+      let back: Element = el
+      while (back.parentElement && rgb(getComputedStyle(back).backgroundColor)[3] < 255) back = back.parentElement
+      const luminance = (color: string) => {
+        const [r, g, b] = rgb(color).map((v) => ((v /= 255) <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4))
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+      }
+      const [fg, bg] = [luminance(getComputedStyle(el).color), luminance(getComputedStyle(back).backgroundColor)]
+      const [hi, lo] = [Math.max(fg, bg), Math.min(fg, bg)]
+      return (hi + 0.05) / (lo + 0.05)
+    })
+    expect(ratio).toBeGreaterThanOrEqual(4.5)
+  })

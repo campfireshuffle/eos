@@ -44,6 +44,8 @@ const theme = EditorView.theme(
     ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: "var(--eos-selection) !important" },
     ".cm-cursor": { borderLeftColor: "var(--eos-body)" },
     ".cm-error-line": { backgroundColor: "color-mix(in srgb, var(--eos-red) 12%, transparent)" },
+    // The marker for a stray \r: CodeMirror's own colour is for a dark editor, which `dark: true` claims in both modes.
+    ".cm-specialChar": { color: "var(--eos-red)" },
   },
   { dark: true }
 )

@@ -43,10 +43,34 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Fix:** wrap each part in `<span className="whitespace-nowrap">`, keep the `<wbr />` between parts, and drop `[overflow-wrap:anywhere]` if it's no longer needed.
 
 - **Diagrams already saved with CRLF line endings.**
-  - **What:** round 11 normalises line endings when a source enters core. A diagram an agent wrote with `\r\n` before that fix still has it, and its editor stays out of step with the stored text.
-  - **Where:** `packages/core/src/store.ts` (opening a diagram), or the editor binding.
-  - **Why low:** only agent-created diagrams from before the fix can be affected, and most likely none exist.
+  - **What:** round 11 normalises line endings when a source enters core, and the editor breaks lines only at `\n`, so what it shows and what's stored stay in step. A diagram an agent wrote with `\r\n` before that fix still holds its `\r`s, and so does one brought back from a backup or an old version. Each `\r` shows as a ␍ marker at the end of its line until it's edited away. End puts the caret after the marker, so text typed there leaves a lone `\r` mid-line. Pele counts that as a line break and the editor doesn't, so the preview splits the line there, and an error on any later line is reported and highlighted one line too low.
+  - **Where:** `packages/core/src/store.ts` (opening a diagram).
+  - **Why low:** only diagrams saved with CRLF before round 11 are affected, and most likely none exist.
   - **Fix:** if one turns up, normalise the text once when the diagram opens, as a system change.
+
+- **Core tests don't cover two parts of setStarred.**
+  - **What:** removing setStarred's `this.emit("library", …)` leaves this tab's cached rows stale (listDiagrams and counts still show 0 stars after a star), and all 111 core tests still pass. Only e2e `tags.spec.ts` (drag onto Starred) catches it. Removing the missing-id check passes both the core and webmcp suites, and `setStarred("nope", true)` then stops rejecting.
+  - **Where:** `packages/core/src/store.ts` (`setStarred`), `packages/core/src/store.test.ts`.
+  - **Why low:** the code is correct today, and an e2e test catches the larger of the two.
+  - **Fix:** add two core tests. First, star in one tab, then check listDiagrams, counts and the `diagram:<id>` event in the same tab. Second, check that `setStarred` rejects a missing id.
+
+- **The confirm dialog's close-focus guards aren't tested.**
+  - **What:** in `onCloseAutoFocus`, each of these can be removed and all 22 confirm tests still pass in all three browsers: `!getUi().confirm?.open`, `document.activeElement === document.body`, and `e.preventDefault()`. The new dialog's focus trap seems to absorb the old one's late focus call. The abort guard `state.confirm?.id === entry.id` isn't tested either. Separately, `answerConfirm`'s comment gives a reason for closing before resolving that has no effect: promise callbacks run in a later microtask anyway.
+  - **Where:** `apps/web/src/components/confirm-dialog.tsx`, `apps/web/src/lib/ui-state.ts` (`askConfirm`, `answerConfirm`), `e2e/confirm.spec.ts`.
+  - **Why low:** behaviour is correct in every case checked. The guards are defensive.
+  - **Fix:** add a test where an agent aborts after the person has answered and a second confirm is open (the second must stay open), plus one that moves focus elsewhere before the close. Otherwise drop the guards that can't be observed. Then trim `answerConfirm`'s comment to what the order actually does.
+
+- **An Escape within a frame of an agent's confirm can close Settings instead.**
+  - **What:** with Settings open, an Escape that lands within about 4 to 16 ms of an agent's confirm taking focus goes to Settings. Settings closes, and any unsaved Theming CSS goes with it. The confirm stays open. Radix works out `isHighestLayer` at render time, and Settings hasn't re-rendered yet. The same race could make the e2e test "Escape on an agent's confirm over Settings" flaky (it passed 6/6).
+  - **Where:** `apps/web/src/components/settings-dialog.tsx` (DialogContent).
+  - **Why low:** a person can't press a key within one frame of a dialog appearing.
+  - **Fix:** `onEscapeKeyDown={(e) => getUi().confirm?.open && e.preventDefault()}` on Settings' DialogContent.
+
+- **On touch tablets in the desktop layout, the left 4px of Show sidebar don't respond.**
+  - **What:** with the sidebar collapsed on a coarse pointer (iPad Pro 11 landscape, 1194×834), a tap at x=8 on Show sidebar (x=6 to 34) does nothing. Taps at x=11 and further right work. react-resizable-panels widens a 0px separator's hit area to ±10px on coarse pointers.
+  - **Where:** `apps/web/src/components/page.tsx` (the header that holds `SidebarToggle`).
+  - **Why low:** it's only a sliver of a 28px button, and only on touch tablets wide enough for the desktop layout.
+  - **Fix:** give the header more left padding on coarse pointers (e.g. `pointer-coarse:pl-3`), so the button starts past x=10.
 
 ## Refactors to consider (from the round 11 cleanup review)
 
