@@ -83,7 +83,8 @@ type Editable = Pick<DiagramDoc, "id" | "doc" | "text" | "meta">
 
 /**
  * One diagram, or several. A change to several is one batch (one library event, one index
- * message to other tabs) and skips any that are missing; a single missing one throws.
+ * message to other tabs) and skips any that are missing; a single missing one throws, except in
+ * purge, which has nothing left to remove.
  */
 export type Ids = DiagramId | DiagramId[]
 
@@ -656,7 +657,7 @@ export class Eos {
     this.emit("library")
   }
 
-  /** Imports a shared diagram, or returns the existing one if it's byte-for-byte the same. */
+  /** Imports a shared diagram, or returns an existing one with the same title and source (line endings aside, whatever its tags). */
   async importShare(shared: SharePayload): Promise<DiagramId> {
     const payload = { ...shared, source: lf(shared.source) }
     const existing = await this.findIdentical(payload.title, payload.source)
@@ -860,10 +861,9 @@ export class Eos {
     void Promise.all(opened).then(() => this.flushIndex())
   }
 
-  /** Runs a pending index refresh now (before closing a diagram, or when the page goes away). */
-  flushIndex(id?: DiagramId) {
-    for (const [key, pending] of [...this.indexTimers]) {
-      if (id !== undefined && key !== id) continue
+  /** Runs every pending index refresh now (once saveNow's writes are retried, when the page is hidden or goes away). */
+  flushIndex() {
+    for (const pending of [...this.indexTimers.values()]) {
       clearTimeout(pending.timer)
       pending.run()
     }

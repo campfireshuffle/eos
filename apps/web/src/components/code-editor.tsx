@@ -78,7 +78,7 @@ export function CodeEditor({
    * so concurrent edits merge instead of overwriting each other.
    */
   binding?: SourceBinding
-  /** Called with the full text after every change, local or not. */
+  /** Called with the full text after every change. Without a binding, a change that came in through `value` isn't reported back. */
   onChange?: (value: string) => void
   /** When given, undo/redo go to these (e.g. Loro); otherwise CodeMirror keeps its own history. */
   onUndo?: () => void

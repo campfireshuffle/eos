@@ -43,7 +43,7 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Fix:** wrap each part in `<span className="whitespace-nowrap">`, keep the `<wbr />` between parts, and drop `[overflow-wrap:anywhere]` if it's no longer needed.
 
 - **Diagrams already saved with CRLF line endings.**
-  - **What:** round 11 normalises line endings when a source enters core, and the editor breaks lines only at `\n`, so what it shows and what's stored stay in step. A diagram an agent wrote with `\r\n` before that fix still holds its `\r`s, and so does one brought back from a backup or an old version. Each `\r` shows as a ␍ marker at the end of its line until it's edited away. End puts the caret after the marker, so text typed there leaves a lone `\r` mid-line. Pele counts that as a line break and the editor doesn't, so the preview splits the line there, and an error on any later line is reported and highlighted one line too low.
+  - **What:** round 11 normalises line endings when a source enters core, and the editor breaks lines only at `\n`, so what it shows and what's stored stay in step. Text inserted by script (`document.execCommand("insertText")`, a route some extensions and IMEs use) skips the paste filter, so in Firefox and WebKit a `\r\n` that comes in that way is stored with its `\r`; the editor and the store still agree, and what follows is the same as below. A diagram an agent wrote with `\r\n` before that fix still holds its `\r`s, and so does one brought back from a backup or an old version. Each `\r` shows as a ␍ marker at the end of its line until it's edited away. End puts the caret after the marker, so text typed there leaves a lone `\r` mid-line. Pele counts that as a line break and the editor doesn't, so the preview splits the line there, and an error on any later line is reported and highlighted one line too low.
   - **Where:** `packages/core/src/store.ts` (opening a diagram).
   - **Why low:** only diagrams saved with CRLF before round 11 are affected, and most likely none exist.
   - **Fix:** if one turns up, normalise the text once when the diagram opens, as a system change.
@@ -71,6 +71,46 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `apps/web/src/components/page.tsx` (the header that holds `SidebarToggle`).
   - **Why low:** it's only a sliver of a 28px button, and only on touch tablets wide enough for the desktop layout.
   - **Fix:** give the header more left padding on coarse pointers (e.g. `pointer-coarse:pl-3`), so the button starts past x=10.
+
+- **On iPhone, a tag's Delete tag can't be reached.**
+  - **What:** a tag row's menu opens only on `contextmenu` or from the keyboard. iOS Safari fires no `contextmenu` on a long press: the row lifts as a native drag instead. So on an iPhone, Delete tag can't be reached.
+    - Change icon is still on the row's `#` button.
+    - Move to top level still works by dragging onto the "Move to top level" zone (checked in the iOS 27 Simulator).
+  - **Where:** `apps/web/src/components/tag-tree.tsx`, the TreeItem's `onContextMenu`.
+  - **Why low:** the same result is reachable: select the tag's cards (long-press one, tap the rest) and uncheck the tag in Tags. It's also an occasional action.
+  - **Fix:** the card's `useLongPress` doesn't carry over. In the simulator it opened the menu at about 450 ms, then iOS's drag lift at about 650 ms dismissed it, and turning the drag off would lose touch tag drag. What did work in the simulator: hold, then let go without moving, opens the menu, and hold and move still drags. Moving produces `pointercancel`, so no `pointerup` arrives. Use capture handlers, because React Aria's row handlers swallow the bubbling `onPointerUp`, and `onDragStart` isn't passed through:
+    ```tsx
+    const held = useRef<{ x: number; y: number; t: number } | null>(null)
+    // on the TreeItem, only when coarsePointer:
+    onPointerDownCapture={(e) => (held.current = e.pointerType === "touch" ? { x: e.clientX, y: e.clientY, t: e.timeStamp } : null)}
+    onPointerUpCapture={(e) => {
+      const h = held.current
+      held.current = null
+      if (!h || e.timeStamp - h.t < 500 || Math.hypot(e.clientX - h.x, e.clientY - h.y) > 10) return
+      if ((e.target as Element).closest("button")) return // the icon and chevron buttons keep their own press
+      const row = e.currentTarget as HTMLElement
+      const r = row.getBoundingClientRect()
+      setMenu({ tag: tag.path, x: r.left, y: r.bottom, from: row })
+    }}
+    ```
+    Check it on Android, where a long press also fires `contextmenu`. Test it in WebKit with iPhone emulation: dispatch a touch `pointerdown`, wait 600 ms, dispatch `pointerup` at the same point, and expect "Delete tag".
+
+- **A tab that starts while another tab stars a diagram misses the star until it reloads.**
+  - **What:** `Eos.create` loads the workspace, then awaits the settings read, and only then calls `listenToOtherTabs`. A workspace update another tab saves and broadcasts in that gap is never heard, and the workspace isn't read from disk again. Since round 11, rows don't carry the star, so `recheckRows` can't correct it.
+    - The tab's counts, its library and the Star button show no star, and a backup exported from it leaves the star out.
+    - Tag emoji had the same window before round 11.
+  - **Where:** `packages/core/src/store.ts`, `Eos.create` (lines 140-146) and `recheckRows`.
+  - **Why low:** it needs a star or emoji change to land within a few milliseconds of another tab starting up. It was only reproduced by holding the settings read open (0 of 20 natural interleavings). Disk is right, and a reload fixes it.
+  - **Fix:** open the channel before `loadDoc(db, WORKSPACE_ID)` and hold workspace messages until the doc exists. Or, more simply, re-import the workspace from disk in `recheckRows`. Repro: `r13/probes/probe2.test.ts`.
+
+- **The editor's shortcuts still act behind Settings or a confirm.**
+  - **What:** on a diagram page with Settings or a confirm open:
+    - ⌘= and ⌘− zoom the hidden preview, and block the browser's page zoom for the dialog.
+    - ⌘⇧L and ⌘⇧C overwrite the clipboard with a share link or the SVG.
+    - ⇧0 and ⇧1 fit or reset the hidden zoom.
+  - **Where:** `apps/web/src/components/editor.tsx`, `useShortcuts` (a window `keydown` with no modal check).
+  - **Why low:** nothing is lost. The changes are hidden and reversible, and page zoom is still in the browser menu.
+  - **Fix:** in `onKey`, return early when `getUi().settingsOpen || getUi().confirm?.open`, or when `e.target` is inside `[role=dialog], [role=alertdialog]`.
 
 ## Refactors to consider (from the round 11 cleanup review)
 
@@ -112,3 +152,9 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `apps/web/src/lib/router.ts:72-76`, `tag-tree.tsx:57, 213`, `packages/webmcp/src/index.ts:409-412, 503-505`.
   - **Why low:** every current caller does it.
   - **Fix:** have `renameTag` and `deleteTag` return the normalised `{ from, to }` they applied, or null when nothing changed, and pass that to `followTag` (cleanup #9).
+
+- **(Refactors) One line-ending rule.**
+  - **What:** `packages/webmcp/src/index.ts` (update_diagram's echo compare) repeats core's private `lf()` regex.
+  - **Where:** `packages/webmcp/src/index.ts:396`, `packages/core/src/store.ts` (`lf`).
+  - **Why low:** it's one line, and it's correct today. It would only drift if core's normalisation changed.
+  - **Fix:** the next time either is touched, have `editDiagram` report whether it merged anything (or export `lf`), and drop the copy.

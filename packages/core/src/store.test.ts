@@ -654,7 +654,7 @@ describe("editor binding", () => {
 })
 
 describe("library events and reads", () => {
-  /** Long enough for every tab to hear the others, and for typing's index refresh (300ms) to run. */
+  /** Long enough for every tab to hear the others, but not for typing's index refresh (300ms). */
   const settle = (ms = 50) => new Promise((r) => setTimeout(r, ms))
   const openCount = (eos: Eos) => (eos as unknown as { open: Map<string, unknown> }).open.size
   /** How many times each topic fires on `eos`. */
@@ -1451,7 +1451,7 @@ describe("share links", () => {
     expect(d.source).not.toContain("C-->D")
     expect(d.meta.title).toBe("Agent title")
 
-    // Newest first: agent undo, the person's undo, the agent's two edits (grouped), the person's edit, creation.
+    // Newest first: agent undo, the person's undo, the agent's two edits (grouped), then creation and the person's edit (one entry).
     const kinds = (await eos.history(id)).map((e) => [e.actor.kind, e.changes?.sort()])
     expect(kinds).toEqual([
       ["agent", ["undo"]],
