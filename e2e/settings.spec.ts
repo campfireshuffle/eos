@@ -85,3 +85,17 @@ test("saving one edited app variable keeps the other mode's defaults", async ({ 
     })
   await expect.poll(vars).toEqual(["#0e0e0e", "#ff0000"])
 })
+
+test("on a short screen, Theming's editors leave its headings and Save clear", async ({ page }) => {
+  await page.setViewportSize({ width: 844, height: 390 })
+  await page.goto("/#/")
+  await page.getByRole("button", { name: "Settings" }).click()
+  const dialog = page.getByRole("dialog", { name: "Settings" })
+  const appEditor = dialog.locator(".cm-editor", { has: page.getByRole("textbox", { name: "App theme CSS" }) })
+  await expect(appEditor).toBeVisible()
+  // Scrolls Save into view, then fails if anything else would take the click.
+  await dialog.getByRole("button", { name: "Save" }).click({ trial: true, timeout: 2000 })
+  const heading = (await dialog.getByRole("heading", { name: "Diagram theme" }).boundingBox())!
+  const editor = (await appEditor.boundingBox())!
+  expect(heading.y).toBeGreaterThanOrEqual(editor.y + editor.height)
+})
