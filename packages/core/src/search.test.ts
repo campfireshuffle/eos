@@ -1,5 +1,5 @@
 import { create, insertMultiple, search } from "@orama/orama"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { SAMPLES } from "./samples"
 import { searchIndex } from "./search"
@@ -48,6 +48,46 @@ describe("search", () => {
       if (JSON.stringify(found) !== JSON.stringify([title])) wrong.push(`${query} → ${JSON.stringify(found)}`)
     }
     expect(wrong).toEqual([])
+  })
+
+  it("finds a word inside a run of an unspaced script", async () => {
+    const titles = ["東京大阪", "ログインの流れ", "用户登录流程", "ระบบเข้าสู่ระบบ", "Plain login"]
+    expect(await titlesFound(titles, "大阪")).toEqual(["東京大阪"])
+    expect(await titlesFound(titles, "流れ")).toEqual(["ログインの流れ"])
+    expect(await titlesFound(titles, "登录")).toEqual(["用户登录流程"])
+    expect(await titlesFound(titles, "เข้าสู่")).toEqual(["ระบบเข้าสู่ระบบ"])
+  })
+
+  it("finds a run that is one word where the segmenter doesn't mark it as a word, as Firefox's doesn't", async () => {
+    vi.resetModules()
+    const Segmenter = Intl.Segmenter
+    vi.stubGlobal("Intl", {
+      ...Intl,
+      Segmenter: class extends Segmenter {
+        segment(input: string) {
+          return [...super.segment(input)].map((s) => ({ ...s, isWordLike: false })) as unknown as Intl.Segments
+        }
+      },
+    })
+    try {
+      const { searchIndex: firefoxIndex } = await import("./search")
+      const rows = ["東京", "日本語", "ภาษาไทย", "Plain login"].map((t, i) => row(`d${i}`, t))
+      const found = async (query: string) => (await (await firefoxIndex(rows))!(rows, query)).map((r) => r.title)
+      expect(await found("東京")).toEqual(["東京"])
+      expect(await found("日本語")).toEqual(["日本語"])
+      expect(await found("ไทย")).toEqual(["ภาษาไทย"])
+    } finally {
+      vi.unstubAllGlobals()
+      vi.resetModules()
+    }
+  })
+
+  it("allows no typo in words of a few characters: Chinese, Japanese, Korean", async () => {
+    const japanese = ["ログインの流れ", "注文の処理", "在庫の管理", "請求書作成", "社員研修計画"]
+    expect(await titlesFound(japanese, "請求書作成")).toEqual(["請求書作成"])
+    expect(await titlesFound(japanese, "在庫管理")).toEqual(["在庫の管理"])
+    expect(await titlesFound(["北京地图", "南京旅游"], "北京地图")).toEqual(["北京地图"])
+    expect(await titlesFound(["재고 관리", "주문 처리"], "재고 관리")).toEqual(["재고 관리"])
   })
 
   it("finds a word with or without its accents", async () => {

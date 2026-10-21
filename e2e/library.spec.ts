@@ -404,3 +404,21 @@ test("in a narrow content pane, the filter pill keeps clear of the controls and 
   await page.mouse.click(at.x, at.y)
   await expect(page).toHaveURL(/#\/$/)
 })
+
+// Firefox's word segmenter doesn't mark a run of Chinese, Japanese or Thai that is a single word as a word.
+test("Search finds a diagram by a single Chinese, Japanese or Thai word", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.goto("/#/")
+  await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+  for (const title of ["東京", "日本語", "ภาษาไทย"]) await tool(page, "create_diagram", { title, open: false })
+  const search = page.getByRole("textbox", { name: "Search diagrams" }).first()
+  for (const [query, title] of [
+    ["東京", "東京"],
+    ["日本語", "日本語"],
+    ["ไทย", "ภาษาไทย"],
+  ] as const) {
+    await search.fill(query)
+    await expect(page.locator("[data-card-id] .text-label")).toHaveText([title])
+  }
+})

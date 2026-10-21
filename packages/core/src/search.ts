@@ -9,33 +9,33 @@ const BUILD_SLICE = 100
 
 /** Scripts written without spaces between words, which only a segmenter can split. */
 const UNSPACED = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Thai}\p{sc=Lao}\p{sc=Khmer}\p{sc=Myanmar}]/u
+/** Scripts whose words are a character or a few long (these and Korean), so one typo makes another word. */
+const SHORT_WORDS = new RegExp(`${UNSPACED.source}|\\p{sc=Hangul}`, "u")
 /** Absent in older engines (Firefox before 125), where such a run stays one word. */
 const segmenter = typeof Intl.Segmenter === "function" ? new Intl.Segmenter(undefined, { granularity: "word" }) : null
+/** The words in a run of an unspaced script. Every piece holding a letter or digit is one: Firefox doesn't mark a run that is a single word as `isWordLike`. */
+const segment = (run: string) =>
+  segmenter ? [...segmenter.segment(run)].map((s) => s.segment).filter((s) => /[\p{L}\p{N}]/u.test(s)) : [run]
 /**
- * Words in any script, lowercased, with Latin accents dropped so "resume" finds "Résumé". Every
- * letter is part of a word, so "Straße" or "Привет" is one word, not fragments (Orama's own
- * tokenizer splits on letters outside A-Z and a few accented ones).
+ * Words in any script, lowercased, with accents (combining marks U+0300–036F) dropped so "resume"
+ * finds "Résumé". Every letter is part of a word, so "Straße" or "Привет" is one word, not
+ * fragments (Orama's own tokenizer splits on letters outside A-Z and a few accented ones).
  */
 const tokenizer = {
   language: "english",
   normalizationCache: new Map<string, string>(),
   tokenize: (raw: string) => {
     const words = raw.toLowerCase().split(/[^\p{L}\p{M}\p{N}_'-]+/u)
-    const split = words.flatMap((w) =>
-      segmenter && UNSPACED.test(w) ? [...segmenter.segment(w)].filter((s) => s.isWordLike).map((s) => s.segment) : [w]
+    const split = words.flatMap((w) => (UNSPACED.test(w) ? segment(w) : [w]))
+    const folded = split.map((w) =>
+      /[^\0-\x7f]/.test(w)
+        ? w
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .normalize("NFC")
+        : w
     )
-    return [
-      ...new Set(
-        split
-          .map((w) =>
-            w
-              .normalize("NFD")
-              .replace(/[\u0300-\u036f]/g, "")
-              .normalize("NFC")
-          )
-          .filter(Boolean)
-      ),
-    ]
+    return [...new Set(folded.filter(Boolean))]
   },
 }
 
@@ -66,7 +66,7 @@ export async function searchIndex(all: DiagramIndexRow[], stale: () => boolean =
       term: query,
       properties: ["title", "source"],
       boost: { title: TITLE_BOOST },
-      tolerance: query.length > 3 ? 1 : 0,
+      tolerance: query.length > 3 && !SHORT_WORDS.test(query) ? 1 : 0,
       limit: all.length,
     })) as { hits: { score: number; document: { id: string } }[] }
     // Equal scores keep the order the rows came in (the library's sort), not the index's.
