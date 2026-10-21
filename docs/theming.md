@@ -37,7 +37,7 @@ App CSS is a list of variable declarations. Only declarations are kept: selector
 | `--eos-line-active`       | Strong borders                                | `#aeaaa1` | `#3d3d3d` |
 | `--eos-body`              | Main text                                     | `#141413` | `#ebeae6` |
 | `--eos-muted`             | Secondary text, focus rings                   | `#57564f` | `#a3a3a0` |
-| `--eos-faint`             | Counts, hints, line numbers                   | `#696760` | `#8f8f8c` |
+| `--eos-faint`             | Hints, line numbers                           | `#696760` | `#8f8f8c` |
 | `--eos-primary`           | Primary buttons                               | `#141413` | `#fcf4e4` |
 | `--eos-on-primary`        | Text on primary buttons                       | `#fcf4e4` | `#0e0e0e` |
 | `--eos-champagne`         | Accent: stars, selection, drop targets, links | `#85652a` | `#e6cc9c` |
@@ -51,7 +51,17 @@ App CSS is a list of variable declarations. Only declarations are kept: selector
 | `--eos-syntax-number`     | Numbers                                       | `#6d3f92` | `#c7a6d9` |
 | `--eos-syntax-comment`    | Comments                                      | `#706e66` | `#858583` |
 
-Text sizes are variables too: `--eos-fs-caption`, `--eos-fs-body`, `--eos-fs-title` and `--eos-fs-heading` (12, 13, 15 and 18px on desktop; one step larger on phones).
+Text sizes are variables too. Each size but the code size has a matching `--eos-lh-*` line height, a fixed px value that doesn't follow the size, so override both together or wrapped lines overlap. The editor's line height is a ratio of the code size, so that one can change alone.
+
+| Size               | Line height        | Used for                         | Desktop     | Phones      |
+| ------------------ | ------------------ | -------------------------------- | ----------- | ----------- |
+| `--eos-fs-caption` | `--eos-lh-caption` | Captions, section labels, counts | 12px / 16px | 13px / 18px |
+| `--eos-fs-body`    | `--eos-lh-body`    | Body text, and labels at 500     | 14px / 20px | 16px / 22px |
+| `--eos-fs-title`   | `--eos-lh-title`   | Titles                           | 15px / 20px | 17px / 22px |
+| `--eos-fs-heading` | `--eos-lh-heading` | Headings                         | 18px / 24px | 20px / 26px |
+| `--eos-fs-code`    | (1.72 × the size)  | The source editor                | 13px        | 16px        |
+
+Body and label text also share `--eos-ls-body`, their letter spacing (-0.006em on desktop, -0.011em on phones). Phones here means screens under 768px wide, or touch screens without hover.
 
 ## Diagram theme
 
