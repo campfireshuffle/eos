@@ -170,7 +170,7 @@ export function Editor({ id }: { id: string }) {
       {previewing && (
         <Banner>
           <HistoryIcon className="size-4 text-muted-foreground" />
-          <span className="flex-1 truncate">
+          <span className="min-w-0 grow basis-48 truncate">
             Viewing the version from {formatWhen(previewing.at)} · {previewing.label}
           </span>
           <Button
@@ -293,7 +293,7 @@ export function Editor({ id }: { id: string }) {
 
 function Banner({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-2.5 rounded-lg border border-[var(--eos-line-hover)] bg-card px-3 py-1.5 text-body md:mr-2">
+    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 rounded-lg border border-[var(--eos-line-hover)] bg-card px-3 py-1.5 text-body md:mr-2">
       {children}
     </div>
   )

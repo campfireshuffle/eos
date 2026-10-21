@@ -302,3 +302,34 @@ test("a diagram an agent shrinks while it's panned can be brought back into view
   for (let i = 0; i < 20; i++) for (const key of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]) await page.keyboard.press(key)
   await expect.poll(async () => (await placement(page)).inside).toBe(true)
 })
+
+for (const [device, viewport] of [
+  ["a phone", { width: 390, height: 844 }],
+  ["a desktop", { width: 1280, height: 860 }],
+] as const) {
+  test(`on ${device} the version banner says in full which version is shown`, async ({ context }) => {
+    await withAgentTools(context)
+    const page = await context.newPage()
+    await page.setViewportSize(viewport)
+    const id = await newDiagram(page, "flowchart LR\n  A --> B")
+    await openEditor(page, id)
+    await cursorAtEndOf(page, 1)
+    await page.keyboard.type(" --> C")
+    await expect.poll(async () => (await tool<{ history: unknown[] }>(page, "get_diagram", { id, history: true })).history.length).toBe(2)
+    await page.getByRole("button", { name: "Version history" }).click()
+    await page.locator("[data-slot=popover-content] button").last().click()
+    const text = page.getByText("Viewing the version from")
+    await expect(text).toBeVisible()
+    expect(await text.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+    const banner = (await text.locator("..").boundingBox())!
+    const line = (await text.boundingBox())!
+    for (const name of ["Restore this version", "Back to latest"]) {
+      const b = (await page.getByRole("button", { name }).boundingBox())!
+      expect(
+        b.x >= banner.x && b.y >= banner.y && b.x + b.width <= banner.x + banner.width && b.y + b.height <= banner.y + banner.height
+      ).toBe(true)
+      // A desktop has room for it all on one row; a phone puts the buttons on their own.
+      expect(Math.abs(b.y + b.height / 2 - (line.y + line.height / 2)) < 2).toBe(device === "a desktop")
+    }
+  })
+}
