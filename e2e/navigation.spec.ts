@@ -150,26 +150,31 @@ test("a hidden sidebar takes no focus and isn't read out, and showing it brings 
       .filter((n) => !n.ignored && n.role?.value === "button" && ["Settings", "Hide sidebar"].includes(n.name?.value ?? ""))
       .map((n) => n.name!.value)
   }
-  /** Tabs from the top of a fresh page until `target` has focus, returning how many stops were in the sidebar. */
-  const sidebarStopsBefore = async (target: typeof show) => {
-    await page.reload()
-    await expect(target).toBeVisible()
-    let inSidebar = 0
-    for (let i = 0; i < 4 && !(await target.evaluate((el) => el === document.activeElement)); i++) {
-      await focusNext(page)
-      if (await sidebar.evaluate((el) => el.contains(document.activeElement))) inSidebar++
-    }
-    await expect(target).toBeFocused()
-    return inSidebar
-  }
+  const handle = page.getByRole("separator")
+  /** Whether the resize handle's pill is drawn: opaque, not covered and inside the window. */
+  const pillDrawn = () =>
+    handle.evaluate((el) => {
+      const pill = el.firstElementChild as HTMLElement
+      const r = pill.getBoundingClientRect()
+      const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)
+      const shown = getComputedStyle(pill).opacity === "1" && (hit === pill || hit === el)
+      return shown && r.width > 0 && r.height > 0 && r.left >= 0 && r.right <= innerWidth
+    })
 
   await page.getByRole("button", { name: "Hide sidebar" }).click()
   await expect(show).toBeVisible()
   await settings.evaluate((el: HTMLElement) => el.focus())
   await expect(settings).not.toBeFocused()
   if (isChromium) await expect.poll(readOut).toEqual([])
-  // From the top of the page, Tab reaches the visible Show sidebar without stopping on anything hidden in the sidebar.
-  expect(await sidebarStopsBefore(show)).toBe(0)
+  // From the top of a fresh page, Tab skips everything in the sidebar. Its first stop is the resize handle, which
+  // reopens the sidebar with the arrow keys and shows its pill at the window's edge; the next is Show sidebar.
+  await page.reload()
+  await expect(show).toBeVisible()
+  await focusNext(page)
+  await expect(handle).toBeFocused()
+  await expect.poll(pillDrawn).toBe(true)
+  await focusNext(page)
+  await expect(show).toBeFocused()
 
   await show.click()
   await expect(settings).toBeVisible()
