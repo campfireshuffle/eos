@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { dateBucket, relativeTime } from "./grouping"
 
@@ -30,5 +30,34 @@ describe("relativeTime agrees with the Date heading", () => {
 
   it("counts an edit made earlier today in hours, however many", () => {
     expect(seen(oct(15, 0, 20), oct(15, 23, 55))).toEqual({ card: "23h ago", heading: "Today" })
+  })
+})
+
+describe("relativeTime agrees with the Date heading across a daylight-saving change", () => {
+  // Sets process.env.TZ, which Node applies to dates made from then on, and puts it back afterwards.
+  beforeAll(() => {
+    vi.stubEnv("TZ", "America/Los_Angeles")
+  })
+  afterAll(() => {
+    vi.unstubAllEnvs()
+  })
+
+  /** A local time in Los Angeles, read once TZ is set. */
+  const at = (month: number, day: number, hour: number, minute = 0) => new Date(2026, month, day, hour, minute).getTime()
+
+  it("runs in Los Angeles time", () => {
+    expect(new Date(2026, 9, 1).getTimezoneOffset()).toBe(420)
+  })
+
+  it("calls an edit made late on the Saturday before clocks go forward, seen Monday, 2 days ago", () => {
+    expect(seen(at(2, 7, 23, 30), at(2, 9, 10))).toEqual({ card: "2 days ago", heading: "This month" })
+  })
+
+  it("calls an edit made just after midnight on the day clocks go back, seen next morning, Yesterday", () => {
+    expect(seen(at(10, 1, 0, 30), at(10, 2, 10))).toEqual({ card: "Yesterday", heading: "Yesterday" })
+  })
+
+  it("counts an edit made 24 hours earlier on the 25-hour day in hours, under Today", () => {
+    expect(seen(at(10, 1, 0, 30), at(10, 1, 23, 50))).toEqual({ card: "24h ago", heading: "Today" })
   })
 })

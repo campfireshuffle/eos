@@ -48,13 +48,15 @@ export function groupRows(rows: DiagramIndexRow[], group: LibraryGroup, sort: Li
 export function dateBucket(ms: number): [string, string] {
   const now = new Date()
   const d = new Date(ms)
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-  const day = 86_400_000
-  const startOfWeek = startOfDay - ((now.getDay() + 6) % 7) * day
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
-  const startOfYear = new Date(now.getFullYear(), 0, 1).getTime()
+  // Calendar dates, not 24-hour steps, so a day made 23 or 25 hours long by daylight saving still starts at midnight.
+  const [y, m, date] = [now.getFullYear(), now.getMonth(), now.getDate()]
+  const startOfDay = new Date(y, m, date).getTime()
+  const startOfYesterday = new Date(y, m, date - 1).getTime()
+  const startOfWeek = new Date(y, m, date - ((now.getDay() + 6) % 7)).getTime()
+  const startOfMonth = new Date(y, m, 1).getTime()
+  const startOfYear = new Date(y, 0, 1).getTime()
   if (ms >= startOfDay) return ["0", "Today"]
-  if (ms >= startOfDay - day) return ["1", "Yesterday"]
+  if (ms >= startOfYesterday) return ["1", "Yesterday"]
   if (ms >= startOfWeek) return ["2", "This week"]
   if (ms >= startOfMonth) return ["3", "This month"]
   if (ms >= startOfYear) return ["4", "This year"]
@@ -71,10 +73,11 @@ export function relativeTime(ms: number): string {
   if (min < 60) return `${min}m ago`
   // Whole hours: rounding would make 23h40m "24h", and so "Yesterday" for an edit made today.
   const h = Math.floor(min / 60)
-  if (h < 24) return `${h}h ago`
   // Calendar days, as dateBucket counts them. Rounding absorbs a day made 23 or 25 hours long by daylight saving.
   const d = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(ms).setHours(0, 0, 0, 0)) / 86_400_000)
-  if (d <= 1) return "Yesterday"
+  // Hours while it's still the same day, which on a 25-hour day can be "24h ago".
+  if (h < 24 || d === 0) return `${h}h ago`
+  if (d === 1) return "Yesterday"
   if (d < 7) return `${d} days ago`
   return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }
