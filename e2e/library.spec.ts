@@ -358,3 +358,28 @@ for (const viewport of [
     expect(Math.max(...bottoms)).toBeLessThanOrEqual(top)
   })
 }
+
+test("in a narrow content pane, the filter pill keeps clear of the controls and its ✕ removes the filter", async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 700 })
+  await page.goto("/#/?starred=1")
+  const remove = page.getByRole("link", { name: "Remove Starred filter" })
+  await expect(remove).toBeVisible()
+  // The sidebar dragged as wide as it goes (420px), leaving the content pane about 360px.
+  const handle = (await page.getByRole("separator").first().boundingBox())!
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + 300)
+  await page.mouse.down()
+  await page.mouse.move(700, handle.y + 300, { steps: 10 })
+  await page.mouse.up()
+  await expect.poll(async () => Math.round((await page.locator("aside").boundingBox())!.width)).toBeGreaterThanOrEqual(410)
+
+  const pill = (await remove.boundingBox())!
+  const group = (await page.getByLabel("Group by").boundingBox())!
+  const apart =
+    pill.x + pill.width <= group.x || group.x + group.width <= pill.x || pill.y + pill.height <= group.y || group.y + group.height <= pill.y
+  expect(apart).toBe(true)
+  // Nothing is drawn over the ✕, so a click there lands on it.
+  const at = { x: pill.x + pill.width / 2, y: pill.y + pill.height / 2 }
+  expect(await remove.evaluate((el, { x, y }) => el.contains(document.elementFromPoint(x, y)), at)).toBe(true)
+  await page.mouse.click(at.x, at.y)
+  await expect(page).toHaveURL(/#\/$/)
+})

@@ -42,7 +42,7 @@ export function PanelHeader({ title, children }: { title?: ReactNode; children?:
         useContext(Scrolled) ? "border-border" : "border-transparent"
       )}
     >
-      <div className="flex min-w-0 flex-1 items-center text-label">{title}</div>
+      <div className="flex min-w-0 grow items-center text-label">{title}</div>
       {children}
     </header>
   )
