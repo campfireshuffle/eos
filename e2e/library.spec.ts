@@ -37,6 +37,27 @@ test("an agent's confirm doesn't replace one the person has open", async ({ cont
   await expect(dialog).toContainText("Move this diagram to Deleted?")
 })
 
+test("a search in Deleted that matches nothing says so, and an empty Deleted says it's empty", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.goto("/#/?deleted=1")
+  await expect(page.getByText("Nothing deleted.")).toBeVisible()
+
+  await page.goto("/#/")
+  await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+  await tool(page, "create_diagram", { title: "Old roadmap", open: false })
+  await page.locator("[data-card-id]", { hasText: "Old roadmap" }).click({ button: "right" })
+  await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Delete" }).click()
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click()
+  await expect(page.locator("[data-card-id]", { hasText: "Old roadmap" })).toHaveCount(0)
+
+  await page.goto("/#/?deleted=1")
+  await expect(page.locator("[data-card-id]", { hasText: "Old roadmap" })).toBeVisible()
+  await page.getByRole("textbox", { name: "Search diagrams" }).first().fill("zzz")
+  await expect(page.getByText("No diagrams match.")).toBeVisible()
+  await expect(page.getByText("Nothing deleted.")).toBeHidden()
+})
+
 /** The selection bar's count, which reads 0 while the bar is hidden. */
 const selectionCount = (page: Page) => page.getByText(/^\d+ selected$/)
 
