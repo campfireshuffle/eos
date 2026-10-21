@@ -1,0 +1,176 @@
+import { expect, test, type Page } from "@playwright/test"
+
+import { editorText, expectEditor, newDiagram, openEditor, storedText, tool, withAgentTools } from "./helpers"
+
+// Where text someone else inserts lands relative to the person's caret and line: caret spot × insertion × source
+// (the cells `runs` picks), then edits an agent merges from an older version while the person types. One rule covers them all: the
+// caret, and what the person types, stay with the text of their own line.
+
+const SPOTS = {
+  "start of an unindented line": { line: "A --> B", col: 0 },
+  "start of an indented line, before its indent": { line: "  A --> B", col: 0 },
+  "start of an indented line's text": { line: "  A --> B", col: 2 },
+  "middle of a line": { line: "  A --> B", col: 3 },
+  "end of a line": { line: "  A --> B", col: 9 },
+  "empty line": { line: "", col: 0 },
+  "end of the last line": { line: "  A --> B", col: 9, last: true },
+  "empty last line": { line: "", col: 0, last: true },
+} as Record<string, { line: string; col: number; last?: boolean }>
+
+const INSERTS = {
+  "a line after (\\n…)": "\n  X --> Y",
+  "a line before (…\\n)": "  X --> Y\n",
+  "a line between (\\n…\\n)": "\n  X --> Y\n",
+  "a blank line (\\n)": "\n",
+  "an indented blank line (\\n  )": "\n  ",
+  "text (no newline)": "X",
+} as const
+
+const doc = (line: string, last = false) => (last ? `graph TD\n${line}` : `graph TD\n${line}\n  C --> D`)
+const HEAD = "graph TD\n".length
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
+/** How far past the insertion's start the caret ends up: someone else's new line ("\n…") goes after the caret unless the caret is at the start of its line's text; anything else, and whatever the person's own undo or redo puts back, goes before it. */
+function expectedCaret(line: string, col: number, insert: string, own: boolean) {
+  const textStart = line.search(/\S/)
+  const atTextStart = textStart >= 0 && col <= textStart
+  return !own && insert.startsWith("\n") && !atTextStart ? 0 : insert.length
+}
+
+async function caretAt(page: Page, pos: number) {
+  await page.locator(".cm-content").click()
+  await page.keyboard.press("ControlOrMeta+Home")
+  for (let i = 0; i < pos; i++) await page.keyboard.press("ArrowRight")
+}
+
+/** Inserts `text` at `pos` as the editor's own edit (a paste, a drop): CodeMirror's view, found from its DOM. */
+async function insertAt(page: Page, pos: number, text: string) {
+  await page.evaluate(
+    ([at, t]) => {
+      const content = document.querySelector(".cm-content") as unknown as {
+        cmTile: { root: { view: { dispatch(spec: unknown): void } } }
+      }
+      content.cmTile.root.view.dispatch({ changes: { from: at, insert: t }, userEvent: "input.paste" })
+    },
+    [pos, text] as const
+  )
+}
+
+// A restore remounts the editor (it shows the past version read-only first), so the caret isn't carried over: not in the matrix.
+const SOURCES = ["another tab", "an agent", "own undo", "own redo"] as const
+
+/**
+ * The cells of spot × insertion × source that run. Someone else's line break at the start of a line (or of its text)
+ * is where the caret rule has a case of its own, so every one of those runs, as does an agent's line added above
+ * before an indent (the diff slides it to the line start). Otherwise each source meets each spot once, the insertion
+ * rotating so that it also meets each insertion, plus the own-edit cell that shows undo and redo aren't treated as
+ * someone else's. A cell not run follows the same rule as a neighbour that runs, except an agent's line added in
+ * the middle of a line, which Loro's diff slides a character off the caret (contrived, so not run).
+ */
+function runs(spot: number, insert: number, source: number) {
+  const spotName = Object.keys(SPOTS)[spot]!
+  const text = Object.values(INSERTS)[insert]!
+  const by = SOURCES[source]
+  if ((by === "another tab" || by === "an agent") && spotName.startsWith("start of") && text.startsWith("\n")) return true
+  if (by === "an agent" && spotName === "start of an indented line, before its indent" && text === "  X --> Y\n") return true
+  if (by === "own redo" && spotName === "end of a line" && text === "\n  X --> Y") return true
+  return insert === (spot + source) % Object.keys(INSERTS).length
+}
+
+test.beforeEach(async ({ context }) => withAgentTools(context))
+
+for (const [spot, [spotName, { line, col, last }]] of Object.entries(SPOTS).entries()) {
+  for (const [i, [insertName, insert]] of Object.entries(INSERTS).entries()) {
+    for (const [s, source] of SOURCES.entries()) {
+      if (!runs(spot, i, s)) continue
+      test(`${source}: ${insertName} at the caret at the ${spotName}`, async ({ context }) => {
+        const own = source.startsWith("own")
+        const before = doc(line, last)
+        const p = HEAD + col
+        const after = before.slice(0, p) + insert + before.slice(p)
+        const q = p + expectedCaret(line, col, insert, own)
+        const expected = after.slice(0, q) + "Z" + after.slice(q)
+        const a = await context.newPage()
+        const id = await newDiagram(a, source === "own undo" ? after : before)
+        await openEditor(a, id)
+        if (source === "another tab") {
+          const b = await context.newPage()
+          await openEditor(b, id)
+          await caretAt(a, p)
+          await caretAt(b, p)
+          await insertAt(b, p, insert)
+        } else if (source === "an agent") {
+          await caretAt(a, p)
+          await tool(a, "update_diagram", { id, source: after })
+        } else if (source === "own undo") {
+          await caretAt(a, p)
+          for (let i = 0; i < insert.length; i++) await a.keyboard.press("Shift+ArrowRight")
+          await a.keyboard.press("Backspace")
+          await expectEditor(a, before)
+          await a.waitForTimeout(1000)
+          await a.keyboard.press("ControlOrMeta+z")
+        } else {
+          await caretAt(a, p)
+          await insertAt(a, p, insert)
+          await expectEditor(a, after)
+          await a.waitForTimeout(1000)
+          await a.keyboard.press("ControlOrMeta+z")
+          await expectEditor(a, before)
+          await a.keyboard.press("ControlOrMeta+Shift+Z")
+        }
+        await expectEditor(a, after)
+        await a.keyboard.type("Z")
+        await expectEditor(a, expected)
+        expect(await storedText(a, id)).toBe(expected)
+      })
+    }
+  }
+}
+
+// baseVersion merges: the person types "ob" at the spot after the agent reads; the agent then adds a line below
+// the caret's line, a line above it, a blank line above it, or text at the spot. Then the person types "!".
+const CHANGES = {
+  "a line below": (l: string, _c: number) => ({ line: l, below: "  X --> Y" }),
+  "a line above": (l: string, _c: number) => ({ line: l, above: "  X --> Y" }),
+  "a blank line above": (l: string, _c: number) => ({ line: l, above: "" }),
+  "an indented blank line above": (l: string, _c: number) => ({ line: l, above: "  " }),
+  "text at the spot": (l: string, c: number) => ({ line: l.slice(0, c) + "X" + l.slice(c) }),
+} as const
+
+for (const [spotName, { line, col, last }] of Object.entries(SPOTS)) {
+  for (const [changeName, change] of Object.entries(CHANGES)) {
+    test(`merge: the person types at the ${spotName} while an agent adds ${changeName}`, async ({ context }) => {
+      const a = await context.newPage()
+      const id = await newDiagram(a, doc(line, last))
+      const tail = last ? [] : ["  C --> D"]
+      await openEditor(a, id)
+      const { version } = await tool<{ version: string }>(a, "get_diagram", { id })
+      await caretAt(a, HEAD + col)
+      await a.keyboard.type("ob")
+      const c = change(line, col) as { line: string; above?: string; below?: string }
+      const agentLines = [
+        "graph TD",
+        ...(c.above !== undefined ? [c.above] : []),
+        c.line,
+        ...(c.below !== undefined ? [c.below] : []),
+        ...tail,
+      ]
+      await tool(a, "update_diagram", { id, source: agentLines.join("\n"), baseVersion: version })
+      await a.keyboard.type("!")
+      // The person's text stays at its spot on its line; text the agent put at the same spot goes before it.
+      const typed = (l: string, extra = "") => l.slice(0, col) + extra + "ob!" + l.slice(col)
+      const personLine = changeName === "text at the spot" ? typed(line, "X") : typed(line)
+      const expected = [
+        "graph TD",
+        ...(c.above !== undefined ? [c.above] : []),
+        personLine,
+        ...(c.below !== undefined ? [c.below] : []),
+        ...tail,
+      ].join("\n")
+      // A blank line added next to an empty line: either of the two is the person's.
+      const alsoFine = line === "" && c.above === "" ? ["graph TD", personLine, "", ...tail].join("\n") : expected
+      await expect.poll(() => editorText(a)).toMatch(new RegExp(`^(${esc(expected)}|${esc(alsoFine)})$`))
+      expect([expected, alsoFine]).toContain(await storedText(a, id))
+    })
+  }
+}

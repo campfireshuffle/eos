@@ -119,7 +119,8 @@ export function CodeEditor({
           EditorState.readOnly.of(readOnly),
           EditorView.editable.of(!readOnly),
           // Escape arms CodeMirror's Escape-then-Tab exit (see the hint below), whether or not it also collapses a
-          // selection; it returns false, so the default keymap still collapses one.
+          // selection; it returns false, so the default keymap still collapses one. In a dialog, onEscape below
+          // takes Escape first and arms the exit itself, and the selection stays.
           keymap.of([{ key: "Escape", run: (v) => (v.setTabFocusMode(2000), false) }]),
           onUndo
             ? // Undo goes through Loro: the person's own stack, which skips agent edits.
@@ -183,12 +184,16 @@ export function CodeEditor({
     // Changes from elsewhere arrive as edits, in the coordinates of the text the editor shows.
     const unbind = binding?.onChange((changes, own) => {
       const apply = () => {
-        // Text inserted at the caret by someone else stays on the far side of it from the line the caret is on:
-        // a line added after the caret's text ("\n…") stays after the caret, and anything else (a line added above,
-        // text within the line) goes before it, so the caret keeps to the text it was next to. Text the person's
-        // own undo, redo or restore puts back goes before the caret, as CodeMirror's undo does.
+        // The caret stays with the text of its own line. A line someone else adds at the caret ("\n…") goes after
+        // it, unless the caret is at the start of its line's text, where the line is added above; anything else
+        // they insert there (a line above, text within the line) goes before it. Text the person's own undo, redo
+        // or restore puts back goes before the caret, as CodeMirror's undo does.
         const set = v.state.changes(changes)
-        const assoc = (at: number) => (!own && changes.some((c) => c.from === at && c.to === at && c.insert.startsWith("\n")) ? -1 : 1)
+        const assoc = (at: number) => {
+          if (own || !changes.some((c) => c.from === at && c.to === at && c.insert.startsWith("\n"))) return 1
+          const line = v.state.doc.lineAt(at)
+          return at <= line.from + line.text.search(/\S/) ? 1 : -1
+        }
         const selection = EditorSelection.create(
           v.state.selection.ranges.map((r) => r.map(set, assoc(r.head))),
           v.state.selection.mainIndex

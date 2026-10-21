@@ -167,6 +167,11 @@ describe("Eos store", () => {
       ["A --> B", "A --> B\nC --> D", "A --> Z", "A --> Z\nC --> D"],
       ["ab", "abX", "abY", "abYX"],
       ["a😀", "a😀X", "a😀Y", "a😀YX"],
+      // A line added after a line keeps off what the person typed at that line's end, or on that line if it was empty.
+      ["graph TD\n  A --> B", "graph TD\n  A --> Bob", "graph TD\n  A --> B\n  B --> C", "graph TD\n  A --> Bob\n  B --> C"],
+      ["graph TD\n\n  C --> D", "graph TD\nob\n  C --> D", "graph TD\n  X --> Y\n\n  C --> D", "graph TD\n  X --> Y\nob\n  C --> D"],
+      // A line added above an indented line goes before what the person typed before its indent.
+      ["graph TD\n  A --> B", "graph TD\nob  A --> B", "graph TD\n  X --> Y\n  A --> B", "graph TD\n  X --> Y\nob  A --> B"],
     ] as const
     for (const [base, person, edit, merged] of cases) {
       const id = await eos.createDiagram({ source: base })

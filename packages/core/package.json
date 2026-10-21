@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "@orama/orama": "3.1.18",
-    "diff": "^9.0.0",
     "idb": "^8.0.4",
     "loro-crdt": "^1.16.4",
     "pele": "^1.6.0",

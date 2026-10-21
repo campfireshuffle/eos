@@ -1,5 +1,4 @@
-import { diffChars } from "diff"
-import { type Frontiers, LoroDoc, type LoroMap, type LoroText, UndoManager, type Value } from "loro-crdt"
+import { type Delta, type Frontiers, LoroDoc, type LoroMap, type LoroText, UndoManager, type Value } from "loro-crdt"
 import * as z from "zod/mini"
 
 import { fromBase64, toBase64 } from "./base64"
@@ -306,7 +305,7 @@ export class Eos {
       // Title and tags are details (see mutate); the source change below stays undoable.
       commit(d.doc, actor, { details: true })
       if (fromBase) applyEdits(d.text, fromBase)
-      else if (edit.source !== undefined) d.text.update(edit.source)
+      else if (edit.source !== undefined) applyEdits(d.text, diffText(sourceOf(d), edit.source))
     })
   }
 
@@ -360,15 +359,7 @@ export class Eos {
           if (batch.by === "local" && batch.origin === EDITOR_ORIGIN) return
           for (const event of batch.events) {
             if (event.diff.type !== "text") continue
-            const changes: TextChange[] = []
-            let pos = 0
-            for (const op of event.diff.diff) {
-              if (op.retain !== undefined) pos += op.retain
-              else if (op.delete !== undefined) {
-                changes.push({ from: pos, to: pos + op.delete, insert: "" })
-                pos += op.delete
-              } else if (op.insert !== undefined) changes.push({ from: pos, to: pos, insert: op.insert })
-            }
+            const changes = changesOf(event.diff.diff)
             if (changes.length) listener(changes, batch.by === "local" && batch.origin === actorOrigin(USER))
           }
         }),
@@ -1101,12 +1092,56 @@ function frontiersOf(d: Editable, version: string): Frontiers {
   return frontiers
 }
 
+/** A Loro text delta as edits in the coordinates of the text before it, in order. */
+function changesOf(delta: Delta<string>[]): TextChange[] {
+  const changes: TextChange[] = []
+  let pos = 0
+  for (const op of delta) {
+    if (op.retain !== undefined) pos += op.retain
+    else if (op.delete !== undefined) {
+      changes.push({ from: pos, to: pos + op.delete, insert: "" })
+      pos += op.delete
+    } else if (op.insert !== undefined) changes.push({ from: pos, to: pos, insert: op.insert })
+  }
+  return changes
+}
+
+/**
+ * The edits that turn `a` into `b`: Loro's minimal diff (as `LoroText.update` makes it), with each
+ * inserted line starting at the start of a line where it can. An insertion that holds a line break
+ * and ends with the text before it can as well go that much earlier, so a line added above an
+ * indented line goes before the indent ("  X\n" before "  A"), not after it ("X\n  " before "A").
+ */
+function diffText(a: string, b: string): TextChange[] {
+  const doc = new LoroDoc()
+  const text = doc.getText("source")
+  text.insert(0, a)
+  doc.commit()
+  const from = doc.frontiers()
+  text.update(b)
+  doc.commit()
+  const diff = doc.diff(from, doc.frontiers(), false)[0]?.[1]
+  const edits = diff?.type === "text" ? changesOf(diff.diff) : []
+  return edits.map((e, i) => {
+    if (e.from !== e.to || !e.insert.includes("\n")) return e
+    // Back over the text before it while that matches the insertion's end, not into an earlier edit.
+    const floor = edits[i - 1]?.to ?? 0
+    let k = 0
+    while (e.from - k > floor && a[e.from - k - 1] !== "\n" && a[e.from - k - 1] === e.insert[e.insert.length - k - 1]) k++
+    const at = e.from - k
+    if (k === 0 || (at > 0 && a[at - 1] !== "\n") || k >= e.insert.length) return e
+    return { from: at, to: at, insert: a.slice(at, e.from) + e.insert.slice(0, -k) }
+  })
+}
+
 /**
  * The edits that turn the text at version `base` into `source`, each placed where that
- * spot of text is now. Loro cursors map positions from the old text to the current one,
- * so changes made since `base` elsewhere in the text are kept. A removed range is pinned on
- * its own first and last characters, and an insertion on the character before it, so neither
- * takes or lands past text typed since next to it.
+ * spot of text is now. They're the edits an edit without a base makes (diffText). Loro
+ * cursors map positions from the old text to the current one, so changes made since `base`
+ * elsewhere in the text are kept. A removed range is pinned on its own first and last
+ * characters, and an insertion on the character before it, so neither takes or lands past
+ * text typed since next to it. A line added after an old line's text ("\n…") goes after
+ * what has been typed at the end of that line since, so it never takes that text.
  */
 function editsFromBase(d: Editable, base: string, source: string): TextChange[] {
   const old = d.doc.forkAt(frontiersOf(d, base)).getText("source")
@@ -1125,21 +1160,17 @@ function editsFromBase(d: Editable, base: string, source: string): TextChange[] 
     const back = /[\udc00-\udfff]/.test(text[i - 1]!) && i > 1 ? 2 : 1
     return gapAfter(i - back, text.slice(i - back, i))
   }
-  const edits: TextChange[] = []
-  let pos = 0
-  for (const part of diffChars(text, source)) {
-    if (part.added) edits.push({ from: insertAt(pos), to: insertAt(pos), insert: part.value })
-    else {
-      if (part.removed) {
-        // By code point: a cursor can't sit on the second half of a surrogate pair.
-        const last = [...part.value].at(-1)!
-        const from = gapBefore(pos)
-        edits.push({ from, to: Math.max(from, gapAfter(pos + part.value.length - last.length, last)), insert: "" })
-      }
-      pos += part.value.length
+  return diffText(text, source).map(({ from, to, insert }) => {
+    if (insert) {
+      const afterLine = insert.startsWith("\n") && (from === text.length || text[from] === "\n")
+      const at = afterLine ? gapBefore(from) : insertAt(from)
+      return { from: at, to: at, insert }
     }
-  }
-  return edits
+    // By code point: a cursor can't sit on the second half of a surrogate pair.
+    const last = [...text.slice(from, to)].at(-1)!
+    const start = gapBefore(from)
+    return { from: start, to: Math.max(start, gapAfter(to - last.length, last)), insert: "" }
+  })
 }
 
 /** Runs `fn` and commits what it did as `actor`: one step on `undo`, if given (see Eos.mutate). */
