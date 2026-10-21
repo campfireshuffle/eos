@@ -196,7 +196,9 @@ Compact a diagram once its log has more than 200 entries, checked after each wri
 To compact, in one `readwrite` transaction over `snapshots` + `updates` (+ `diagrams`, only when a row is given):
 
 ```ts
-doc.importBatch([savedSnapshot, ...loggedUpdates]) // both read inside the transaction
+// both read inside the transaction; one at a time, since a batch that brings in new changes empties an open doc's undo stacks
+if (savedSnapshot) doc.import(savedSnapshot.bytes)
+for (const u of loggedUpdates) doc.import(u.bytes)
 await tx.objectStore("snapshots").put({ id, bytes: doc.export({ mode: "snapshot" }), savedAt: Date.now() }) // full history kept
 // then delete the log rows read above
 ```
