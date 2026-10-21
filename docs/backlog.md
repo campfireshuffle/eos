@@ -215,7 +215,7 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Fix:** if it recurs, wait for the first confirm to have closed (`toBeHidden`) instead of a fixed 50 ms before opening the second.
 
 - **A heavy agent rewrite can drop what the person typed on the line it rewrites.**
-  - **What:** in a `baseVersion` merge, when the agent deletes or rewrites the line the person has typed on since the base, the person's new characters can be lost (for example, base `x\n\t`, the person adds `#P#` after `x`, the agent rewrites the whole text). Both the jsdiff-based merge before round 16 and the Loro-based merge after it lose text in some of these cases, but in different ones. Round 16's fuzzing found the total number of clearly wrong merges went down.
+  - **What:** in a `baseVersion` merge, when the agent deletes or rewrites the line the person has typed on since the base, the person's new characters can be lost (for example, base `x\n\t`, the person adds `#P#` after `x`, the agent rewrites the whole text). Both the jsdiff-based merge before round 16 and the Loro-based merge after it lose text in some of these cases, but in different ones. Round 16's fuzzing found the total number of clearly wrong merges went down. Since round 18 the merge diffs by lines. Only a line the agent changes or removes (or moves, see below) can lose what the person typed on it.
   - **Where:** `packages/core/src/store.ts`, `editsFromBase` and `diffText`.
   - **Why low:** the agent's deletion overlaps the person's edit, so there is no clearly right answer. The text is still in history, and the person can undo.
   - **Fix:** if wanted, keep insertions the person made inside a range the agent deletes, and place them after the agent's replacement.
@@ -257,6 +257,44 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `packages/core/src/search.ts` (the mixed branch), `packages/core/src/search.test.ts`.
   - **Why low:** it only changes ranking or adds near matches. Every right result is still found.
   - **Fix:** compute the Latin part's tolerance from the Latin words alone. Add a test that a CJK word in a mixed query stays exact, and one that "登录 api" doesn't match "apx".
+
+- **An agent that moves the person's line can drop what they typed on it.**
+  - **What:** `diffText` diffs by lines, so a reordering must call one of the lines involved "removed and added". When that's the line the person typed on since `baseVersion`, their typing is lost. Without a base, their caret leaves the line. Example: base `graph TD\n  P52 --> C\n  G --> E` with the person typing at the end of `P52 --> C`, and the agent sending `graph TD\n  G --> E\n  P52 --> C`.
+    - HEAD before round 18 did the same by character coincidence. In round 18's fuzzing the line diff kept the person's text in 34 such cases where HEAD lost it, and lost it in 26 where HEAD kept it.
+    - The webmcp auditor's "an agent's undo of a moved line puts the person's typing on another line" is the same shape. Nothing is lost there.
+  - **Where:** `packages/core/src/store.ts`, `diffText` and `editsFromBase`.
+  - **Why low:** which of two swapped lines "moved" is ambiguous. The text is in history, and agent undo reverts the move.
+  - **Fix:** if wanted, in `editsFromBase`, treat a removed line that comes back unchanged elsewhere (unique in both texts) as a move. Insert the line's current text, from its start through its line break as mapped now, instead of the agent's copy.
+
+- **A person's edit that deletes the line break an agent's edit is anchored on can join the agent's line onto theirs.**
+  - **What:** with `baseVersion`, the person replaces the last line by deleting from the line break before it (`"\nL341"` becomes `"\nL342 …"`), and the agent adds a line above that last line. The agent's `"L343\n"` is anchored after the deleted line break, so the result is `"…L342 …L343\n"`. The r17 `r17merge` fuzzer at GAP=1 gives 14 of 452 such cases. They're identical before and after round 18.
+  - **Where:** `packages/core/src/store.ts`, `editsFromBase` (`insertAt` on a deleted character).
+  - **Why low:** the person's edit removed the agent's anchor, so the two edits overlap. The editor rarely selects across the previous line break to retype a line, and nothing is lost.
+  - **Fix:** when `insertAt`'s character was deleted since the base and the insertion is whole lines (it ends with `"\n"`), insert at the start of the line now at that spot.
+
+- **Rewriting a very large source with an unrelated text freezes the tab.**
+  - **What:** an agent replacing a 69 KB, 2,500-line diagram with a 2,200-line unrelated one spends about 46 s in Loro's character diff, on the main thread. That was the same before round 18. Round 18's line diff made deleting or reordering lines fast (3.3 s → 17 ms, 8.7 s → 62 ms). A rewrite that changes every line keeps one big changed hunk.
+  - **Where:** `packages/core/src/store.ts`, `charDiff`.
+  - **Why low:** only an agent's whole-text rewrite of an unusually large diagram triggers it. The edit is correct when it lands.
+  - **Fix:** pass `{ timeoutMs: 500 }` to `text.update` in `charDiff`. Loro then throws "Update timeout", so catch it and return the hunk as one removal plus one insertion. That's a few lines, and only that hunk loses the character diff.
+
+- **Settings gives no confirmation after Import backup or Delete all.**
+  - **What:** a successful Import backup in Settings › Storage, or Delete all once its confirm is accepted, shows and announces nothing. Only the library behind the dialog changes.
+  - **Where:** `apps/web/src/components/settings-dialog.tsx` (Storage).
+  - **Why low:** the result is visible in the library, and errors are shown. WCAG 4.1.3 doesn't strictly apply, since no status message is shown.
+  - **Fix:** a one-line status under the buttons ("Imported 12 diagrams." / "Deleted all diagrams.") in a `role="status"` region.
+
+- **Dialog, sheet and menu animations ignore reduced motion.**
+  - **What:** the Radix plus tw-animate enter and exit animations (100–200 ms fades, zoom-95, a 10-unit slide) run under `prefers-reduced-motion: reduce`. The app's own sidebar and preview animations respect it.
+  - **Where:** `packages/ui` components (dialog, sheet, popover, dropdown).
+  - **Why low:** they're short and small. This is WCAG 2.3.3, which is AAA.
+  - **Fix:** add `motion-reduce:animate-none` (or a global `@media (prefers-reduced-motion: reduce)` rule zeroing `animation-duration`) to those components.
+
+- **Destructive buttons have a faint focus ring.**
+  - **What:** Delete all diagrams and the confirm's Delete show focus as `ring-destructive/20` plus a 1 px red border. It's visible, but fainter than other buttons' rings.
+  - **Where:** `packages/ui/src/components/button.tsx` (the `destructive` variant), stock shadcn.
+  - **Why low:** the indicator is visible, and the border meets non-text contrast.
+  - **Fix:** use `focus-visible:ring-destructive/50`, or the shared `ring-ring`.
 
 ## Refactors to consider (from the round 11 cleanup review)
 
@@ -319,16 +357,8 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
     - drop the keymap entry;
     - run the two Escape tests and accessibility.spec in all three browsers.
 
-- **diffText: two untested or redundant parts.**
-  - **What:**
-    - Setting the `floor` guard to 0 passes every store, search and caret test. Before round 17's fix, fuzzing found inputs where it then corrupts the text (`a = "😀B\n\n \n\n\n\nB\n \n A😀\nb \n\n\n \n Aab "`, `b = "😀B\n\n A\n😀\nB\n \n A😀\nb \n\n\n \n ab "`).
-    - The split's `!lineEnd` condition changes no result: a mid-line split gives two insertions at one spot, which `applyEdits`, `insertAt` and the editor's `place()` all join again.
-  - **Where:** `packages/core/src/store.ts`, `diffText`.
-  - **Why low:** behaviour is correct today.
-  - **Fix:** add a round-trip property test to store.test.ts: for random pairs (newlines, indents, emoji, repeats), `editDiagram` with no base gives exactly `b`. Drop `!lineEnd`.
-
 - **caret.spec.ts reaches CodeMirror through an internal.**
-  - **What:** `insertAt` finds the view through `.cm-content`'s `cmTile.root.view`, which `@codemirror/view` doesn't document (it's at `^6.43`). A minor update that renames it would fail about 50 tests per engine.
+  - **What:** `insertAt` finds the view through `.cm-content`'s `cmTile.root.view`, which `@codemirror/view` doesn't document (it's at `^6.43`). A minor update that renames it would fail about 50 caret tests on Chromium, and the 2 or 3 of the five every-engine checks that use it on Firefox and WebKit.
   - **Where:** `e2e/caret.spec.ts`, `insertAt`.
   - **Why low:** it's test-only, and it would fail loudly rather than pass wrongly.
   - **Fix:** dispatch a synthetic paste `ClipboardEvent` on `.cm-content`, which goes through the editor's real paste path, or expose the view on the element in dev builds only.
