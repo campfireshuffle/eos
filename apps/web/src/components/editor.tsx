@@ -417,8 +417,9 @@ function useShortcuts(actions: ReturnType<typeof useExportActions>) {
                     ? () => requestZoom("actual")
                     : null
       if (!action) return
-      // ⌘ shortcuts would otherwise zoom or act on the whole page.
-      if (mod) e.preventDefault()
+      // ⌘ shortcuts would otherwise zoom or act on the whole page, and Safari types ⇧0/⇧1's ")" and "!"
+      // into the source editor when it still holds the selection, even though it isn't focused.
+      e.preventDefault()
       action()
     }
     window.addEventListener("keydown", onKey)

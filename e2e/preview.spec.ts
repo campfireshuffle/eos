@@ -500,3 +500,26 @@ test("rotating a phone keeps showing the past version, and leaving the diagram e
   await expect(page.locator(".cm-content")).toHaveAttribute("contenteditable", "true")
   await expect(banner).toHaveCount(0)
 })
+
+test("⇧0 and ⇧1 zoom without typing into the source, wherever focus was left", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const source = chain(2)
+  const id = await newDiagram(page, source)
+  await openEditor(page, id)
+  await expect.poll(() => zoom(page)).toBe(2)
+  // Keyboard only: Safari keeps the source's selection after Escape and Tab, and used to type ")" and "!" into it.
+  await cursorAtEndOf(page, 1)
+  await page.keyboard.press("Escape")
+  await page.getByLabel("Diagram preview").focus()
+  await page.keyboard.press("Shift+Digit0")
+  await expect.poll(() => zoom(page)).toBe(1)
+  await page.keyboard.press("Shift+Digit1")
+  await expect.poll(() => zoom(page)).toBe(2)
+  // After a button that doesn't keep focus in Safari (Star), so focus is on the body.
+  await cursorAtEndOf(page, 1)
+  await page.getByRole("button", { name: "Star", exact: true }).click()
+  await page.keyboard.press("Shift+Digit0")
+  await expect.poll(() => zoom(page)).toBe(1)
+  expect(await storedText(page, id)).toBe(source)
+})
