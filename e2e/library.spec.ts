@@ -327,3 +327,34 @@ test("going back right after typing leaves the search in the entry it was typed 
   const q = new URLSearchParams(new URL(page.url()).hash.split("?")[1]).get("q")
   await expect(search).toHaveValue(q!)
 })
+
+for (const viewport of [
+  { width: 1280, height: 800 },
+  { width: 390, height: 844 },
+]) {
+  test(`the last row of cards scrolls clear of the selection bar at ${viewport.width}px wide`, async ({ context }) => {
+    await withAgentTools(context)
+    const page = await context.newPage()
+    await page.setViewportSize(viewport)
+    await page.goto("/#/")
+    await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+    for (let i = 0; i < 13; i++) await tool(page, "create_diagram", { title: `Diagram number ${i}`, open: false })
+    const cards = page.locator("[data-card-id]")
+    await expect(cards.filter({ hasText: "Diagram number 12" })).toBeVisible()
+
+    await cards.first().click({ button: "right" })
+    await expect(page.getByText("1 selected")).toBeVisible()
+    const bar = page.getByRole("toolbar", { name: "Selection" })
+    // Measure once the bar has slid in.
+    await bar.evaluate((el) => Promise.all(el.parentElement!.getAnimations().map((a) => a.finished)))
+    // The library scrolls in its own pane on desktop and with the page on a phone; scroll both to the end.
+    await page.evaluate(() => {
+      const scroller = document.querySelector(".eos-library-scroller")!
+      scroller.scrollTop = scroller.scrollHeight
+      window.scrollTo(0, document.documentElement.scrollHeight)
+    })
+    const top = (await bar.boundingBox())!.y
+    const bottoms = await cards.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().bottom))
+    expect(Math.max(...bottoms)).toBeLessThanOrEqual(top)
+  })
+}

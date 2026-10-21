@@ -157,9 +157,10 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
             </NativeSelect>
           </div>
         </PanelHeader>
+        {/* The bottom padding lets the last row scroll clear of the selection bar floating over it (bar, offset and a gap). */}
         <Marquee
           scrollerRef={scroller}
-          className="eos-library-scroller flex flex-1 flex-col gap-5 p-4 md:min-h-0 md:overflow-y-auto md:p-6"
+          className="eos-library-scroller flex flex-1 flex-col gap-5 p-4 pb-[calc(6rem+env(safe-area-inset-bottom))] md:min-h-0 md:overflow-y-auto md:p-6 md:pb-24"
         >
           {rows && rows.length === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 text-body text-muted-foreground">
