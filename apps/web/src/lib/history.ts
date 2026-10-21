@@ -55,6 +55,12 @@ export function initHistory() {
   window.addEventListener("hashchange", stamp)
   // Back or forward between entries with the same URL fires popstate alone.
   window.addEventListener("popstate", () => location.hash === hash && stamp())
+  // A plain click on a link to the page already shown does nothing. Firefox would otherwise replace the entry
+  // with an unstamped one, without an event.
+  document.addEventListener("click", (e) => {
+    const a = e.target instanceof Element ? e.target.closest("a") : null
+    if (a?.href === location.href && !a.target && e.button === 0 && !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) e.preventDefault()
+  })
 }
 
 /** Calls back after each navigation, once the entry is stamped and the route has changed. */

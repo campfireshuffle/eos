@@ -206,3 +206,20 @@ test("with the sidebar hidden, the window's left edge still scrolls the page, an
   await page.mouse.up()
   await expect(page.locator(".eos-shell")).toHaveAttribute("data-collapsed", "false")
 })
+
+// Firefox replaces the entry with an unstamped one when a link to the page already shown is clicked.
+test("clicking a link to the page already shown keeps in-app Back inside Eos, and the search in the URL", async ({ page }) => {
+  await page.goto("about:blank")
+  await page.goto("/#/?starred=1")
+  const sidebar = page.locator("aside")
+  await sidebar.getByRole("link", { name: /^Starred/ }).click() // Starred while on Starred
+  await sidebar.getByRole("link", { name: "Eos" }).click()
+  await sidebar.getByRole("link", { name: "Eos" }).click() // the logo while on the library
+  await page.getByRole("textbox", { name: "Search diagrams" }).fill("flow")
+  await expect(page).toHaveURL(/#\/\?q=flow$/)
+  await page.getByRole("button", { name: "Back" }).click()
+  await expect(page).toHaveURL(/#\/\?starred=1$/)
+  // The first Eos entry: going back would leave Eos, so there's no Back.
+  await expect(page.getByRole("button", { name: "Back" })).toBeDisabled()
+  await expect(page.getByRole("button", { name: "Forward" })).toBeEnabled()
+})
