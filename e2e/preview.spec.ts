@@ -213,6 +213,21 @@ test("a slightly shaky click doesn't pan a zoomed preview either", async ({ cont
   expect(await left()).toBe(before)
 })
 
+test("a zoomed preview is laid out at its zoom once it settles, not stretched", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await opened(page)
+  for (let i = 0; i < 4; i++) await tool(page, "set_view", { zoom: "in" })
+  // While the view moves the stage scales the SVG; at rest it's drawn at the size it's shown, so the browser draws it sharp.
+  await expect
+    .poll(() =>
+      page
+        .locator(".pele-preview svg")
+        .evaluate((svg) => Math.abs(svg.getBoundingClientRect().width - (svg.parentElement as HTMLElement).offsetWidth))
+    )
+    .toBeLessThan(1)
+})
+
 /** The preview's cursor. */
 const cursor = (page: Page) => page.locator("[data-preview-frame]").evaluate((el) => getComputedStyle(el).cursor)
 
