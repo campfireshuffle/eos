@@ -9,15 +9,27 @@
 
 @theme inline {
   --font-heading: var(--font-sans);
-  /* Type scale: four sizes, one step larger on phones and touch screens (see :root below). */
+  /* Type scale: five roles, one step larger on phones and touch screens (see :root below).
+     Each role carries its size, line height, tracking (after Inter's dynamic metrics) and default weight. */
   --text-caption: var(--eos-fs-caption);
-  --text-caption--line-height: 1.4;
+  --text-caption--line-height: var(--eos-lh-caption);
+  --text-caption--letter-spacing: 0.005em;
+  --text-caption--font-weight: 450;
   --text-body: var(--eos-fs-body);
-  --text-body--line-height: 1.5;
+  --text-body--line-height: var(--eos-lh-body);
+  --text-body--letter-spacing: var(--eos-ls-body);
+  --text-label: var(--eos-fs-body);
+  --text-label--line-height: var(--eos-lh-body);
+  --text-label--letter-spacing: var(--eos-ls-body);
+  --text-label--font-weight: 500;
   --text-title: var(--eos-fs-title);
-  --text-title--line-height: 1.35;
+  --text-title--line-height: var(--eos-lh-title);
+  --text-title--letter-spacing: -0.011em;
+  --text-title--font-weight: 600;
   --text-heading: var(--eos-fs-heading);
-  --text-heading--line-height: 1.25;
+  --text-heading--line-height: var(--eos-lh-heading);
+  --text-heading--letter-spacing: -0.017em;
+  --text-heading--font-weight: 600;
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -146,7 +158,8 @@
     @apply bg-background text-body text-foreground;
     /* Type settings from pele.run */
     font-family: var(--font-sans);
-    line-height: 1.55;
+    /* Tracking belongs to the role utilities, so text that only inherits gets none. */
+    letter-spacing: normal;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -157,20 +170,41 @@
   textarea {
     font-family: inherit;
   }
+  /* Code and diagrams keep their own metrics: tracking from a surrounding role would change how Pele measures text. */
+  code,
+  pre,
+  .font-mono,
+  .cm-editor,
+  .pele-preview,
+  .pele-thumb {
+    letter-spacing: normal;
+  }
 }
 
 /* Type scale. 16px body on touch screens also stops iOS zooming into focused fields. */
 :root {
   --eos-fs-caption: 12px;
-  --eos-fs-body: 13px;
+  --eos-lh-caption: 16px;
+  --eos-fs-body: 14px;
+  --eos-lh-body: 20px;
+  --eos-ls-body: -0.006em;
   --eos-fs-title: 15px;
+  --eos-lh-title: 20px;
   --eos-fs-heading: 18px;
+  --eos-lh-heading: 24px;
+  --eos-fs-code: 13px;
 }
 @media (max-width: 767px), (hover: none) and (pointer: coarse) {
   :root {
     --eos-fs-caption: 13px;
+    --eos-lh-caption: 18px;
     --eos-fs-body: 16px;
+    --eos-lh-body: 22px;
+    --eos-ls-body: -0.011em;
     --eos-fs-title: 17px;
+    --eos-lh-title: 22px;
     --eos-fs-heading: 20px;
+    --eos-lh-heading: 26px;
+    --eos-fs-code: 16px;
   }
 }

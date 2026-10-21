@@ -61,7 +61,7 @@ export function EmojiGrid({ current, onChoose }: { current: string | null; onCho
         onClick={() => onChoose(null)}
         className="flex items-center gap-2 px-1 text-left text-body text-muted-foreground hover:text-foreground"
       >
-        <span className="font-mono text-body">#</span> Use default icon
+        <span>#</span> Use default icon
       </button>
     </div>
   )

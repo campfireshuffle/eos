@@ -20,7 +20,7 @@ export function PageHeader({ title, children }: { title?: ReactNode; children?: 
     <header className="flex h-10 shrink-0 items-center gap-1.5 pr-2 pl-1.5">
       <SidebarToggle />
       <HistoryNav />
-      <div className="contents text-body font-medium">{title}</div>
+      <div className="contents text-label">{title}</div>
       <div className="flex-1" />
       {children}
     </header>
@@ -42,7 +42,7 @@ export function PanelHeader({ title, children }: { title?: ReactNode; children?:
         useContext(Scrolled) ? "border-border" : "border-transparent"
       )}
     >
-      <div className="flex min-w-0 flex-1 items-center text-body">{title}</div>
+      <div className="flex min-w-0 flex-1 items-center text-label">{title}</div>
       {children}
     </header>
   )

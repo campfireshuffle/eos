@@ -175,6 +175,7 @@ export function Editor({ id }: { id: string }) {
           </span>
           <Button
             size="xs"
+            className="text-label"
             onClick={async () => {
               await eos.restoreVersion(id, previewing.version)
               setUi({ preview: null })
@@ -182,7 +183,7 @@ export function Editor({ id }: { id: string }) {
           >
             Restore this version
           </Button>
-          <Button size="xs" variant="ghost" onClick={() => setUi({ preview: null })}>
+          <Button size="xs" variant="ghost" className="text-label" onClick={() => setUi({ preview: null })}>
             Back to latest
           </Button>
         </Banner>
@@ -191,7 +192,7 @@ export function Editor({ id }: { id: string }) {
         <Banner>
           <Trash2 className="size-4 text-muted-foreground" />
           <span className="flex-1">This diagram is deleted.</span>
-          <Button size="xs" onClick={() => eos.restoreDiagram(id)}>
+          <Button size="xs" className="text-label" onClick={() => eos.restoreDiagram(id)}>
             <RotateCcw /> Restore
           </Button>
         </Banner>
@@ -356,7 +357,7 @@ function IconButton({
       </TooltipTrigger>
       <TooltipContent>
         {label}
-        {shortcut && <span className="ml-2 text-muted-foreground">{shortcut}</span>}
+        {shortcut && <span className="ml-2 text-background/70">{shortcut}</span>}
       </TooltipContent>
     </Tooltip>
   )

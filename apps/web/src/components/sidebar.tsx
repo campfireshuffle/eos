@@ -28,7 +28,7 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
           <span className="flex size-8 items-center justify-center rounded-lg bg-[var(--eos-primary)] dark:bg-transparent">
             <img src="/logo.png" alt="" className="size-6 object-contain dark:size-7" />
           </span>
-          <span className="text-heading font-semibold tracking-tight">Eos</span>
+          <span className="text-heading">Eos</span>
         </a>
         <button
           type="button"
@@ -59,7 +59,7 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
         />
       )}
 
-      {!!tags?.length && <div className="px-2.5 pt-4 pb-1 text-caption font-medium text-[var(--eos-faint)]">Tags</div>}
+      {!!tags?.length && <div className="px-2.5 pt-4 pb-1 text-caption font-medium text-muted-foreground">Tags</div>}
       {!!tags?.length && <TagTree tags={tags} selected={selectedTag} sort={home?.sort} group={home?.group} />}
 
       {!tags?.length && <div className="flex-1" />}
@@ -75,7 +75,7 @@ export function Sidebar({ route, activeTag }: { route: Route; activeTag?: TagPat
 
 /** One row style for every sidebar item: links (Starred, Deleted) and the Settings button. */
 const NAV_ITEM =
-  "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-body text-muted-foreground outline-none transition-colors max-md:h-10 hover:bg-accent/30 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring [&_svg]:size-4 [&_svg]:shrink-0"
+  "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-label text-muted-foreground outline-none transition-colors max-md:h-10 hover:bg-accent/30 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring [&_svg]:size-4 [&_svg]:shrink-0"
 
 function NavItem({
   href,
@@ -109,15 +109,11 @@ function NavItem({
         e.preventDefault()
         onDropIds(readDraggedIds(e.dataTransfer))
       }}
-      className={cn(
-        NAV_ITEM,
-        active && "bg-accent font-medium text-foreground",
-        over && "outline outline-1 outline-[var(--eos-champagne)]"
-      )}
+      className={cn(NAV_ITEM, active && "bg-accent text-foreground", over && "outline outline-1 outline-[var(--eos-champagne)]")}
     >
       <span className="flex size-4 items-center justify-center">{icon}</span>
       <span className="flex-1 truncate">{label}</span>
-      {count !== undefined && <span className="text-caption text-[var(--eos-faint)] tabular-nums">{count}</span>}
+      {count !== undefined && <span className="text-caption text-muted-foreground tabular-nums">{count}</span>}
     </a>
   )
 }

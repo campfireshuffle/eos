@@ -27,7 +27,7 @@ const errorLine = StateField.define<DecorationSet>({
 
 const theme = EditorView.theme(
   {
-    "&": { height: "100%", fontSize: "var(--eos-fs-body)", backgroundColor: "transparent" },
+    "&": { height: "100%", fontSize: "var(--eos-fs-code)", backgroundColor: "transparent" },
     ".cm-scroller": { fontFamily: "var(--font-mono)", lineHeight: "1.72", padding: "14px 0" },
     ".cm-content": { caretColor: "var(--eos-body)" },
     // Opaque, since code scrolled sideways passes under it: the surface the editor sits on (a card by default).

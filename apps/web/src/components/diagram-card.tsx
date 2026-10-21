@@ -95,7 +95,7 @@ export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramInde
       <Thumbnail id={row.id} source={row.sourceText} updatedAt={row.updatedAt} />
       <div className="flex flex-col gap-1.5 border-t border-border px-3.5 pt-3 pb-3.5">
         <div className="flex items-center gap-2">
-          <span className="flex-1 truncate text-body font-medium">{row.title}</span>
+          <span className="flex-1 truncate text-label">{row.title}</span>
           {row.starred === 1 && <Star className="size-3.5 fill-[var(--eos-champagne)] text-[var(--eos-champagne)]" />}
         </div>
         <div className="flex items-center gap-2 text-caption text-muted-foreground">

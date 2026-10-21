@@ -179,7 +179,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
                   {g.label && (
                     <h2 className="flex items-baseline gap-2 text-caption font-medium text-muted-foreground">
                       {g.label}
-                      <span className="text-[var(--eos-faint)] tabular-nums">{g.rows.length}</span>
+                      <span className="text-caption tabular-nums">{g.rows.length}</span>
                     </h2>
                   )}
                   <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">

@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright"
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Locator, type Page } from "@playwright/test"
 
 import { focusNext, openEditor, tool, withAgentTools } from "./helpers"
 
@@ -233,6 +233,21 @@ test.describe("keyboard", () => {
     await page.keyboard.press("Tab")
     await expect(editor).not.toBeFocused()
   })
+})
+
+test("type roles: sidebar rows are 14px medium on desktop and 16px on phones, dialog titles semibold", async ({ context, page }) => {
+  await withAgentTools(context)
+  await library(page)
+  const font = (l: Locator) => l.evaluate((el) => [getComputedStyle(el).fontSize, getComputedStyle(el).fontWeight])
+  await expect.poll(() => font(page.getByRole("link", { name: /^Starred/ }))).toEqual(["14px", "500"])
+  await page.getByRole("button", { name: "Settings" }).click()
+  expect(await font(page.getByRole("dialog", { name: "Settings" }).locator("[data-slot=dialog-title]"))).toEqual(["15px", "600"])
+  await page.keyboard.press("Escape")
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole("button", { name: "Show sidebar" }).click()
+  const drawer = page.getByRole("dialog", { name: "Navigation" })
+  await expect.poll(() => font(drawer.getByRole("link", { name: /^Starred/ }))).toEqual(["16px", "500"])
 })
 
 test.describe("touch", () => {

@@ -136,9 +136,9 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
               }}
               className={({ isDropTarget, isDragging, isFocusVisible, isHovered }) =>
                 cn(
-                  "mb-0.5 flex h-8 shrink-0 cursor-default items-center rounded-md px-2.5 text-body text-muted-foreground outline-none select-none [-webkit-touch-callout:none] last:mb-0 max-md:h-10",
+                  "mb-0.5 flex h-8 shrink-0 cursor-default items-center rounded-md px-2.5 text-label text-muted-foreground outline-none select-none [-webkit-touch-callout:none] last:mb-0 max-md:h-10",
                   isHovered && "bg-accent/30 text-foreground",
-                  tag.path === selected && "bg-accent font-medium text-foreground",
+                  tag.path === selected && "bg-accent text-foreground",
                   isDropTarget && DROP_HIGHLIGHT,
                   isDragging && "opacity-50",
                   isFocusVisible && "ring-1 ring-ring ring-inset"
@@ -171,7 +171,7 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
                         <ChevronRight className={cn("size-3.5 transition-transform", isExpanded && "rotate-90")} />
                       </AriaButton>
                     )}
-                    <span className="shrink-0 text-caption text-[var(--eos-faint)] tabular-nums">{tag.count}</span>
+                    <span className="shrink-0 text-caption text-muted-foreground tabular-nums">{tag.count}</span>
                   </div>
                 )}
               </TreeItemContent>

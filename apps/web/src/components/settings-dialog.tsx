@@ -38,7 +38,7 @@ export function SettingsDialog() {
       >
         {/* On phones the close button sits at the right of this row, so the tabs scroll in the space to its left. */}
         <nav className="flex shrink-0 border-border bg-background/55 max-md:border-b max-md:py-2 max-md:pr-11 max-md:pl-2 md:w-[232px] md:flex-col md:border-r md:px-2.5 md:pt-[18px]">
-          <DialogTitle className="px-2.5 pb-3 text-title font-semibold max-md:sr-only">Settings</DialogTitle>
+          <DialogTitle className="px-2.5 pb-3 text-title max-md:sr-only">Settings</DialogTitle>
           <div className="flex min-w-0 gap-0.5 [scrollbar-width:none] max-md:items-center max-md:overflow-x-auto max-md:[mask-image:linear-gradient(to_right,black_calc(100%-16px),transparent)] md:flex-col">
             {TABS.map(({ id, label, icon: Icon }) => (
               <button
@@ -47,24 +47,18 @@ export function SettingsDialog() {
                 aria-current={tab === id || undefined}
                 onClick={() => setUi({ settingsTab: id })}
                 className={cn(
-                  "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-body text-muted-foreground outline-none hover:bg-accent/30 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring max-md:h-9 max-md:px-2",
-                  tab === id && "bg-accent font-medium text-foreground"
+                  "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-label text-muted-foreground outline-none hover:bg-accent/30 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring max-md:h-9 max-md:px-2",
+                  tab === id && "bg-accent text-foreground"
                 )}
               >
                 <Icon className="size-4 max-md:hidden" />
-                {/* The hidden medium-weight copy reserves the selected width, so selecting a tab never shifts the others. */}
-                <span className="grid">
-                  <span className="col-start-1 row-start-1">{label}</span>
-                  <span aria-hidden className="invisible col-start-1 row-start-1 font-medium">
-                    {label}
-                  </span>
-                </span>
+                {label}
               </button>
             ))}
           </div>
         </nav>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto px-7 pt-[22px] pb-5 max-md:px-4 max-md:pt-4">
-          <h2 className="text-heading font-light">{TABS.find((t) => t.id === tab)?.label}</h2>
+          <h2 className="text-heading">{TABS.find((t) => t.id === tab)?.label}</h2>
           {tab === "theming" && <Theming />}
           {tab === "mcp" && <Mcp />}
           {tab === "storage" && <Storage />}
@@ -103,7 +97,7 @@ function Theming() {
     <div className="flex min-h-0 flex-1 flex-col gap-6">
       <section className="flex min-h-0 flex-1 flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-          <h3 className="text-body font-medium whitespace-nowrap">App theme</h3>
+          <h3 className="text-label whitespace-nowrap">App theme</h3>
           <a
             href="https://github.com/campfireshuffle/eos/blob/main/docs/theming.md"
             target="_blank"
@@ -139,7 +133,7 @@ function Theming() {
 
       <section className="flex min-h-0 flex-1 flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-          <h3 className="text-body font-medium whitespace-nowrap">Diagram theme</h3>
+          <h3 className="text-label whitespace-nowrap">Diagram theme</h3>
           <a
             href="https://pele.run/theming"
             target="_blank"
@@ -278,7 +272,7 @@ function ChromeUrl({ url }: { url: string }) {
 function Step({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-2">
-      <h3 className="text-body font-medium">{title}</h3>
+      <h3 className="text-label">{title}</h3>
       {children}
     </section>
   )
@@ -295,7 +289,9 @@ function CodeBlock({ label, code, language }: { label: string; code: string; lan
         </Button>
       </div>
       <div className="flex text-body [&_.cm-editor]:h-auto">
-        <Suspense fallback={<pre className="overflow-x-auto px-3 py-2.5 font-mono text-caption">{code}</pre>}>
+        <Suspense
+          fallback={<pre className="overflow-x-auto px-3 py-2.5 font-mono text-[length:var(--eos-fs-code)] leading-[1.72]">{code}</pre>}
+        >
           <CodeEditor value={code} language={language} label={label} readOnly gutter={false} />
         </Suspense>
       </div>
@@ -367,7 +363,7 @@ function About() {
       <p className="-mt-3 text-body text-muted-foreground">Eos is a local-first Mermaid editor.</p>
       {/* On phones the question takes its own line and the two buttons share the next. */}
       <div className="flex flex-wrap items-center gap-2">
-        <span className="basis-full text-body font-medium sm:flex-1 sm:basis-0">Enjoying Eos?</span>
+        <span className="basis-full text-label sm:flex-1 sm:basis-0">Enjoying Eos?</span>
         <Button variant="outline" size="sm" className="max-sm:flex-1" asChild>
           <a href="https://github.com/campfireshuffle/eos" target="_blank" rel="noreferrer">
             <Star /> Star on GitHub
@@ -380,7 +376,7 @@ function About() {
         </Button>
       </div>
       <div className="flex flex-col gap-1.5">
-        <span className="text-caption font-medium text-[var(--eos-faint)]">Built with</span>
+        <span className="text-caption font-medium text-muted-foreground">Built with</span>
         {credits.map(([name, href]) => (
           <a key={name} href={href} target="_blank" rel="noreferrer" className="w-fit text-body hover:underline">
             {name}
