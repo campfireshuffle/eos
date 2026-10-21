@@ -99,3 +99,23 @@ test("on a short screen, Theming's editors leave its headings and Save clear", a
   const editor = (await appEditor.boundingBox())!
   expect(heading.y).toBeGreaterThanOrEqual(editor.y + editor.height)
 })
+
+test("resetting the theme after a save shows the default app CSS again", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "light" })
+  await page.goto("/#/")
+  await page.getByRole("button", { name: "Settings" }).click()
+  const dialog = page.getByRole("dialog", { name: "Settings" })
+  await dialog.getByRole("radio", { name: "Light" }).click()
+  const line = dialog.locator(".cm-line", { hasText: "--eos-line:" })
+  await line.click()
+  await page.keyboard.press("End")
+  for (let i = 0; i < "#dddad3;".length; i++) await page.keyboard.press("Backspace")
+  await page.keyboard.type("#ff0000;")
+  await dialog.getByRole("button", { name: "Save" }).click()
+  const lineVar = () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--eos-line").trim())
+  await expect.poll(lineVar).toBe("#ff0000")
+  await dialog.getByRole("button", { name: "Reset to default" }).click()
+  await expect.poll(lineVar).toBe("#dddad3")
+  // In WebKit the editor used to keep #ff0000, which then became the baseline, so the next Save did nothing.
+  await expect(line).toContainText("--eos-line: #dddad3;")
+})

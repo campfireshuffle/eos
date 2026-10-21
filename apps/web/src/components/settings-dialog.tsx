@@ -11,7 +11,7 @@ import { useEos, useSettings, useStorageUsage } from "@/lib/eos"
 import { useRestoreFocus } from "@/lib/restore-focus"
 import { useCopy } from "@/lib/use-copy"
 import { download } from "@/lib/files"
-import { changedVars, currentAppCss, DEFAULT_DIAGRAM_CSS } from "@/lib/theme"
+import { applyTheme, changedVars, currentAppCss, DEFAULT_DIAGRAM_CSS } from "@/lib/theme"
 import type { CodeLanguage } from "@/lib/mermaid-language"
 import { askConfirm, setUi, useUi } from "@/lib/ui-state"
 
@@ -152,13 +152,14 @@ function Theming() {
           size="sm"
           onClick={() => {
             setDiagramCss(DEFAULT_DIAGRAM_CSS)
-            void save({ customCss: null, diagramCss: null }).then(() =>
-              setTimeout(() => {
-                const next = currentAppCss()
-                appDefault.current = next
-                setAppCss(next)
-              })
-            )
+            void save({ customCss: null, diagramCss: null }).then(() => {
+              // Apply the reset theme before reading it: the page may not have re-rendered with it yet
+              // (WebKit runs a 0ms timer before React's render), and a stale read would become the baseline.
+              applyTheme(eos.getSettings().theme)
+              const next = currentAppCss()
+              appDefault.current = next
+              setAppCss(next)
+            })
           }}
         >
           <RotateCcw /> Reset to default
