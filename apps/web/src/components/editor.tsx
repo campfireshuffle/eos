@@ -285,7 +285,8 @@ export function Editor({ id }: { id: string }) {
               />
               {result && !result.ok && (
                 <div className="absolute bottom-5 left-1/2 flex w-max max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-2xl border border-[var(--eos-line-active)] bg-accent px-3 py-1.5 text-center text-caption text-muted-foreground">
-                  <TriangleAlert className="size-3.5 shrink-0 text-destructive" /> Couldn’t render — showing the last valid version
+                  <TriangleAlert className="size-3.5 shrink-0 text-destructive" /> Couldn’t render
+                  {fallback && " — showing the last valid version"}
                 </div>
               )}
             </div>

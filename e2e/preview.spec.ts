@@ -424,6 +424,8 @@ test("a past version that doesn't render shows nothing, not a later version, and
   await expect(page.getByText("Viewing the version from")).toBeVisible()
   await expect(page.locator(".cm-content")).toContainText("A --> B -->")
   await expect(page.locator(".pele-preview svg")).toBeHidden()
+  // Nothing is drawn, so the notice doesn't claim to show anything.
+  await expect(page.getByText("Couldn’t render", { exact: true })).toBeVisible()
   let downloaded = false
   page.on("download", () => (downloaded = true))
   await page.getByRole("button", { name: "Export" }).click()
