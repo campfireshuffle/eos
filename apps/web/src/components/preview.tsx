@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { setUi, useUi } from "@/lib/ui-state"
-import { clamp, fit, FIT_MAX, holdCentre, pan, panBy, pannable, zoomAt, type Size, type View } from "@/lib/viewport"
+import { canPan, clamp, fit, FIT_MAX, holdCentre, pan, panBy, zoomAt, type Size, type View } from "@/lib/viewport"
 
 /**
  * Live Pele render with our own pan and zoom. The pane never scrolls: the diagram sits on a stage that one
@@ -25,8 +25,10 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
   // Choosing fit again, or a new pane size, lifts it.
   const [fitCap, setFitCap] = useState(FIT_MAX)
   const view = useRef<View>({ x: 0, y: 0, k: 1 })
-  // The zoom on screen, for the readout and the cursor.
+  // The zoom on screen, for the readout.
   const [scale, setScale] = useState(1)
+  // Whether a pan would move the diagram, for the cursor.
+  const [movable, setMovable] = useState(false)
   const zoomRequest = useUi((s) => s.zoomRequest)
   // Ignore zoom requests made before this preview mounted (e.g. on another diagram).
   const handled = useRef(zoomRequest?.n ?? 0)
@@ -54,6 +56,7 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
     clearTimeout(settle.current)
     settle.current = window.setTimeout(draw, 200)
     setScale(k)
+    setMovable(!!natural && canPan(v, pane, natural))
   }
   const within = (v: View) => (natural ? clamp(v, pane, natural) : v)
   /** Moves the diagram as the person asked. If that moved it at all, it stops following the fit. */
@@ -63,7 +66,7 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
     setFitting(false)
     show(v)
   }
-  /** Pans as a drag, wheel or arrow key does, along an axis the diagram overflows. */
+  /** Pans as a drag, wheel or arrow key does: freely where the diagram overflows, and otherwise only back into view. */
   const panFrom = (v: View, dx: number, dy: number) => move(natural ? pan(v, dx, dy, pane, natural) : v)
   // For the listeners added once, below.
   const latest = useRef({ move, panFrom })
@@ -195,8 +198,8 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
   const [panning, setPanning] = useState(false)
 
   /**
-   * Pan like a canvas: middle-button drag, Space + drag, plain left-drag or one finger, along an axis the
-   * diagram overflows. Two fingers pinch-zoom, and the diagram point between them follows their midpoint.
+   * Pan like a canvas: middle-button drag, Space + drag, plain left-drag or one finger, as `pan` allows.
+   * Two fingers pinch-zoom, and the diagram point between them follows their midpoint.
    */
   const pointers = useRef(new Map<number, { x: number; y: number }>())
   // Where the gesture started: the view, and the pointers' midpoint and spread. A drag starts once it has
@@ -255,8 +258,6 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
     panFrom(view.current, dx * step(pane.w), dy * step(pane.h))
   }
 
-  const can = natural && pannable(view.current, pane, natural)
-
   return (
     <div
       ref={frame}
@@ -273,7 +274,7 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
       onAuxClick={(e) => e.button === 1 && e.preventDefault()}
       className={cn(
         "relative h-full w-full touch-none overflow-clip outline-none select-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset",
-        can && (can.x || can.y) ? (panning ? "cursor-grabbing" : "cursor-grab") : "cursor-default"
+        movable ? (panning ? "cursor-grabbing" : "cursor-grab") : "cursor-default"
       )}
     >
       <div ref={stage} className="absolute top-0 left-0 w-max origin-top-left">

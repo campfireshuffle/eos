@@ -195,3 +195,78 @@ test("zooming only scales the diagram, even once it overflows the pane", async (
   await page.waitForTimeout(500)
   await expect(page.locator(".pele-preview svg[data-probe]")).toHaveCount(1)
 })
+
+/** The preview's cursor. */
+const cursor = (page: Page) => page.locator("[data-preview-frame]").evaluate((el) => getComputedStyle(el).cursor)
+
+/**
+ * Zooms the sequence diagram in, pans it to its right-hand end, then pinches out with the pointer near the
+ * pane's left edge. That leaves it smaller than the pane but mostly off its left edge.
+ */
+async function strandedByZoom(page: Page) {
+  const id = await newDiagram(page, sequence)
+  await openEditor(page, id)
+  await expect(page.locator(".pele-preview svg")).toBeVisible()
+  for (let i = 0; i < 4; i++) await tool(page, "set_view", { zoom: "in" })
+  await page.locator("[data-preview-frame]").focus()
+  for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+ArrowRight")
+  const pane = (await page.locator("[data-preview-frame]").boundingBox())!
+  await page.mouse.move(pane.x + 20, pane.y + pane.height / 2)
+  await page.keyboard.down("Control")
+  for (let i = 0; i < 12; i++) await page.mouse.wheel(0, 20)
+  await page.keyboard.up("Control")
+  await expect.poll(() => zoom(page)).toBeLessThan(1)
+  expect((await placement(page)).inside).toBe(false)
+  await expect.poll(() => cursor(page)).toBe("grab")
+  return pane
+}
+
+test("a diagram zoomed out near the pane's edge can be dragged back into view", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const pane = await strandedByZoom(page)
+  const y = pane.y + pane.height / 2
+  await page.mouse.move(pane.x + 100, y)
+  await page.mouse.down()
+  for (let i = 1; i <= 10; i++) await page.mouse.move(pane.x + 100 + i * 35, y)
+  await page.mouse.up()
+  await expect.poll(async () => (await placement(page)).inside).toBe(true)
+  // Once it's all in view, a pan has nothing to move.
+  await expect.poll(() => cursor(page)).toBe("default")
+})
+
+test("a diagram zoomed out near the pane's edge can be swiped back into view", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const pane = await strandedByZoom(page)
+  await page.mouse.move(pane.x + pane.width / 2, pane.y + pane.height / 2)
+  for (let i = 0; i < 10; i++) await page.mouse.wheel(-60, 0)
+  await expect.poll(async () => (await placement(page)).inside).toBe(true)
+})
+
+test("a diagram zoomed out near the pane's edge can be brought back into view with the arrow keys", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await strandedByZoom(page)
+  await page.locator("[data-preview-frame]").focus()
+  for (let i = 0; i < 10; i++) await page.keyboard.press("ArrowLeft")
+  await expect.poll(async () => (await placement(page)).inside).toBe(true)
+})
+
+test("a diagram an agent shrinks while it's panned can be brought back into view with the arrow keys", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const id = await newDiagram(page, chain(10))
+  await openEditor(page, id)
+  await expect(page.locator(".pele-preview svg")).toBeVisible()
+  await tool(page, "set_view", { zoom: "actual" })
+  await expect.poll(() => zoom(page)).toBe(1)
+  const preview = page.locator("[data-preview-frame]")
+  await preview.focus()
+  for (let i = 0; i < 6; i++) await page.keyboard.press("Shift+ArrowRight")
+  await tool(page, "update_diagram", { id, source: chain(2) })
+  await expect.poll(async () => (await placement(page)).inside).toBe(false)
+  // Each arrow key moves it only towards being in view, so pressing them all brings it in on both axes.
+  for (let i = 0; i < 20; i++) for (const key of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]) await page.keyboard.press(key)
+  await expect.poll(async () => (await placement(page)).inside).toBe(true)
+})

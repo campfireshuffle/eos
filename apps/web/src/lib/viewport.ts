@@ -32,13 +32,33 @@ export function zoomAt(v: View, k: number, px: number, py: number): View {
 
 export const panBy = (v: View, dx: number, dy: number): View => ({ k: v.k, x: v.x + dx, y: v.y + dy })
 
-/** Which axes the person can pan along: those where the diagram is bigger than the pane. */
-export const pannable = (v: View, pane: Size, diagram: Size) => ({ x: diagram.w * v.k > pane.w, y: diagram.h * v.k > pane.h })
+/**
+ * Where a pan may take the diagram along one axis, from `at`: anywhere if it's bigger than the pane, and
+ * otherwise only between where it is and the nearest place it's fully in view. So a pan can bring a diagram
+ * that's partly out of view back in, but never pushes one out, and leaves one that's in view where it is.
+ */
+function reach(at: number, size: number, room: number): [number, number] {
+  if (size > room) return [-Infinity, Infinity]
+  const inView = Math.min(room - size, Math.max(0, at))
+  return [Math.min(at, inView), Math.max(at, inView)]
+}
 
-/** Pans as a drag, wheel or arrow key does: only along an axis where the diagram is bigger than the pane. */
+/** Whether a drag, wheel or arrow key would move the diagram at all. */
+export function canPan(v: View, pane: Size, diagram: Size) {
+  const axis = (at: number, size: number, room: number) => {
+    const [lo, hi] = reach(at, size, room)
+    return lo < hi
+  }
+  return axis(v.x, diagram.w * v.k, pane.w) || axis(v.y, diagram.h * v.k, pane.h)
+}
+
+/** Pans as a drag, wheel or arrow key does, as far as `reach` lets it. */
 export function pan(v: View, dx: number, dy: number, pane: Size, diagram: Size): View {
-  const can = pannable(v, pane, diagram)
-  return panBy(v, can.x ? dx : 0, can.y ? dy : 0)
+  const axis = (at: number, d: number, size: number, room: number) => {
+    const [lo, hi] = reach(at, size, room)
+    return Math.min(hi, Math.max(lo, at + d))
+  }
+  return { k: v.k, x: axis(v.x, dx, diagram.w * v.k, pane.w), y: axis(v.y, dy, diagram.h * v.k, pane.h) }
 }
 
 /** Keeps the diagram within reach: at least KEEP pixels of it (all of it, if it's smaller) stay in the pane. */
