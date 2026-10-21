@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react"
 
-import type { LibrarySort, TagPath } from "@eos/core"
+import { tagMatches, type LibrarySort, type TagPath } from "@eos/core"
 
 import { onNavigate } from "./history"
 
@@ -61,6 +61,18 @@ export function navigate(href: string, { replace = false } = {}) {
   history.replaceState(history.state, "", href)
   // replaceState fires nothing; announce the new URL the way a real hash change does.
   window.dispatchEvent(new HashChangeEvent("hashchange"))
+}
+
+/**
+ * After the tag `from` moves to `to`, or is deleted (`to` null), a library open at it or under it follows it,
+ * rather than filtering by a tag nothing has. As the person's Move and Delete tag do, and an agent's update_tag and
+ * delete_tag. Read from the URL, not the sidebar's highlight: on a diagram's page that's the diagram's tag, and the
+ * page stays put.
+ */
+export function followTag(from: TagPath, to: TagPath | null) {
+  const route = parseRoute(location.hash)
+  if (route.name !== "home" || !route.tag || !tagMatches(route.tag, from)) return
+  navigate(homeHref({ ...route, tag: to && to + route.tag.slice(from.length) }), { replace: true })
 }
 
 export function useRoute(): Route {

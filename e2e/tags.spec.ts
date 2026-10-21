@@ -31,6 +31,25 @@ test("deleting a tag above the one being viewed goes back to the whole library",
   await expect(page.getByText("No diagrams match.")).toBeHidden()
 })
 
+test("an agent moving the tag being viewed keeps showing its diagrams, as the person's Move does", async ({ context }) => {
+  const page = await viewing(context, "projects/work")
+  // Written as the sidebar shows it: the URL holds the normalised tag either way.
+  await tool(page, "update_tag", { path: "#projects/work", moveTo: "#Work" })
+  await expect(page).toHaveURL(/#\/\?tag=work$/)
+  await expect(page.locator("[data-card-id]")).toHaveCount(2)
+})
+
+test("an agent deleting a tag above the one being viewed goes back to the whole library, as the person's Delete does", async ({
+  context,
+}) => {
+  const page = await viewing(context, "work/notes")
+  const call = tool(page, "delete_tag", { path: "work" })
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click()
+  expect((await call).ok).toBe(true)
+  await expect(page).toHaveURL(/#\/$/)
+  await expect(page.getByText("No diagrams match.")).toBeHidden()
+})
+
 test("Enter in the Tags menu toggles the tag typed, not the first that contains it", async ({ context }) => {
   const page = await viewing(context, "archive/work")
   const ids = await page.locator("[data-card-id]").evaluateAll((cards) => cards.map((c) => (c as HTMLElement).dataset.cardId!))

@@ -1,6 +1,7 @@
 import {
   decodeShare,
   encodeShare,
+  normalizeTag,
   readBackup,
   type Backup,
   renderSvg,
@@ -38,6 +39,8 @@ export interface UiBridge {
   getTheme(): { resolvedMode: "light" | "dark"; appCss: string; diagramCss: string }
   /** The declarations in app CSS (as getTheme returns it, possibly edited) worth saving: what differs from the defaults in effect. */
   appOverrides?(css: string): string | null
+  /** After the tag `from` moves to `to`, or is deleted (null), moves a library filtered to it along, as the sidebar's Move and Delete do. Both are normalised. */
+  followTag?(from: TagPath, to: TagPath | null): void
   /** Resolves once the page has rendered the latest UI change, so getView reports it. */
   settled?(): Promise<void>
   origin: string
@@ -405,6 +408,8 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
         let current = path
         if (moveTo !== undefined && moveTo !== current) {
           await eos.renameTag(current, moveTo, agent("update_tag", ["tags"]))
+          const [from, to] = [normalizeTag(current), normalizeTag(moveTo)]
+          if (from && to && from !== to) ui.followTag?.(from, to)
           current = moveTo
         }
         if (emoji !== undefined) await eos.setTagEmoji(current, emoji, agent("update_tag"))
@@ -495,7 +500,10 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
       execute: async ({ path }, signal) => {
         const refused = await ask(signal, `The agent wants to remove the tag “${path}” from every diagram.`, "The person declined")
         if (refused) return refused
-        return ok({ diagrams: await eos.deleteTag(path, agent("delete_tag", ["tags"])) })
+        const diagrams = await eos.deleteTag(path, agent("delete_tag", ["tags"]))
+        const tag = normalizeTag(path)
+        if (tag) ui.followTag?.(tag, null)
+        return ok({ diagrams })
       },
     }),
     tool({

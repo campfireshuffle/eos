@@ -4,7 +4,7 @@ import { createTools, registerTools, type UiBridge } from "@eos/webmcp"
 import { download, svgMarkupToPng, themedSvg } from "./files"
 import { changedVars, currentAppCss, DEFAULT_DIAGRAM_CSS } from "./theme"
 import { isSidebarOpen, setSidebarOpen } from "./layout"
-import { diagramHref, homeHref, navigate, parseRoute } from "./router"
+import { diagramHref, followTag, homeHref, navigate, parseRoute } from "./router"
 import { askConfirm, getUi, requestZoom, setUi } from "./ui-state"
 
 /** Registers Eos's tools with WebMCP while the setting is on. */
@@ -32,6 +32,7 @@ export function connectWebMcp(eos: Eos): () => void {
     setZoom: requestZoom,
     openSettings: (open) => setUi({ settingsOpen: open }),
     openSidebar: setSidebarOpen,
+    followTag,
     previewVersion: (id, version, meta) =>
       setUi({ preview: version ? { id, version, at: meta?.at ?? Date.now(), label: meta?.label ?? "" } : null }),
     // Checked before asking: a confirm while another dialog is open would be answered no without the person seeing it.

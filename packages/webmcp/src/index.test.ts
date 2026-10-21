@@ -15,6 +15,7 @@ const ui = (confirm: boolean | "busy" = true): UiBridge => ({
   openSettings: vi.fn(),
   openSidebar: vi.fn(),
   previewVersion: vi.fn(),
+  followTag: vi.fn(),
   confirm: vi.fn(async () => (confirm === "busy" ? "busy" : confirm ? "confirmed" : "declined")),
   download: vi.fn(),
   toPng: vi.fn(async () => ({ dataUrl: "data:image/png;base64,AA==", blob: new Blob() })),
@@ -156,6 +157,17 @@ describe("webmcp tools", () => {
     expect(lib.diagrams.map((d: any) => d.id)).toEqual([id])
     expect(lib.tags.find((t: any) => t.path === "backend").emoji).toBe("⚙️")
     expect(lib.diagrams[0].sourceText).toBeUndefined()
+  })
+
+  it("moves a library filtered to a tag along when the agent moves or deletes it, with the tags normalised", async () => {
+    const { call, bridge } = await setup()
+    await call("create_diagram", { title: "Tagged", tags: ["projects/work"], open: false })
+    await call("update_tag", { path: "#Projects/Work", moveTo: "#Work" })
+    expect(bridge.followTag).toHaveBeenLastCalledWith("projects/work", "work")
+    await call("update_tag", { path: "work", emoji: "⚙️" })
+    expect(bridge.followTag).toHaveBeenCalledTimes(1)
+    await call("delete_tag", { path: "#Work" })
+    expect(bridge.followTag).toHaveBeenLastCalledWith("work", null)
   })
 
   it("asks before deleting, and respects a no", async () => {
