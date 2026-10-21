@@ -31,7 +31,7 @@ import { useDiagram, useEos } from "@/lib/eos"
 import { useCopy } from "@/lib/use-copy"
 import { useIsMobile } from "@/lib/layout"
 import { homeHref } from "@/lib/router"
-import { getUi, requestZoom, setUi, useUi } from "@/lib/ui-state"
+import { requestZoom, setUi, useUi } from "@/lib/ui-state"
 
 import { CodeEditor, type CodeEditorHandle } from "./code-editor"
 import { formatWhen, HistoryMenu } from "./history-menu"
@@ -107,8 +107,6 @@ export function Editor({ id }: { id: string }) {
       alive = false
     }
   }, [eos, id, previewing])
-  // Leaving this diagram ends its preview (but not one just opened for another diagram).
-  useEffect(() => () => void (getUi().preview?.id === id && setUi({ preview: null })), [id])
   const shown = previewing ? previewSource : source
 
   const result = useMemo(() => (shown === null ? null : validate(shown)), [shown])

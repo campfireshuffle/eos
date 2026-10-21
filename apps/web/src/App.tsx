@@ -17,7 +17,7 @@ import { useDiagram, useEos, useSettings } from "@/lib/eos"
 import { sidebarPanel, useIsMobile } from "@/lib/layout"
 import { diagramHref, homeHref, navigate, useRoute, type Route } from "@/lib/router"
 import { applyTheme } from "@/lib/theme"
-import { setUi, useUi } from "@/lib/ui-state"
+import { getUi, setUi, useUi } from "@/lib/ui-state"
 
 // The editor (CodeMirror, the preview and its gestures) is a separate download, so the
 // library opens without it. It's fetched in the background once the app is idle.
@@ -34,6 +34,13 @@ export function App() {
   const editorId = route.name === "diagram" ? route.id : null
   useEffect(() => {
     if (editorId) window.scrollTo({ top: 0 })
+  }, [editorId])
+  // Leaving a diagram ends its preview. This follows the route, not the editor, which remounts
+  // when a rotated phone crosses into the side-by-side layout; and a preview an agent opens
+  // along with another diagram belongs to that one, so it stays.
+  useEffect(() => {
+    const preview = getUi().preview
+    if (preview && preview.id !== editorId) setUi({ preview: null })
   }, [editorId])
   useEffect(() => {
     const idle = window.requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 1500))

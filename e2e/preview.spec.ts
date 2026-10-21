@@ -364,3 +364,21 @@ test("while a past version is shown there's no Undo or Redo to change the hidden
   await page.getByRole("button", { name: "Back to latest" }).click()
   await expect(page.getByRole("button", { name: "Undo" })).toBeVisible()
 })
+
+test("rotating a phone keeps showing the past version, and leaving the diagram ends it", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.setViewportSize({ width: 390, height: 844 })
+  const id = await previewYesterday(page)
+  const banner = page.getByText("Viewing the version from")
+  // Landscape is wider than 768px, so the editor lays its panes out side by side.
+  await page.setViewportSize({ width: 844, height: 390 })
+  await expect(page.locator(".cm-content")).toBeVisible()
+  await expect(banner).toBeVisible()
+  await expect(page.locator(".cm-content")).toHaveAttribute("contenteditable", "false")
+  await page.goBack()
+  await expect(page.locator(".cm-content")).toHaveCount(0)
+  await openEditor(page, id)
+  await expect(page.locator(".cm-content")).toHaveAttribute("contenteditable", "true")
+  await expect(banner).toHaveCount(0)
+})
