@@ -71,7 +71,7 @@ export function relativeTime(ms: number): string {
   const min = Math.round((Date.now() - ms) / 60000)
   if (min < 1) return "Just now"
   if (min < 60) return `${min}m ago`
-  // Whole hours: rounding would make 23h40m "24h", and so "Yesterday" for an edit made today.
+  // Whole hours, so 23h40m is "23h ago", not "24h ago".
   const h = Math.floor(min / 60)
   // Calendar days, as dateBucket counts them. Rounding absorbs a day made 23 or 25 hours long by daylight saving.
   const d = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(ms).setHours(0, 0, 0, 0)) / 86_400_000)
