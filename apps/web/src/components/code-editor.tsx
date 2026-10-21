@@ -1,5 +1,5 @@
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands"
-import { Annotation, EditorState, StateEffect, StateField } from "@codemirror/state"
+import { Annotation, EditorSelection, EditorState, StateEffect, StateField } from "@codemirror/state"
 import { Decoration, EditorView, keymap, lineNumbers, drawSelection, highlightSpecialChars, type DecorationSet } from "@codemirror/view"
 import { useEffect, useId, useRef } from "react"
 
@@ -183,10 +183,17 @@ export function CodeEditor({
     // Changes from elsewhere arrive as edits, in the coordinates of the text the editor shows.
     const unbind = binding?.onChange((changes, own) => {
       const apply = () => {
-        // A caret at an insertion point stays before text someone else inserted (an agent appending a line
-        // doesn't pull it along), but goes after text the person's own undo restores, as CodeMirror's undo does.
+        // Text inserted at the caret by someone else stays on the far side of it from the line the caret is on:
+        // a line added after the caret's text ("\n…") stays after the caret, and anything else (a line added above,
+        // text within the line) goes before it, so the caret keeps to the text it was next to. Text the person's
+        // own undo, redo or restore puts back goes before the caret, as CodeMirror's undo does.
         const set = v.state.changes(changes)
-        v.dispatch({ changes: set, selection: v.state.selection.map(set, own ? 1 : -1), annotations: external.of(true) })
+        const assoc = (at: number) => (!own && changes.some((c) => c.from === at && c.to === at && c.insert.startsWith("\n")) ? -1 : 1)
+        const selection = EditorSelection.create(
+          v.state.selection.ranges.map((r) => r.map(set, assoc(r.head))),
+          v.state.selection.mainIndex
+        )
+        v.dispatch({ changes: set, selection, annotations: external.of(true) })
         // Belt and braces: if the two ever disagree, show what's stored.
         const stored = binding.text()
         if (v.state.doc.toString() !== stored) {

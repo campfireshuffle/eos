@@ -83,6 +83,39 @@ test("an agent's line appended where the person is typing doesn't take their car
   expect(await storedText(a, id)).toBe("graph TD\n  A --> B12\n  C --> D")
 })
 
+for (const [indent, source] of [
+  ["indented", "graph TD\n  A --> B"],
+  ["at column 0", "sequenceDiagram\nAlice->>Bob: hi"],
+] as const) {
+  test(`an agent's line inserted above the person's ${indent} line leaves their caret before its text`, async () => {
+    const id = await openInBoth(source)
+    await cursorAtEndOf(a, 1)
+    await a.keyboard.press("Home") // the start of the line's text
+    const lines = source.split("\n")
+    const added = [lines[0], lines[1]!.match(/^ */)![0] + "NEW", lines[1]].join("\n")
+    const { version } = await tool<{ version: string }>(a, "get_diagram", { id })
+    await tool(a, "update_diagram", { id, source: added, baseVersion: version })
+    await expectEditor(a, added)
+    await a.keyboard.type("Z")
+    const lead = lines[1]!.match(/^ */)![0]
+    const expected = [lines[0], lead + "NEW", lead + "Z" + lines[1]!.trimStart()].join("\n")
+    await expectEditor(a, expected)
+    expect(await storedText(a, id)).toBe(expected)
+  })
+}
+
+test("an agent's text inserted at the person's caret within a line goes before the caret", async () => {
+  const id = await openInBoth("graph TD\n  A --> B")
+  await cursorAtEndOf(a, 1)
+  for (let i = 0; i < 6; i++) await a.keyboard.press("ArrowLeft") // just after the A
+  const { version } = await tool<{ version: string }>(a, "get_diagram", { id })
+  await tool(a, "update_diagram", { id, source: "graph TD\n  AX --> B", baseVersion: version })
+  await expectEditor(a, "graph TD\n  AX --> B")
+  await a.keyboard.type("Z")
+  await expectEditor(a, "graph TD\n  AXZ --> B")
+  expect(await storedText(a, id)).toBe("graph TD\n  AXZ --> B")
+})
+
 test("an agent's edit merges with typing done after the version it read", async () => {
   const id = await openInBoth("flowchart TD\n  A --> B")
   // The agent works through tab b; the person types in tab a.
