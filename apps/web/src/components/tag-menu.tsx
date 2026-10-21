@@ -45,9 +45,12 @@ export function TagMenu({ ids }: { ids: string[] }) {
     setQuery("")
   }
 
+  // Closes once nothing's selected (say the change moved the cards out of view): its checkboxes would act on nothing.
+  // Resetting `open`, not just hiding the menu, keeps it from reopening by itself with the next selection.
+  if (open && !ids.length) setOpen(false)
+
   return (
-    // Closes once nothing's selected (say the change moved the cards out of view): its checkboxes would act on nothing.
-    <Popover open={open && ids.length > 0} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button variant="ghost" size="sm" className="rounded-full">
           <Tags /> <span className="max-sm:sr-only">Tags</span>

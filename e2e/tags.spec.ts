@@ -150,4 +150,11 @@ test("the Tags menu closes once its change takes the selected cards out of view"
   // Both left the inbox view, so nothing is selected: the menu goes rather than acting on nothing.
   await expect(cards).toHaveCount(0)
   await expect(page.getByPlaceholder("Find or create a tag")).toBeHidden()
+
+  // The next selection brings the bar back without the menu: that waits for Tags to be pressed.
+  await page.evaluate(() => (location.hash = "/"))
+  await cards.first().click({ button: "right" })
+  await expect(page.getByText("1 selected")).toBeVisible()
+  await expect(page.getByPlaceholder("Find or create a tag")).toBeHidden()
+  expect(await page.evaluate(() => document.activeElement?.matches("input[placeholder='Find or create a tag']"))).toBe(false)
 })
