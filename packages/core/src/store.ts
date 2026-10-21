@@ -205,17 +205,17 @@ export class Eos {
     rows = rows.filter((r) => (filter.deleted ? !!r.deletedAt : filter.includeDeleted || !r.deletedAt))
     if (filter.starred) rows = rows.filter((r) => r.starred === 1)
     for (const tag of normalizeTags(filter.tags ?? [])) rows = rows.filter((r) => r.tags.some((t) => tagMatches(t, tag)))
+    const sort = filter.sort ?? "modified"
+    rows.sort((a, b) =>
+      sort === "title" ? a.titleKey.localeCompare(b.titleKey) : sort === "created" ? b.createdAt - a.createdAt : b.updatedAt - a.updatedAt
+    )
     const q = filter.query?.trim()
-    // A search ranks by relevance (title first, then contents) instead of the sort order.
+    // A search ranks by relevance (title first, then contents), and equal matches by the sort order.
     if (q) {
       const search = await this.search(read)
       // The library changed while the index was being built: search what's there now.
       return search ? search(rows, q) : this.listDiagrams(filter)
     }
-    const sort = filter.sort ?? "modified"
-    rows.sort((a, b) =>
-      sort === "title" ? a.titleKey.localeCompare(b.titleKey) : sort === "created" ? b.createdAt - a.createdAt : b.updatedAt - a.updatedAt
-    )
     return rows
   }
 

@@ -709,6 +709,18 @@ describe("library events and reads", () => {
     expect((await eos.listTags()).find((t) => t.path === "home")?.count).toBe(2)
   })
 
+  it("orders search results by the chosen sort", async () => {
+    const eos = await fresh()
+    // Created in an order that matches neither the title order nor its reverse.
+    for (const title of ["Kiwi plan", "Apple plan", "Mango plan", "Banana plan"]) {
+      await eos.createDiagram({ title })
+      await settle(5)
+    }
+    const titles = async (sort: "title" | "created") => (await eos.listDiagrams({ query: "plan", sort })).map((r) => r.title)
+    expect(await titles("title")).toEqual(["Apple plan", "Banana plan", "Kiwi plan", "Mango plan"])
+    expect(await titles("created")).toEqual(["Banana plan", "Mango plan", "Apple plan", "Kiwi plan"])
+  })
+
   it("searches the same as an index built for each query", async () => {
     const eos = await fresh()
     const words = ["checkout", "payment", "billing", "invoice", "auth", "login", "queue", "worker"]
