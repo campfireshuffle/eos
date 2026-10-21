@@ -48,7 +48,7 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
     sizeHost()
     Object.assign(stage.current!.style, { transform: `translate(${x}px, ${y}px)`, willChange: "" })
   }
-  /** Puts the diagram at `v`, kept within reach. */
+  /** Puts the diagram at `v`, as given: callers keep it within reach. */
   const show = (v: View) => {
     view.current = v
     const { x, y, k } = v
