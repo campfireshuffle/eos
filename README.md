@@ -38,7 +38,7 @@ Eos supports current Chrome and Edge, Firefox 147+ and Safari 26.2+.
 
 ## Develop
 
-Needs Node 22.13+ and pnpm 12.
+Needs Node 26 and pnpm 12.
 
 ```sh
 pnpm install
