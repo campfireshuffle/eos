@@ -70,7 +70,7 @@ interface OpenDiagram extends DiagramDoc {
   /** An agent's own undo stack: only agent edits. */
   agentUndo: UndoManager
   /** The person's selection (see SourceBinding.select), and who's told where an undo or redo puts it back. */
-  selection: { cursors: Cursor[]; listeners: Set<(anchor: number, head: number) => void> }
+  selection: { cursors: Cursor[]; value: { text: string; backward: boolean }; listeners: Set<(anchor: number, head: number) => void> }
   persisted: Persisted
 }
 
@@ -343,6 +343,7 @@ export class Eos {
       edit: (changes) => {
         // Closing a diagram (a delete, or a backup replacing it) drops it from this.open.
         if (this.open.get(id) !== opened) return
+        holdSelection(d)
         applyEdits(d.text, changes)
         // Its own origin, so onChange can skip it; it's still the person's edit for undo and history.
         d.doc.commit({ origin: EDITOR_ORIGIN, message: JSON.stringify(USER) })
@@ -362,8 +363,12 @@ export class Eos {
           }
         }),
       select: (anchor, head) => {
-        const cursors = [d.text.getCursor(anchor), d.text.getCursor(head)]
-        d.selection.cursors = cursors.every((c) => c !== undefined) ? cursors : []
+        const [from, to] = [Math.min(anchor, head), Math.max(anchor, head)]
+        // Tied to characters, inside a selection and before a caret: text inserted at an edge, or appended after a
+        // caret at the end, stays outside. A caret at the start has none, and the editor maps it.
+        const tied = from === to ? (from > 0 ? [from - 1] : []) : [from, to - 1]
+        d.selection.cursors = tied.map((at) => d.text.getCursor(at)!)
+        d.selection.value = { text: d.text.slice(from, to), backward: head < anchor }
       },
       onSelect: (listener) => {
         d.selection.listeners.add(listener)
@@ -391,6 +396,7 @@ export class Eos {
     const d = await this.openDiagram(id)
     const by: Actor = actor ?? (scope === "agent" ? { kind: "agent", tool: dir, changes: [dir] } : USER)
     const stack = scope === "agent" ? d.agentUndo : d.undo
+    holdSelection(d)
     // Label the commit the undo manager makes, so the other stack ignores it and history credits the right actor.
     d.doc.setNextCommitOptions({ origin: actorOrigin(by), message: JSON.stringify(by) })
     const done = stack[dir]()
@@ -694,16 +700,22 @@ export class Eos {
         // Each step also keeps the selection from just before it (see SourceBinding.select), which onPop puts back once
         // the step's change is shown. That waits a microtask, as the step's reverse is pushed after onPop with the
         // selection from before it: the one undo or redo is about to move.
-        const selection: OpenDiagram["selection"] = { cursors: [], listeners: new Set() }
+        const selection: OpenDiagram["selection"] = { cursors: [], value: { text: "", backward: false }, listeners: new Set() }
         const undo = new UndoManager(doc, {
           mergeInterval: MERGE_MS,
           maxUndoSteps: 200,
           excludeOriginPrefixes: ["agent", "import", "system", DETAILS],
-          onPush: () => ({ value: null, cursors: selection.cursors }),
-          onPop: (_, { cursors: [anchor, head] }) => {
-            const at = (c: Cursor | undefined) => c && doc.getCursorPos(c)?.offset
-            const [a, h] = [at(anchor), at(head)]
-            if (a !== undefined && h !== undefined) queueMicrotask(() => selection.listeners.forEach((listener) => listener(a, h)))
+          onPush: () => ({ value: selection.value, cursors: selection.cursors }),
+          onPop: (_, { value, cursors }) => {
+            const [first, last] = cursors.map((c) => doc.getCursorPos(c)?.offset)
+            if (first === undefined || (cursors.length > 1 && last === undefined)) return
+            const { text, backward } = value as OpenDiagram["selection"]["value"]
+            // A selection comes back only holding what it held. Loro's undo can widen it over text inserted at an edge
+            // (see the tracking issue), and typing would replace that: then it's a caret at its start.
+            const [from, to] = last === undefined ? [first + 1, first + 1] : [first, last + 1]
+            const range = doc.getText("source").slice(from, to) === text ? [from, to] : [from, from]
+            const [a, h] = backward ? [range[1]!, range[0]!] : [range[0]!, range[1]!]
+            queueMicrotask(() => selection.listeners.forEach((listener) => listener(a, h)))
           },
         })
         const agentUndo = new UndoManager(doc, {
@@ -1260,6 +1272,14 @@ function sameRow(a: DiagramIndexRow, b: DiagramIndexRow): boolean {
 }
 
 /** Applies edits given in ascending order, in the coordinates of the text before any of them. */
+/**
+ * Takes the person's selection cursors again where they are now, just before a change goes on their undo stack: Loro's
+ * undo moves a cursor from its position when taken, by only the changes made after the step was pushed.
+ */
+function holdSelection({ doc, text, selection }: OpenDiagram) {
+  selection.cursors = selection.cursors.map((c) => text.getCursor(doc.getCursorPos(c)?.offset ?? 0)!)
+}
+
 function applyEdits(text: LoroText, edits: TextChange[]) {
   // Last first, so earlier positions stay valid.
   for (const e of [...edits].reverse()) {

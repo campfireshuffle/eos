@@ -1101,7 +1101,8 @@ describe("editor binding", () => {
     a.type(5, "a")
     await settle()
     expect(a.state.text).toBe("oneaaa\nthreeb")
-    // Loro's undo manager ends a step when another tab's change comes in, so this burst takes two.
+    // Loro's undo manager ends a step at any change not on the person's stack (another tab's, or an agent's edit or
+    // title change), so this burst takes two.
     expect(await one.undo(id)).toBe(true)
     expect(a.state.text).toBe("oneaa\nthreeb")
     expect(await one.undo(id)).toBe(true)
@@ -1183,6 +1184,51 @@ describe("editor binding", () => {
     expect(a.state.text).toBe(">> he")
     expect(selected.at(-1)).toEqual([5, 5])
   })
+
+  // What another tab or an agent appends right after where the person's selection or caret was stays out of it.
+  for (const via of ["another tab", "an agent"] as const) {
+    const appended = async (one: Eos, two: Eos, id: string) => {
+      const source = (await one.getSource(id)) + "\nE --> F"
+      if (via === "an agent") await one.editDiagram(id, { source }, { kind: "agent", tool: "update_diagram" })
+      else await two.setSource(id, source)
+      await settle()
+    }
+    const tabs = async (name: string) => {
+      const one = await Eos.create({ dbName: `${name}-${n++}`, seed: false })
+      const id = await one.createDiagram({ source: "graph TD\nA --> B\nC --> D" })
+      const two = await Eos.create({ dbName: `${name}-${n - 1}`, seed: false })
+      return { one, two, id, a: await editor(one, id) }
+    }
+
+    it(`puts back a deleted selection at the end without what ${via} appended after it`, async () => {
+      const { one, two, id, a } = await tabs("end-selection")
+      const selected: [number, number][] = []
+      a.binding.onSelect((anchor, head) => selected.push([anchor, head]))
+      a.binding.select(24, 18) // " --> D", selected backwards
+      a.state.text = "graph TD\nA --> B\nC"
+      a.binding.edit([{ from: 18, to: 24, insert: "" }])
+      a.binding.select(18, 18)
+      await appended(one, two, id)
+      expect(await one.undo(id)).toBe(true)
+      expect(a.state.text).toBe("graph TD\nA --> B\nC --> D\nE --> F")
+      // Loro's undo widens the selection over the appended line (see the tracking issue), so it comes back as a caret
+      // at the start of the restored text: typing can't replace the other side's line.
+      expect(selected.at(-1)).toEqual([18, 18])
+    })
+
+    it(`puts the caret back after the person's own text, not after what ${via} appended`, async () => {
+      const { one, two, id, a } = await tabs("end-caret")
+      const selected: [number, number][] = []
+      a.binding.onSelect((anchor, head) => selected.push([anchor, head]))
+      a.binding.select(24, 24)
+      a.type(24, " mine")
+      a.binding.select(29, 29)
+      await appended(one, two, id)
+      expect(await one.undo(id)).toBe(true)
+      expect(a.state.text).toBe("graph TD\nA --> B\nC --> D\nE --> F")
+      expect(selected.at(-1)).toEqual([24, 24])
+    })
+  }
 })
 
 describe("library events and reads", () => {

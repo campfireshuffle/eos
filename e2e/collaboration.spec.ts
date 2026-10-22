@@ -30,8 +30,8 @@ test("two tabs typing at the same time keep every keystroke", async () => {
   expect(await storedText(a, id)).toBe(merged)
 })
 
-// Loro's undo manager ends a step when the other tab's keystrokes come in, so a burst typed alongside them takes
-// several ⌘Z, each removing only this tab's typing, from the end.
+// Loro's undo manager ends a step at any change not on the person's stack (here the other tab's keystrokes), so a
+// burst typed alongside them takes several ⌘Z, each removing only this tab's typing, from the end.
 test("undo in one tab removes only that tab's typing", async () => {
   await openInBoth("one\ntwo")
   await cursorAtEndOf(a, 0)
@@ -77,6 +77,35 @@ test("typing after an undone deletion carries on after the restored text", async
   await a.keyboard.type("X")
   await expectEditor(a, "helloX")
 })
+
+// A line another tab or an agent appends after the end the person just deleted or typed at stays out of the selection
+// or caret their ⌘Z puts back: typing then neither replaces it nor lands on it.
+for (const via of ["another tab", "an agent"] as const)
+  for (const selected of [true, false])
+    test(`${via}'s line appended after ${selected ? "a deleted selection" : "typing"} at the end survives the person's undo`, async () => {
+      const id = await openInBoth("graph TD\nA --> B\nC --> D")
+      await a.bringToFront()
+      await cursorAtEndOf(a, 2)
+      if (selected) {
+        for (let i = 0; i < 6; i++) await a.keyboard.press("Shift+ArrowLeft") // " --> D"
+        await a.keyboard.press("Backspace")
+      } else await a.keyboard.type(" mine")
+      await a.waitForTimeout(1000) // past the undo grouping
+      const appended = (await storedText(a, id)) + "\nE --> F"
+      if (via === "an agent") await tool(a, "update_diagram", { id, source: appended })
+      else {
+        await cursorAtEndOf(b, 2)
+        await b.keyboard.type("\nE --> F")
+        await a.bringToFront()
+      }
+      await expectEditor(a, appended)
+      await a.keyboard.press("ControlOrMeta+z")
+      await expectEditor(a, "graph TD\nA --> B\nC --> D\nE --> F")
+      await a.keyboard.type("X")
+      const expected = selected ? "graph TD\nA --> B\nCX --> D\nE --> F" : "graph TD\nA --> B\nC --> DX\nE --> F"
+      await expectEditor(a, expected)
+      await expect.poll(() => storedText(a, id)).toBe(expected)
+    })
 
 test("an agent's line appended where the person is typing doesn't take their caret", async () => {
   const id = await openInBoth("graph TD\n  A --> B")
