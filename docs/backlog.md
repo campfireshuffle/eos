@@ -766,6 +766,12 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** the features work today; only regressions would go unnoticed.
   - **Fix:** add one test each: star from the editor and see the card in Starred; star two cards from the bar; open a `#/import` link and see the diagram.
 
+- **Chromium resets the library's scroll position when the window goes from phone width to desktop.**
+  - **What:** crossing 768px from phone to desktop puts the library back at the top in Chromium; Firefox and WebKit keep the position. The page now stays mounted across the breakpoint, so this is the scroller swapping (document on phones, the panel on desktop), not a remount.
+  - **Where:** `apps/web/src/App.tsx` (Shell), `apps/web/src/lib/scroll-restore.ts`.
+  - **Why low:** it needs a resize across the breakpoint while scrolled; nothing is lost.
+  - **Fix:** carry the scroll offset across the scroller change (restore it to the new scroller after the layout switch).
+
 ## Refactors to consider (from the round 11 cleanup review)
 
 - **What the preview shows, as one pure function.**
