@@ -19,7 +19,7 @@ import { Popover, PopoverAnchor, PopoverContent } from "@workspace/ui/components
 import { cn } from "@workspace/ui/lib/utils"
 
 import { useEos } from "@/lib/eos"
-import { tagCollator } from "@/lib/grouping"
+import { compareTags } from "@/lib/grouping"
 import { followTag, homeHref, navigate } from "@/lib/router"
 import { DIAGRAM_MIME } from "@/lib/selection"
 import { askConfirm } from "@/lib/ui-state"
@@ -295,7 +295,7 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
 
 function sortTags(tags: TagRecord[]): TagRecord[] {
   return [...tags]
-    .sort((a, b) => tagCollator.compare(nameOf(a.path), nameOf(b.path)))
+    .sort((a, b) => compareTags(nameOf(a.path), nameOf(b.path)))
     .map((t) => ({ ...t, children: sortTags(t.children) }))
 }
 
