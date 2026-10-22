@@ -1160,31 +1160,29 @@ describe("editor binding", () => {
     expect(ed.state.text).toContain("B --> C")
   })
 
-  it("puts back the selection from before each step the person undoes or redoes, wherever others' edits moved it", async () => {
-    const name = `select-${n++}`
+  it("leaves the caret at the end of what the person's undo or redo changed, wherever others' edits moved it", async () => {
+    const name = `caret-${n++}`
     const one = await Eos.create({ dbName: name, seed: false })
     const id = await one.createDiagram({ source: "hello" })
     const two = await Eos.create({ dbName: name, seed: false })
     const a = await editor(one, id)
     const b = await editor(two, id)
-    const selected: [number, number][] = []
-    a.binding.onSelect((anchor, head) => selected.push([anchor, head]))
-    a.binding.select(2, 5) // "llo", deleted
+    const carets: number[] = []
+    a.binding.onCaret((at) => carets.push(at))
     a.state.text = "he"
     a.binding.edit([{ from: 2, to: 5, insert: "" }])
-    a.binding.select(2, 2)
     await settle()
     b.type(0, ">> ") // another tab, before it
     await settle()
     expect(await one.undo(id)).toBe(true)
     expect(a.state.text).toBe(">> hello")
-    expect(selected).toEqual([[5, 8]]) // "llo" selected again
+    expect(carets).toEqual([8]) // after the "llo" put back
     expect(await one.redo(id)).toBe(true)
     expect(a.state.text).toBe(">> he")
-    expect(selected.at(-1)).toEqual([5, 5])
+    expect(carets.at(-1)).toEqual(5)
   })
 
-  // What another tab or an agent appends right after where the person's selection or caret was stays out of it.
+  // What another tab or an agent appends right after the person's text stays after the caret their undo leaves.
   for (const via of ["another tab", "an agent"] as const) {
     const appended = async (one: Eos, two: Eos, id: string) => {
       const source = (await one.getSource(id)) + "\nE --> F"
@@ -1199,33 +1197,27 @@ describe("editor binding", () => {
       return { one, two, id, a: await editor(one, id) }
     }
 
-    it(`puts back a deleted selection at the end without what ${via} appended after it`, async () => {
-      const { one, two, id, a } = await tabs("end-selection")
-      const selected: [number, number][] = []
-      a.binding.onSelect((anchor, head) => selected.push([anchor, head]))
-      a.binding.select(24, 18) // " --> D", selected backwards
+    it(`leaves the caret after deleted text an undo puts back at the end, not after what ${via} appended`, async () => {
+      const { one, two, id, a } = await tabs("end-deleted")
+      const carets: number[] = []
+      a.binding.onCaret((at) => carets.push(at))
       a.state.text = "graph TD\nA --> B\nC"
       a.binding.edit([{ from: 18, to: 24, insert: "" }])
-      a.binding.select(18, 18)
       await appended(one, two, id)
       expect(await one.undo(id)).toBe(true)
       expect(a.state.text).toBe("graph TD\nA --> B\nC --> D\nE --> F")
-      // Loro's undo widens the selection over the appended line (see the tracking issue), so it comes back as a caret
-      // at the start of the restored text: typing can't replace the other side's line.
-      expect(selected.at(-1)).toEqual([18, 18])
+      expect(carets.at(-1)).toEqual(24)
     })
 
-    it(`puts the caret back after the person's own text, not after what ${via} appended`, async () => {
+    it(`leaves the caret where the person's undone typing was, not after what ${via} appended`, async () => {
       const { one, two, id, a } = await tabs("end-caret")
-      const selected: [number, number][] = []
-      a.binding.onSelect((anchor, head) => selected.push([anchor, head]))
-      a.binding.select(24, 24)
+      const carets: number[] = []
+      a.binding.onCaret((at) => carets.push(at))
       a.type(24, " mine")
-      a.binding.select(29, 29)
       await appended(one, two, id)
       expect(await one.undo(id)).toBe(true)
       expect(a.state.text).toBe("graph TD\nA --> B\nC --> D\nE --> F")
-      expect(selected.at(-1)).toEqual([24, 24])
+      expect(carets.at(-1)).toEqual(24)
     })
   }
 })

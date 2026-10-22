@@ -146,8 +146,6 @@ export function CodeEditor({
               u.changes.iterChanges((from, to, _fromB, _toB, inserted) => changes.push({ from, to, insert: inserted.toString() }))
               binding.edit(changes)
             }
-            // After the edit, so the edit's undo step keeps the selection from before it.
-            if (u.selectionSet) binding?.select(u.state.selection.main.anchor, u.state.selection.main.head)
             if (u.docChanged) callbacks.current.onChange?.(u.state.doc.toString())
           }),
         ],
@@ -175,8 +173,8 @@ export function CodeEditor({
         },
       }
     }
-    // The person's own undo and redo put back the selection from before the step (see SourceBinding.select).
-    const unselect = binding?.onSelect((anchor, head) => v.dispatch({ selection: { anchor, head }, scrollIntoView: true }))
+    // The person's own undo and redo leave the caret at the end of what they changed (see SourceBinding.onCaret).
+    const uncaret = binding?.onCaret((at) => v.dispatch({ selection: { anchor: at }, scrollIntoView: true }))
     // Changes from elsewhere arrive as edits, in the coordinates of the text the editor shows. CodeMirror maps the
     // selection: what's inserted at a caret goes after it, but a caret at the start of a line sticks to the line's text
     // (assoc 1), so what's inserted there goes before it. Setting the selection ends a composition, so it's set only
@@ -202,7 +200,7 @@ export function CodeEditor({
     return () => {
       for (const type of inputs) document.removeEventListener(type, unfocused, true)
       unbind?.()
-      unselect?.()
+      uncaret?.()
       v.destroy()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

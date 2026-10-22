@@ -78,8 +78,8 @@ test("typing after an undone deletion carries on after the restored text", async
   await expectEditor(a, "helloX")
 })
 
-// A line another tab or an agent appends after the end the person just deleted or typed at stays out of the selection
-// or caret their ⌘Z puts back: typing then neither replaces it nor lands on it.
+// A line another tab or an agent appends after the end the person just deleted or typed at stays after the caret their
+// ⌘Z leaves: typing then lands on the person's own line.
 for (const via of ["another tab", "an agent"] as const)
   for (const selected of [true, false])
     test(`${via}'s line appended after ${selected ? "a deleted selection" : "typing"} at the end survives the person's undo`, async () => {
@@ -102,7 +102,7 @@ for (const via of ["another tab", "an agent"] as const)
       await a.keyboard.press("ControlOrMeta+z")
       await expectEditor(a, "graph TD\nA --> B\nC --> D\nE --> F")
       await a.keyboard.type("X")
-      const expected = selected ? "graph TD\nA --> B\nCX --> D\nE --> F" : "graph TD\nA --> B\nC --> DX\nE --> F"
+      const expected = "graph TD\nA --> B\nC --> DX\nE --> F"
       await expectEditor(a, expected)
       await expect.poll(() => storedText(a, id)).toBe(expected)
     })

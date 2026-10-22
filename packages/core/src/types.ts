@@ -89,12 +89,8 @@ export interface SourceBinding {
   edit(changes: TextChange[]): void
   /** Calls `listener` with each change made by anything other than edit(), in the coordinates of the text before it. */
   onChange(listener: (changes: TextChange[]) => void): () => void
-  /**
-   * Reports where the person's selection is now. The last one before each step on their undo stack goes with that
-   * step, as Loro cursors, and onSelect's listeners get it back once the step is undone or redone.
-   */
-  select(anchor: number, head: number): void
-  onSelect(listener: (anchor: number, head: number) => void): () => void
+  /** Calls `listener` with where the person's caret goes after their undo or redo: the end of what it changed. */
+  onCaret(listener: (at: number) => void): () => void
   /**
    * Calls `listener` when the diagram is closed underneath the binding (deleted, or
    * replaced by a backup). edit() then does nothing; bind again to keep editing.
