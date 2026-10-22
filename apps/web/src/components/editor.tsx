@@ -309,7 +309,10 @@ function TitleInput({ value, onCommit }: { value: string; onCommit: (v: string) 
   const [draft, setDraft] = useState(value)
   // What's typed and not yet committed; a new title from elsewhere replaces it, as it does the draft.
   const typed = useRef<string | null>(null)
+  // The title saved on leaving the page (see below), which coming back as `value` leaves both alone.
+  const saved = useRef<string | null>(null)
   useEffect(() => {
+    if (value === saved.current) return void (saved.current = null)
     setDraft(value)
     typed.current = null
   }, [value])
@@ -320,17 +323,24 @@ function TitleInput({ value, onCommit }: { value: string; onCommit: (v: string) 
   // Leaving the diagram (going back, a swipe, an agent opening another page) unmounts this
   // without a blur, so a title still being typed is committed then. StrictMode's extra
   // unmount in dev comes before anything is typed, so it commits nothing. Leaving the page
-  // (a reload, closing the tab) does neither, so it's also committed on beforeunload, the
+  // (a reload, closing the tab) does neither, so the title is also saved on beforeunload, the
   // one event early enough for a reload's write to land, and on pagehide; and when the page
-  // is hidden, as switching tabs does, since a hidden tab may be discarded. A commit clears
-  // what's typed, so a later one commits nothing again.
-  const commitRef = useRef(commit)
+  // is hidden, as switching tabs does, since a hidden tab may be discarded. The person may
+  // come back and carry on typing, so that saves only a title that isn't blank, trimmed as
+  // a commit would be, and leaves the field as it is: a blur or Enter still commits it.
+  const save = () => {
+    const title = typed.current?.trim()
+    if (!title || title === value) return
+    saved.current = title
+    onCommit(title)
+  }
+  const latest = useRef({ commit, save })
   useEffect(() => {
-    commitRef.current = commit
+    latest.current = { commit, save }
   })
   useEffect(() => {
-    const onLeave = () => commitRef.current()
-    const onHidden = () => document.visibilityState === "hidden" && commitRef.current()
+    const onLeave = () => latest.current.save()
+    const onHidden = () => document.visibilityState === "hidden" && latest.current.save()
     addEventListener("beforeunload", onLeave)
     addEventListener("pagehide", onLeave)
     document.addEventListener("visibilitychange", onHidden)
@@ -338,7 +348,7 @@ function TitleInput({ value, onCommit }: { value: string; onCommit: (v: string) 
       removeEventListener("beforeunload", onLeave)
       removeEventListener("pagehide", onLeave)
       document.removeEventListener("visibilitychange", onHidden)
-      commitRef.current()
+      latest.current.commit()
     }
   }, [])
   return (

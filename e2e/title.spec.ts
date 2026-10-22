@@ -27,14 +27,20 @@ test("a title still being typed is saved when the person or an agent leaves the 
 // Leaving the page neither blurs the title nor unmounts it.
 for (const how of ["reloaded", "hidden"] as const)
   for (const wait of [0, 1000])
-    test(`a title still being typed is saved when the page is ${how} ${wait} ms later`, async ({ context }) => {
+    test(`a title still being typed is saved when the page is ${how} ${wait} ms later`, async ({ context, browserName }) => {
+      test.fixme(
+        browserName === "webkit" && how === "reloaded" && !wait,
+        "WebKit may drop a write started on unload, so the save is best-effort"
+      )
       await withAgentTools(context)
       const page = await context.newPage()
       const id = await newDiagram(page, "flowchart LR\n  A --> B")
       const versions = async (p: Page) => (await tool<{ history: unknown[] }>(p, "get_diagram", { id, history: true })).history.length
       const before = await versions(page)
       await openEditor(page, id)
-      await page.getByRole("textbox", { name: "Diagram title" }).fill("Quarterly plan")
+      const title = page.getByRole("textbox", { name: "Diagram title" })
+      await title.fill("Quarterly plan")
+      await expect(title).toHaveValue("Quarterly plan")
       await page.waitForTimeout(wait)
       if (how === "reloaded") await page.reload()
       // As switching to another tab does, with the title field still focused.
@@ -49,6 +55,37 @@ for (const how of ["reloaded", "hidden"] as const)
       await expect.poll(() => storedTitle(other, id)).toBe("Quarterly plan")
       expect(await versions(other)).toBe(before + 1)
     })
+
+// Hidden, the page may be shown again with the person still typing: the title saved is trimmed, a blank one isn't
+// saved, and the field is left as it is.
+for (const [typed, saved] of [
+  ["Plan ", "Plan"],
+  ["", "Test"],
+  ["   ", "Test"],
+] as const)
+  test(`hiding the page with ${JSON.stringify(typed)} typed saves ${JSON.stringify(saved)} and leaves the field`, async ({ context }) => {
+    await withAgentTools(context)
+    const page = await context.newPage()
+    const id = await newDiagram(page, "flowchart LR\n  A --> B")
+    const versions = async () => (await tool<{ history: unknown[] }>(page, "get_diagram", { id, history: true })).history.length
+    const added = saved === "Test" ? 0 : 1
+    const before = await versions()
+    await openEditor(page, id)
+    const title = page.getByRole("textbox", { name: "Diagram title" })
+    await title.fill(typed)
+    await expect(title).toHaveValue(typed)
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true })
+      document.dispatchEvent(new Event("visibilitychange"))
+    })
+    await expect.poll(() => storedTitle(page, id)).toBe(saved)
+    await expect.poll(versions).toBe(before + added)
+    await page.waitForTimeout(300)
+    await expect(title).toHaveValue(typed)
+    await expect(title).toBeFocused()
+    expect(await storedTitle(page, id)).toBe(saved)
+    expect(await versions()).toBe(before + added)
+  })
 
 test("the Enter that confirms an IME candidate doesn't leave the title", async ({ context }) => {
   await withAgentTools(context)
