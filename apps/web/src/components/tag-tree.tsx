@@ -153,7 +153,7 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
               }}
               className={({ isDropTarget, isDragging, isFocusVisible, isHovered }) =>
                 cn(
-                  "mb-0.5 flex h-8 shrink-0 cursor-default items-center rounded-md px-2.5 text-label text-muted-foreground outline-none select-none [-webkit-touch-callout:none] last:mb-0 max-md:h-10",
+                  "relative mb-0.5 flex h-8 shrink-0 cursor-default items-center rounded-md px-2.5 text-label text-muted-foreground outline-none select-none [-webkit-touch-callout:none] last:mb-0 max-md:h-10",
                   isHovered && "bg-accent/30 text-foreground",
                   tag.path === selected && "bg-accent text-foreground",
                   isDropTarget && DROP_HIGHLIGHT,

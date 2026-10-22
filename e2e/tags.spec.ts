@@ -431,3 +431,39 @@ for (const width of [700, 1200]) {
     await expect.poll(announced).toBe(true)
   })
 }
+
+test("a tag tree long enough to scroll keeps the app shell, and the phone drawer, in place", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.goto("/#/")
+  await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+  for (let i = 0; i < 24; i++)
+    await tool(page, "create_diagram", { title: `D${i}`, tags: [`project-${String(i).padStart(2, "0")}`], open: false })
+  const tree = page.getByRole("treegrid", { name: "Tags" })
+  await expect(tree.getByRole("row", { name: /project-23/ })).toBeAttached()
+  expect(await tree.evaluate((t) => t.scrollHeight > t.clientHeight)).toBe(true)
+  const documentScroll = () => page.evaluate(() => document.scrollingElement!.scrollTop)
+
+  // A wheel over the header, then scrolling the library to its end and past it.
+  await page.mouse.move(640, 25)
+  await page.mouse.wheel(0, 600)
+  await page.mouse.move(700, 400)
+  for (let i = 0; i < 20; i++) await page.mouse.wheel(0, 400)
+  await expect
+    .poll(() => page.locator(".eos-library-scroller").evaluate((s) => s.scrollHeight - s.clientHeight - s.scrollTop))
+    .toBeLessThanOrEqual(1)
+  await page.mouse.wheel(0, 400)
+  expect(await documentScroll()).toBe(0)
+  expect(await page.evaluate(() => document.scrollingElement!.scrollHeight)).toBe(720)
+
+  await page.setViewportSize({ width: 375, height: 667 })
+  await page.getByRole("button", { name: "Show sidebar" }).click()
+  const drawer = page.locator("dialog[open]")
+  await expect(drawer).toBeVisible()
+  await page.mouse.move(150, 30)
+  await page.mouse.wheel(0, 500)
+  await page.mouse.move(150, 400)
+  await page.mouse.wheel(0, 2000)
+  expect(await drawer.evaluate((d) => [d.scrollTop, d.scrollHeight - d.clientHeight])).toEqual([0, 0])
+})
