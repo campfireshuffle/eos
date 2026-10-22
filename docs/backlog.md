@@ -545,6 +545,60 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** test only. Every selected card is tagged.
   - **Fix:** poll both, for example `expect.poll(async () => [(await diagram("Two")).tags, (await diagram("Three")).tags])`. Do the same for the Starred drag at lines 155–158.
 
+- **Search for a Mermaid arrow misses diagrams where the arrow touches a word.**
+  - **What:** the tokenizer keeps `-` and `'` inside words (`split(/[^\p{L}\p{M}\p{N}_'-]+/u)`), so `x-->y` is indexed as one token. A search for `-->` or `->>` finds `A --> B` but not `A-->B`.
+  - **Where:** `packages/core/src/search.ts`, the tokenizer (about line 26).
+  - **Why low:** the diagram is still found by its node names, and searching for an arrow is rare. Found by A4's core audit.
+  - **Fix:** trim leading and trailing `-` and `'` from each token. Or split a token at a run of two or more `-`, and drop tokens with no letter or digit. Keep the hyphenated-word and apostrophe tests green.
+
+- **A failed idle preload of the editor is never retried, and then says "Eos has been updated".**
+  - **What:** if the idle `loadEditor()` fails (for example, the network drops just after the page loads), the browser caches the failed module import. Every later open of a diagram, and since A3 of Settings, fails until a reload. Once back online, `vite:preloadError` records `"updated"`, so the boundary says "Eos has been updated" although nothing was deployed.
+  - **Also:**
+    - `failed` is never cleared, so a later, unrelated render error shows that stale message instead of "Something went wrong".
+    - `void loadEditor()` leaves an unhandled rejection.
+  - **Where:** `apps/web/src/App.tsx` (`loadEditor`, the idle preload), `apps/web/src/components/settings-dialog.tsx:34`, `apps/web/src/components/error-boundary.tsx`.
+  - **Why low:**
+    - It needs the preload to fail in the moment after load.
+    - The advice (Reload) is right and does fix it.
+    - The common offline cases already say "offline" since A3.
+    - Found by A4's editor, settings and arch audits.
+  - **Fix:** no retry wrapper, since the cached failure is platform behaviour.
+    - Catch the idle preload (`loadEditor().catch(() => {})`).
+    - Say "updated" only when the failed chunk's response was a 404, not just when `navigator.onLine` is true. Otherwise say "Part of Eos couldn't load. Reload to try again."
+    - Clear `failed` once the boundary has shown it.
+
+- **A view change while focus is in the selection bar or its Tags menu drops focus to the page.**
+  - **What:** an agent's `set_view` filter change, or the browser's Back or Forward shortcut pressed while a bar button has focus, empties the selection from `home.tsx`'s route effect. `focusOffSelection` then picks a card from the old view, which unmounts when the new rows render, so focus falls to BODY.
+  - **Where:** `apps/web/src/components/home.tsx:72` (`clearSelection()` on `route.tag`/`starred`/`deleted`), `apps/web/src/lib/selection.ts`. Repros: A4 `webmcp/s/t4.mjs`, `t5.mjs`, `t10.mjs`.
+  - **Why low:**
+    - In-app view changes (sidebar, drawer) move focus off the bar first.
+    - This needs an agent, or a browser shortcut pressed from the bar.
+    - It is the same class as "An agent's set_view previewVersion takes focus from the person".
+    - Found by A4's library and webmcp audits.
+  - **Fix:** on a view change, target the library scroller instead of an old-view card. For example, focus `.eos-library-scroller` (preventScroll) in home's route effect when focus is in the bar or menu. Or move focus after the new rows render.
+
+- **The "card in view" fallback can land on a card that the removal then moves off-screen.**
+  - **What:** when the next card is out of view, `focusOffSelection` picks the first remaining card in view before the removed cards leave. The grid then reflows, and that card can end up just outside the scroller. This happened 5 of 5 times for trash Restore and Delete forever after selecting the first card and scrolling to the end. It also happens with desktop Delete when scrolled, and on phones.
+  - **Where:** `apps/web/src/lib/selection.ts`, `inView` and the fallback. Repro: A4 `library/scroll.probe.ts`.
+  - **Why low:**
+    - Focus is on a card, not BODY.
+    - The next Tab or arrow scrolls it in.
+    - It needs the person to scroll well away from what they selected.
+    - It is related to "On phones, focus moved off the selection bar can land on a card hidden under the sticky header". Fix the two together.
+  - **Fix:** require the card to sit fully inside the scroller (with the sticky header's bottom as the top edge on phones), and prefer one near the middle. Or choose the target after React re-renders, from the cards that remain.
+
+- **On Firefox, an agent's delete while the Tags menu is open can drop focus to the page.**
+  - **What:** with the Tags menu open, an agent deletes the selected diagrams and the person answers the confirm. Focus ends on BODY in 2 of 5 Firefox runs (never on Chromium or WebKit).
+  - **Where:** `apps/web/src/lib/selection.ts` (`focusOffSelection`), `apps/web/src/components/tag-menu.tsx`. Repro: A4 `library/agentdel.probe.ts`.
+  - **Why low:** it's a timing edge on one engine that needs an agent's delete during an open menu. Nothing is lost. Found by A4's library audit.
+  - **Fix:** rerun the repro now that A4 batch A keeps the menu's rows mounted. If it still reproduces, log the order of the confirm close, the prune and the popover close on Firefox, and move focus after the popover's close.
+
+- **accessibility.spec's "2 selected" step can fail on Firefox under parallel load.**
+  - **What:** after `goto("/#/")`, the test right-clicks card 0 and clicks card 1 before the whole library has rendered. The second click can land on a card that is then re-rendered, so "2 selected" never shows.
+  - **Where:** `e2e/accessibility.spec.ts` (about line 73).
+  - **Why low:** test only. Found by A4's settings audit.
+  - **Fix:** wait for the full card count (`await expect(cards).toHaveCount(n)`) after `goto("/#/")`, before selecting.
+
 ## Refactors to consider (from the round 11 cleanup review)
 
 - **What the preview shows, as one pure function.**
