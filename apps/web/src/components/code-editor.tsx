@@ -53,6 +53,7 @@ const theme = EditorView.theme(
 const noGutterTheme = EditorView.theme({ ".cm-scroller": { padding: "10px 14px" } })
 
 export interface CodeEditorHandle {
+  focus(): void
   focusLine(line: number, column: number): void
 }
 
@@ -115,7 +116,6 @@ export function CodeEditor({
           // Shows a "\r", and other invisible control characters, as a marker (␍), so what is typed next to one is where it looks.
           highlightSpecialChars(),
           EditorState.readOnly.of(readOnly),
-          EditorView.editable.of(!readOnly),
           // Escape arms CodeMirror's Escape-then-Tab exit (see the hint below). In a dialog it's handled, so the key
           // stops here and the dialog stays open with the unsaved text; elsewhere the default keymap still collapses a selection.
           keymap.of([{ key: "Escape", run: (v) => (v.setTabFocusMode(2000), !!v.dom.closest("dialog")) }]),
@@ -137,6 +137,8 @@ export function CodeEditor({
           EditorView.contentAttributes.of({
             "aria-label": label,
             ...(readOnly ? {} : { "aria-describedby": hintId }),
+            // Already focusable, as a contenteditable; this says so to checkers, which only count tabindex.
+            tabindex: "0",
             spellcheck: "false",
             autocapitalize: "off",
           }),
@@ -156,15 +158,21 @@ export function CodeEditor({
     // Star or the preview), and a key, a paste, a cut or committed text from wherever focus went (Settings, a
     // confirm) is sent to it, or to the focused control, as one of these events. They're cancelled at the document,
     // whatever their target, so nothing changes and the selection stays, to be copied. A drop focuses the editor
-    // first; agent edits, undo and other tabs aren't DOM input.
+    // first; agent edits, undo and other tabs aren't DOM input. A hidden editor (while a past version shows) takes
+    // none anyway, and Firefox can leave the selection in it when an input is clicked, so it cancels nothing.
     const unfocused = (e: Event) => {
       const at = getSelection()?.anchorNode
-      if (v.root.activeElement !== v.contentDOM && at && v.contentDOM.contains(at)) e.preventDefault()
+      if (v.root.activeElement !== v.contentDOM && at && v.contentDOM.contains(at) && v.contentDOM.checkVisibility()) e.preventDefault()
     }
     const inputs = ["beforeinput", "paste", "cut"] as const
     if (!readOnly) for (const type of inputs) document.addEventListener(type, unfocused, true)
     if (handleRef) {
       handleRef.current = {
+        // Back from hidden, Firefox has scrolled it to the top: the caret is brought back into view.
+        focus() {
+          v.focus()
+          v.dispatch({ scrollIntoView: true })
+        },
         focusLine(line, column) {
           const target = v.state.doc.line(Math.max(1, Math.min(line, v.state.doc.lines)))
           const from = Math.min(target.to, target.from + Math.max(0, column - 1))
