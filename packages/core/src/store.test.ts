@@ -165,26 +165,26 @@ describe("Eos store", () => {
       ["a😀b", "a😀Xb", "ab", "aXb"],
       // An edit at the end of the old text stays there, before what the person added after it.
       ["A --> B", "A --> B\nC --> D", "A --> Z", "A --> Z\nC --> D"],
-      ["ab", "abX", "abY", "abYX"],
-      ["a😀", "a😀X", "a😀Y", "a😀YX"],
-      // A line added after a line keeps off what the person typed at that line's end, or on that line if it was empty.
+      // Of two insertions at one spot, the person's goes first.
+      ["ab", "abX", "abY", "abXY"],
+      ["a😀", "a😀X", "a😀Y", "a😀XY"],
+      ["graph TD\n\n  C --> D", "graph TD\nob\n  C --> D", "graph TD\n  X --> Y\n\n  C --> D", "graph TD\nob  X --> Y\n\n  C --> D"],
+      ["graph TD\n  A --> B", "graph TD\nob  A --> B", "graph TD\n  X --> Y\n  A --> B", "graph TD\nob  X --> Y\n  A --> B"],
+      // A line added after a line keeps off what the person typed at that line's end.
       ["graph TD\n  A --> B", "graph TD\n  A --> Bob", "graph TD\n  A --> B\n  B --> C", "graph TD\n  A --> Bob\n  B --> C"],
-      ["graph TD\n\n  C --> D", "graph TD\nob\n  C --> D", "graph TD\n  X --> Y\n\n  C --> D", "graph TD\n  X --> Y\nob\n  C --> D"],
-      // An edit that changes a line's end and adds a line after it: the person's text stays on their line.
+      // What the person typed at a line's end stays after the old end: after what the agent added there, or what it replaced it with.
       [
         "graph TD\n  A --> B\n  C --> D",
         "graph TD\n  A --> Bob\n  C --> D",
         "graph TD\n  A --> B2\n  B2 --> X\n  C --> D",
-        "graph TD\n  A --> B2ob\n  B2 --> X\n  C --> D",
+        "graph TD\n  A --> Bob2\n  B2 --> X\n  C --> D",
       ],
       [
         "graph TD\n  A --> B\n  C --> D",
         "graph TD\n  A --> Bob\n  C --> D",
         "graph TD\n  A --> Z\n  Y --> Z\n  C --> D",
-        "graph TD\n  A --> Zob\n  Y --> Z\n  C --> D",
+        "graph TD\n  A --> Z\n  Y --> Zob\n  C --> D",
       ],
-      // A line added above an indented line goes before what the person typed before its indent.
-      ["graph TD\n  A --> B", "graph TD\nob  A --> B", "graph TD\n  X --> Y\n  A --> B", "graph TD\n  X --> Y\nob  A --> B"],
     ] as const
     for (const [base, person, edit, merged] of cases) {
       const id = await eos.createDiagram({ source: base })
@@ -291,8 +291,8 @@ describe("Eos store", () => {
       // The agent removes a line the person's last line begins like.
       ["flowchart TD\n  A --> B\n^  A", "flowchart TD\n  A", "flowchart TD\n^  A"],
       [hi.replace(/Hi$/, "H^i"), "sequenceDiagram\n  Alice->>Bob: Hi", "sequenceDiagram\n  Alice->>Bob: H^i"],
-      // The agent adds lines above the first line, or a line after a line it keeps.
-      ["^flowchart TD\n  A --> B\n", front + "flowchart TD\n  A --> B\n", front + "^flowchart TD\n  A --> B\n"],
+      // The agent adds lines above the first line (at the spot the person typed at, so after their typing), or a line after a line it keeps.
+      ["^flowchart TD\n  A --> B\n", front + "flowchart TD\n  A --> B\n", "^" + front + "flowchart TD\n  A --> B\n"],
       ["graph TD\nB^", "graph TD\nB\nA --> B", "graph TD\nB^\nA --> B"],
       ["graph TD\n^B", "graph TD\nB\nA --> B", "graph TD\n^B\nA --> B"],
     ] as const
@@ -317,11 +317,12 @@ describe("Eos store", () => {
         "sequenceDiagram\n  participant B as Bob\n  B-->>A: Hi\n",
         "sequenceDiagram\n  participant B as Robert\n  B-->>A: Hi\n",
       ],
+      // The person's replacement and the agent's lines go in at one spot, the person's first.
       [
         "flowchart TD\n  A --> B\n",
         ["flowchart", "graph"],
         "---\ntitle: Checkout\n---\nflowchart TD\n  A --> B\n",
-        "---\ntitle: Checkout\n---\ngraph TD\n  A --> B\n",
+        "graph---\ntitle: Checkout\n---\n TD\n  A --> B\n",
       ],
       ["graph TD\n  A --> B2\n  A --> B", [/-->(?= B$)/, "-.->"], "graph TD\n  A --> B", "graph TD\n  A -.-> B"],
     ] as const
@@ -358,28 +359,26 @@ describe("Eos store", () => {
     }
   })
 
-  it("merges an edit from an older version line by line at every line boundary", { timeout: 120_000 }, async () => {
+  it("merges an edit from an older version safely at every line boundary", { timeout: 120_000 }, async () => {
     // Where the person typed, on which line, the agent's edit, and whether the base, the agent's text and
-    // the person's text end in "\n", all crossed; each cell checked against what a line-by-line merge keeps.
-    const eos = await fresh()
+    // the person's text end in "\n", all crossed; each cell checked for what any merge must keep.
     const base = ["graph TD", "  A --> B", "  C --> D"]
+    const last = base.length - 1
     const P = "  P --> Q" // a whole line the person adds
     const at = (from: number, insert: string): TextChange => ({ from, to: from, insert })
-    // Where the person typed around line k, which starts at s and ends at e: the keystrokes, and the
-    // boundary (lines above it) a whole line went in at, the line's offset typed at, or that line k
-    // was joined onto the line above (Backspace at its start).
-    type Typing = { keys: TextChange[]; line?: number; offset?: number; joined?: boolean }
+    // Where the person typed around line k, which starts at s and ends at e: the keystrokes, the line's
+    // offset typed at if in a line, and whether they typed at one of the line's ends.
+    type Typing = { keys: TextChange[]; offset?: number; atEnds?: boolean }
     const typings: Record<string, (k: number, s: number, e: number, text: string) => Typing | null> = {
       nothing: () => ({ keys: [] }),
-      "a line above (Enter, up, type)": (k, s) => ({ keys: [at(s, "\n"), at(s, P)], line: k }),
-      "a line above (type, Enter)": (k, s) => ({ keys: [at(s, P), at(s + P.length, "\n")], line: k }),
-      "a line below (End, Enter, type)": (k, _, e) => ({ keys: [at(e, "\n"), at(e + 1, P)], line: k + 1 }),
+      "a line above (Enter, up, type)": (_, s) => ({ keys: [at(s, "\n"), at(s, P)], atEnds: true }),
+      "a line above (type, Enter)": (_, s) => ({ keys: [at(s, P), at(s + P.length, "\n")], atEnds: true }),
+      "a line below (End, Enter, type)": (_, __, e) => ({ keys: [at(e, "\n"), at(e + 1, P)], atEnds: true }),
       "at the line's start": () => ({ keys: [at(0, "ob")], offset: 0 }),
       "in the line's middle": () => ({ keys: [at(4, "ob")], offset: 4 }),
       "at the line's end": (k) => ({ keys: [at(base[k]!.length, "ob")], offset: base[k]!.length }),
-      "on the empty last line": (k, _, __, text) =>
-        k === base.length - 1 && text.endsWith("\n") ? { keys: [at(text.length, P)], line: base.length } : null,
-      "joining it onto the line above": (k, s) => (k ? { keys: [{ from: s - 1, to: s, insert: "" }], joined: true } : null),
+      "on the empty last line": (k, _, __, text) => (k === last && text.endsWith("\n") ? { keys: [at(text.length, P)] } : null),
+      "joining it onto the line above": (k, s) => (k ? { keys: [{ from: s - 1, to: s, insert: "" }] } : null),
     }
     // The agent's edit to line k: its lines, each with the base line it came from (none for a line it adds).
     const X = "  X --> Y"
@@ -396,15 +395,28 @@ describe("Eos store", () => {
       "changes the middle": (L, k) => L.with(k, { l: L[k]!.l.slice(0, 4) + "~" + L[k]!.l.slice(5), o: k }),
       rewrites: (L, k) => L.with(k, { l: "  R --> S", o: k }),
       "extends, then adds a line": (L, k) => L.toSpliced(k, 1, { l: L[k]!.l + "2", o: k }, { l: "  B2 --> X" }),
-      // Its line breaks change with the lines on both sides of it, as one change.
       "changes the line above and comments it out": (L, k) =>
         k ? L.with(k - 1, { l: "flowchart LR", o: k - 1 }).with(k, { l: "%%" + L[k]!.l, o: k }) : null,
       "removes the line above and comments it out": (L, k) => (k ? L.with(k, { l: "%%" + L[k]!.l, o: k }).toSpliced(k - 1, 1) : null),
     }
     const P2 = "  P2 --> Q2" // a line the person adds below the last line, as well
-    const plain = await eos.createDiagram({ source: "" })
-    const failures: string[] = []
-    let cells = 0
+    const count = (text: string, part: string) => text.split(part).length - 1
+    /** Adds each character of `text`, `sign` times, to the tally `into`. */
+    const tally = (text: string, into = new Map<string, number>(), sign = 1) => {
+      for (const c of text) into.set(c, (into.get(c) ?? 0) + sign)
+      return into
+    }
+    // A diagram per merge, in a database of their own every so often: lookups slow as the database grows.
+    let eos = await fresh()
+    const merge = async (text: string, keys: TextChange[], agent: string) => {
+      const id = await eos.createDiagram({ source: text })
+      const version = (await eos.getDiagram(id))!.version
+      const editor = await eos.bindSource(id)
+      for (const key of keys) editor.edit([key])
+      await eos.editDiagram(id, { source: agent }, undefined, { base: version })
+      return await eos.getSource(id)
+    }
+    const cells: (() => Promise<string | null>)[] = []
     for (let k = 0; k < base.length; k++)
       for (const ends of [true, false])
         for (const [where, typing] of Object.entries(typings))
@@ -425,98 +437,95 @@ describe("Eos store", () => {
                     (!flipAgent && lines.every((x, i) => x.o === i && x.l === base[i]) && lines.length === base.length)
                   )
                     continue
-                  const kept = new Set(lines.map((x) => x.o))
-                  const removed = base.map((_, i) => i).filter((i) => !kept.has(i))
-                  const changed = [...removed, ...lines.filter((x) => x.o !== undefined && x.l !== base[x.o]).map((x) => x.o!)]
-                  // Both edit the same line, or the agent adds a line where the person removed the line break: ambiguous,
-                  // so only what must hold anyway is checked (see below).
-                  const mine = typed.offset !== undefined ? [k] : typed.joined ? [k - 1, k] : []
-                  const anchorGone = typed.joined && what === "adds a line above"
-                  const same = anchorGone || mine.some((i) => changed.includes(i))
-                  const agent = lines.map((x) => x.l).join("\n") + (ends !== flipAgent ? "\n" : "")
-                  cells++
-                  const id = await eos.createDiagram({ source: text })
-                  const version = (await eos.getDiagram(id))!.version
-                  const editor = await eos.bindSource(id)
-                  for (const key of typed.keys)
-                    editor.edit([typed.offset === undefined ? key : { ...key, from: s + key.from, to: s + key.to }])
+                  // The person's keystrokes, each in the coordinates of the text as it's typed.
+                  const keys = typed.keys.map((key) => (typed.offset === undefined ? key : { ...key, from: s + key.from, to: s + key.to }))
+                  const typedOver = (t: string) => keys.reduce((now, key) => now.slice(0, key.from) + key.insert + now.slice(key.to), t)
+                  // The lines the person typed in or at an end of: there, of their typing and the agent's at one spot, either can go first.
+                  const touched = new Set<number>(typed.offset !== undefined || typed.atEnds ? [k] : [])
                   if (addsBelow) {
-                    const now = editor.text()
+                    const now = typedOver(text)
                     const end = now.endsWith("\n") ? now.length - 1 : now.length
-                    editor.edit([at(end, "\n")])
-                    editor.edit([at(end + 1, P2)])
+                    keys.push(at(end, "\n"), at(end + 1, P2))
+                    touched.add(last)
                   }
                   if (flipPerson) {
-                    const now = editor.text()
-                    editor.edit([now.endsWith("\n") ? { from: now.length - 1, to: now.length, insert: "" } : at(now.length, "\n")])
+                    const now = typedOver(text)
+                    keys.push(now.endsWith("\n") ? { from: now.length - 1, to: now.length, insert: "" } : at(now.length, "\n"))
+                    if (!now.endsWith("\n")) touched.add(last)
                   }
-                  const person = editor.text()
-                  await eos.editDiagram(id, { source: agent }, undefined, { base: version })
-                  const merged = await eos.getSource(id)
-                  const got = merged.split("\n")
-                  const bad: string[] = []
-                  // Every whole line the person added is there once, as its own line, between the lines it was between:
-                  // unless the agent changed or removed the lines on both sides of it, as one character diff can run across them.
-                  const whole: [string, number][] = [...(typed.line !== undefined ? [[P, typed.line] as [string, number]] : [])]
-                  if (addsBelow) whole.push([P2, base.length])
-                  for (const [line, b] of whole) {
-                    if (b > 0 && b < base.length && changed.includes(b - 1) && changed.includes(b)) continue
-                    const i = got.indexOf(line)
-                    if (got.filter((l) => l === line).length !== 1) bad.push("person's line")
-                    else if (lines.some((x) => x.o !== undefined && got.includes(x.l) && x.o < b !== got.indexOf(x.l) < i))
-                      bad.push("person's line moved")
-                  }
-                  // What the person typed in a line never ends up on another line.
-                  if (typed.offset !== undefined) {
-                    const rest = got.find((l) => l.includes("ob"))?.replace("ob", "")
-                    const others = [...base.filter((_, i) => i !== k), ...lines.filter((x) => x.o !== k).map((x) => x.l)]
-                    if (rest !== undefined && others.includes(rest)) bad.push("person's typing joined")
-                  }
-                  if (!same) {
-                    // Their part of a line is on its line; a line they joined stays joined.
-                    if (typed.offset !== undefined && !got.includes(person.split("\n")[k]!)) bad.push("person's typing")
-                    if (typed.joined && !got.includes(person.split("\n")[k - 1]!)) bad.push("person's joined line")
-                    // Every line the agent added or changed is its own line, and every line it removed or changed is gone.
-                    if (lines.some((x) => x.l !== base[x.o!] && !got.includes(x.l))) bad.push("agent's line")
-                    if (changed.some((i) => !lines.some((x) => x.l === base[i]) && got.includes(base[i]!))) bad.push("removed line")
-                    // No blank line appears, unless both added a final line break: then there are two.
-                    if (got.slice(0, -1).includes("") && (ends || !flipPerson || !flipAgent)) bad.push("blank line")
-                  }
-                  if (!typed.keys.length && !addsBelow && !flipPerson && merged !== agent) bad.push("not the agent's text")
-                  // Without a base, the edit gives exactly the text given.
-                  await eos.setSource(plain, person)
-                  await eos.editDiagram(plain, { source: agent })
-                  if ((await eos.getSource(plain)) !== agent) bad.push("no-base edit")
-                  if (bad.length)
-                    failures.push(
-                      `${bad.join(", ")}: ${JSON.stringify({ k, ends, where, addsBelow, flipPerson, what, flipAgent, person, agent, merged })}`
-                    )
+                  const person = typedOver(text)
+                  const agent = lines.map((x) => x.l).join("\n") + (ends !== flipAgent ? "\n" : "")
+                  const again = cells.length % 4 === 0
+                  cells.push(async () => {
+                    const merged = await merge(text, keys, agent)
+                    const bad: string[] = []
+                    // Every character the person typed is there once, and every one they deleted (a line break) is gone:
+                    // the merge has the agent's characters and theirs, less any line break both deleted.
+                    const inserted = keys.map((key) => key.insert).join("")
+                    const deleted = keys.filter((key) => key.to > key.from).length
+                    for (const [c, n] of tally(inserted, tally(agent, tally(merged), -1), -1))
+                      if (c === "\n" ? n > 0 || n < -deleted : n !== 0) bad.push(`${n > 0 ? "extra" : "lost"} ${JSON.stringify(c)}`)
+                    for (const run of [P, P2, "ob"])
+                      if (count(merged, run) !== count(inserted, run)) bad.push(`person's ${JSON.stringify(run)}`)
+                    // Every line the agent kept is there whole, unless the person typed inside it; every one it added is,
+                    // and every one it changed, unless the person typed in or at an end of it.
+                    const typedIn = typed.offset !== undefined && typed.offset > 0 && typed.offset < base[k]!.length ? k : -1
+                    for (const x of lines) {
+                      const kept = x.o !== undefined && x.l === base[x.o]
+                      if (x.o === typedIn || (!kept && x.o !== undefined && touched.has(x.o))) continue
+                      if (!merged.includes(x.l)) bad.push(`agent's line ${JSON.stringify(x.l)}`)
+                    }
+                    // Every line the agent removed or changed is gone as a line, unless the person typed at an end of it,
+                    // and one it removed is gone altogether unless the person typed inside it.
+                    for (const [i, line] of base.entries()) {
+                      if (lines.some((x) => x.l === line)) continue
+                      if (!touched.has(i) && merged.split("\n").includes(line)) bad.push(`old line ${JSON.stringify(line)}`)
+                      else if (!lines.some((x) => x.o === i) && i !== typedIn && merged.includes(line))
+                        bad.push(`removed ${JSON.stringify(line)}`)
+                    }
+                    if (!keys.length && merged !== agent) bad.push("not the agent's text")
+                    // The same edits merge the same way, whatever the person's peer (checked in every fourth cell).
+                    if (again && (await merge(text, keys, agent)) !== merged) bad.push("not deterministic")
+                    if (!bad.length) return null
+                    return `${bad.join(", ")}: ${JSON.stringify({ k, ends, where, addsBelow, flipPerson, what, flipAgent, person, agent, merged })}`
+                  })
                 }
-    expect(cells).toBe(4364)
+    const failures: string[] = []
+    for (const [i, cell] of cells.entries()) {
+      if (i % 250 === 0) {
+        disconnectTabs()
+        eos = await fresh()
+      }
+      const failure = await cell()
+      if (failure) failures.push(failure)
+    }
+    expect(cells.length).toBe(4364)
     expect(failures.slice(0, 20), `${failures.length} failures`).toEqual([])
   })
 
-  it("merges an edit from an older version at line boundaries without joining or taking the person's lines", async () => {
+  it("merges an edit from an older version at line boundaries, keeping everything the person typed", async () => {
     const eos = await fresh()
     const start = "flowchart TD\n  A[Start] --> B[End]\n"
     const two = "graph TD\n  A --> B\n  C --> D"
     const c = two.indexOf("  C")
     // The text at the base, the person's keystrokes since, the edit made from the base, and the merge.
     const cases: [string, TextChange[], string, string][] = [
-      // The person types a new last line after the final line break; the agent's text ends without one.
-      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start + "  B --> D", start + "  B --> D\n  B --> C"],
-      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start + "  B --> D\n", start + "  B --> D\n  B --> C"],
-      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start.trimEnd(), start + "  B --> C"],
+      // The person types a new last line after the final line break. Where the agent adds one there too, the
+      // person's goes first; where it drops that line break, what the person typed is left on the line above.
+      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start + "  B --> D", start + "  B --> C  B --> D"],
+      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start + "  B --> D\n", start + "  B --> C  B --> D\n"],
+      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start.trimEnd(), start.trimEnd() + "  B --> C"],
       [
         start,
         [{ from: start.length, to: start.length, insert: "  B --> C" }],
         "flowchart TD\n  A[Start] --> B[Finish]",
-        "flowchart TD\n  A[Start] --> B[Finish]\n  B --> C",
+        "flowchart TD\n  A[Start] --> B[Finish]  B --> C",
       ],
       [start, [{ from: start.length, to: start.length, insert: "  B --> C\n" }], start + "  B --> D", start + "  B --> C\n  B --> D"],
       [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start + "\n  B --> D", start + "  B --> C\n  B --> D"],
       [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start + "\n", start + "  B --> C\n"],
-      // The agent removes the last line, below a line the person added: by Enter at its start, or at the end of the line above.
+      // The agent removes the last line, below a line the person added: by Enter at its start (so the line break the
+      // agent removes is the one before the person's line), or at the end of the line above.
       [
         two,
         [
@@ -524,7 +533,7 @@ describe("Eos store", () => {
           { from: c, to: c, insert: "  E --> F" },
         ],
         "graph TD\n  A --> B",
-        "graph TD\n  A --> B\n  E --> F",
+        "graph TD\n  A --> B  E --> F\n",
       ],
       [
         two + "\n",
@@ -549,16 +558,16 @@ describe("Eos store", () => {
         "graph TD\n  A --> B\n%%  X --> Y\n",
         "graph TD\n  A --> B\n  C --> D\n%%  X --> Y\n",
       ],
-      // Part of a line at a line's start goes before what the person typed there, at the very start too.
-      ["graph TD\nA --> B\n", [{ from: 0, to: 0, insert: "ob" }], "Xgraph TD\nA --> B\n", "Xobgraph TD\nA --> B\n"],
-      ["graph TD\nA --> B\n", [{ from: 9, to: 9, insert: "ob" }], "graph TD\nXA --> B\n", "graph TD\nXobA --> B\n"],
-      // What the person typed on the last lines the agent removes goes with them, onto no other line.
-      [two + "\n", [{ from: two.length, to: two.length, insert: " x" }], "graph TD\n  A --> B", "graph TD\n  A --> B"],
+      // Part of a line at a line's start goes after what the person typed there, at the very start too.
+      ["graph TD\nA --> B\n", [{ from: 0, to: 0, insert: "ob" }], "Xgraph TD\nA --> B\n", "obXgraph TD\nA --> B\n"],
+      ["graph TD\nA --> B\n", [{ from: 9, to: 9, insert: "ob" }], "graph TD\nXA --> B\n", "graph TD\nobXA --> B\n"],
+      // What the person typed on the last lines the agent removes stays.
+      [two + "\n", [{ from: two.length, to: two.length, insert: " x" }], "graph TD\n  A --> B", "graph TD\n  A --> B x"],
       [
         "graph TD\n  A --> B\n  C --> D\n  E --> F\n",
         [{ from: 18 + 10, to: 18 + 10, insert: " x" }],
         "graph TD\n  A --> B",
-        "graph TD\n  A --> B",
+        "graph TD\n  A --> B x",
       ],
       // A line the person added below the last line stays its own line, whatever they did to the line the agent removes.
       [
@@ -579,7 +588,8 @@ describe("Eos store", () => {
         "graph TD\n  A --> B\n",
         "graph TD\n  A --> B\n  E --> F",
       ],
-      // Whole lines and part of a line, in one insertion at a line's start: the line the person added stays between.
+      // The agent changes two lines, the person adds one between them: one character diff runs across the line break
+      // there, so the agent's "%%" goes at the start of the person's line.
       [
         "graph TD\n  A --> B\n",
         [
@@ -587,7 +597,7 @@ describe("Eos store", () => {
           { from: 9, to: 9, insert: "  P --> Q" },
         ],
         "flowchart TD\n%%  A --> B\n",
-        "flowchart TD\n  P --> Q\n%%  A --> B\n",
+        "flowchart TD\n%%  P --> Q\n  A --> B\n",
       ],
     ]
     for (const [base, keystrokes, edit, merged] of cases) {
@@ -1951,5 +1961,38 @@ describe("share links", () => {
       ["agent", ["source", "tags", "title"]],
       ["user", undefined],
     ])
+  })
+
+  it("saves, shows and undoes an agent's edit from an older version like any agent edit", async () => {
+    const dbName = `test-${n++}`
+    const eos = await Eos.create({ dbName, seed: false })
+    const other = await Eos.create({ dbName, seed: false })
+    const agent: Actor = { kind: "agent", tool: "update_diagram", changes: ["title", "source"] }
+    const id = await eos.createDiagram({ title: "T", source: "graph TD\n  A --> B\n" })
+    const version = (await eos.getDiagram(id))!.version
+    await other.getSource(id) // open in the other tab, which hears the edits
+    const editor = await eos.bindSource(id)
+    const heard: [TextChange[], boolean][] = []
+    editor.onChange((changes, own) => heard.push([changes, own]))
+    editor.edit([{ from: 9, to: 9, insert: "  P --> Q\n" }])
+    await eos.editDiagram(id, { title: "Agent", source: "graph TD\n  A --> C\n" }, agent, { base: version })
+    const merged = "graph TD\n  P --> Q\n  A --> C\n"
+    expect(await eos.getSource(id)).toBe(merged)
+    expect(heard).toEqual([[[{ from: 27, to: 28, insert: "C" }], false]])
+    await vi.waitFor(async () => expect(await other.getSource(id)).toBe(merged))
+    const h = await eos.history(id)
+    expect([h[0]!.actor.kind, h[0]!.changes?.sort(), h[0]!.version]).toEqual([
+      "agent",
+      ["source", "title"],
+      (await eos.getDiagram(id))!.version,
+    ])
+    // Saved: a fresh start reads it back.
+    expect(await (await Eos.create({ dbName, seed: false })).getSource(id)).toBe(merged)
+    // The person's ⌘Z takes back only their line; the agent's undo, only the agent's change.
+    await eos.undo(id)
+    expect(await eos.getSource(id)).toBe("graph TD\n  A --> C\n")
+    await eos.undo(id, "agent")
+    expect(await eos.getSource(id)).toBe("graph TD\n  A --> B\n")
+    expect((await eos.getDiagram(id))!.meta.title).toBe("Agent")
   })
 })
