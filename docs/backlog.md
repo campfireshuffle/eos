@@ -378,6 +378,7 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
 
 - **Settings' Save reverts an agent's set_theme made while Settings is open.**
   - **What:** the CSS editors are uncontrolled, remounted by key. An agent's `set_theme` changes `customCss` or `diagramCss` underneath, and the person's Save writes the editor's older text back.
+  - **Also (A3):** the same happens across tabs. With Settings open in one tab, a theme saved in another tab is reverted when this tab's Settings is saved. The same fix covers it.
   - **Where:** `apps/web/src/components/settings-dialog.tsx`.
   - **Why low:** it needs an agent theming during an open Settings. The agent's change can be reapplied.
   - **Fix:** bump the editor key when `customCss` or `diagramCss` changes from outside, and only when it differs from the editor's text.
@@ -441,6 +442,108 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `packages/core/src/store.ts`, `mergeFromBase` (a whole-line deletion next to the person's insert).
   - **Why low:** the agent's deletion overlaps the person's edit, so nothing is lost and the text is in history. It's the same class as upstream #7 and "A heavy agent rewrite can drop what the person typed…".
   - **Fix:** none planned. Track it with the line-end tie issue (see A2's VERDICT).
+
+- **A failed save still tells other tabs to save on top of it.**
+  - **What:** `persistDoc` broadcasts to other tabs in `finally`, even when its IndexedDB write failed. Another tab then saves its later edits as updates on top of the missing one. If the failing tab closes before it retries, a fresh load can't apply those updates, and all of the other tab's later edits are dropped.
+  - **Where:** `packages/core/src/docs.ts`, `persistDoc`'s queue. Repro: A3 `core/gap.test.ts`.
+  - **Why low:** it needs a failed write (a full disk, see "On a full disk, edits look saved…"), two tabs on one diagram, and the failing tab closing before its next write fills the gap.
+  - **Fix:** broadcast only after a successful write. After a gap-filling compact, broadcast the full update.
+
+- **One damaged diagram makes Download backup fail for the whole library.**
+  - **What:** `exportBackup` loads each diagram in turn. One that can't be loaded rejects the whole export, so the person gets no backup at all.
+  - **Where:** `packages/core/src/store.ts`, `exportBackup`. Repro: A3 `core/corrupt.test.ts`.
+  - **Why low:** it needs a damaged stored diagram. `repairRows` already keeps such a diagram from blocking startup.
+  - **Fix:** catch per diagram, as `repairRows` does. Export the rest, and report the skipped ones in the UI and to the agent.
+
+- **The source's Undo and Redo drop focus to the page on the last step.**
+  - **What:** the toolbar's Undo and Redo use `disabled`. Pressing Undo from the keyboard until nothing is left disables the focused button, and focus falls to BODY. History's Back/Forward already use `aria-disabled` for this.
+  - **Where:** `apps/web/src/components/editor.tsx`, `IconButton` (Undo and Redo, about lines 226–229 and 388–400).
+  - **Why low:** ⌘Z in the source, the common route, is unaffected. Only the toolbar buttons, at the end of the history, lose focus.
+  - **Fix:** `aria-disabled` and an early return in `onClick`, as in `history-nav.tsx`.
+
+- **An agent's set_view previewVersion takes focus from the person, and "latest" doesn't give it back.**
+  - **What:** while the person types in the source, an agent's `set_view({ previewVersion })` hides the live editor. Focus drops to BODY, and what the person types next goes nowhere. The agent's `previewVersion: "latest"` then leaves focus on BODY, unlike the person's own Back to latest, which focuses the source at its caret.
+  - **Where:** `apps/web/src/components/editor.tsx` (the preview switch) and `apps/web/src/lib/webmcp.ts` (`previewVersion`). Found by A3's editor and webmcp audits.
+  - **Why low:** it needs an agent to open a past version while the person is typing. Nothing typed is saved anywhere wrong, and one click on the source gets back.
+  - **Fix:** when a past version opens while focus is in the live source, focus the read-only editor. When the view returns to latest and focus is on BODY or in the past version's editor, focus the live source at its caret, with the same `CodeEditorHandle.focus()` that Back to latest uses.
+
+- **The version history popover is a nameless dialog.**
+  - **What:** the history popover has `role=dialog` but no accessible name, which fails axe's `aria-dialog-name`.
+  - **Where:** `apps/web/src/components/history-menu.tsx`.
+  - **Why low:** its focused items name themselves, and the trigger says "History".
+  - **Fix:** `aria-label="Version history"` on the popover content.
+
+- **The editor page has no heading, and its splitters have no name.**
+  - **What:** a screen reader's heading navigation finds nothing on a diagram's page, and the resize handles between the panes are announced as unnamed separators.
+  - **Where:** `apps/web/src/components/editor.tsx`, `page.tsx` (the editor's header); the resizable panel handles.
+  - **Why low:** the title field is labelled and is the first stop, and the splitters are pointer conveniences with a fixed default layout.
+  - **Fix:** a visually hidden `<h1>` with the diagram's title (or the title field inside an `h1`), and `aria-label="Resize source and preview"` (and so on) on each handle.
+
+- **A concurrent edit at the edge of an IME composition leaves the composed letters behind (CodeMirror, upstream).**
+  - **What:** while composing (pinyin `ni` at the end of `A --> B`), another tab's or an agent's edit that replaces, inserts at, or deletes the character just before the composition leaves `ni` in the text when `你` commits: `A --> Cni你`. The editor and the store agree.
+  - **Where:** CodeMirror's composition tracking. Eos dispatches the change with a plain `view.dispatch({ changes })` (`apps/web/src/components/code-editor.tsx`). Repro: A3 `editor/probes/ime2.spec.ts`.
+  - **Why low:** it needs a concurrent edit exactly at the composition's edge, and the letters are visible and can be deleted.
+  - **Fix:** none in Eos. Tracked upstream (see A3's VERDICT for the issue text). Confirm on a bare CodeMirror page before filing.
+
+- **set_view's previewVersion rejects versions that get_diagram accepts.**
+  - **What:** `get_diagram({ version })` reads any version the diagram has, including ones from earlier tool results that history has since folded into a later entry. `set_view({ previewVersion })` only accepts a version it finds among `eos.history(id, 500)`'s entries, so the same id returns not_found.
+  - **Where:** `packages/webmcp/src/index.ts`, `set_view` (about lines 450–458).
+  - **Why low:** agent-only, and the error says to use an id from get_diagram's history.
+  - **Fix:** look the version up the way `get_diagram` does (`eos.getSource` succeeds), and label it from the nearest history entry.
+
+- **get_settings's description promises the full app CSS, but returns only the saved override.**
+  - **What:** the description says "the full app --eos-* and diagram --pele-* CSS including defaults". Once the person saves a theme, it returns only their override.
+  - **Where:** `packages/webmcp/src/index.ts` (the `get_settings` description, about line 235) and `apps/web/src/lib/webmcp.ts` (what it returns).
+  - **Why low:** agent-only. The agent still gets the variables in effect that were changed, and `set_theme` works either way.
+  - **Fix:** return the defaults merged with the override, as the description says, or change the description to "your saved overrides; defaults otherwise".
+
+- **update_diagram's "the agent's own source edits" undo is shared by all agents in a tab.**
+  - **What:** `revert: "undo"` steps through one agent undo stack per tab. Every agent in that tab shares it, and it isn't kept across reloads. The description says "the agent's own source edits".
+  - **Where:** `packages/webmcp/src/index.ts`, the `update_diagram` description (about line 333); the agent undo stack in `packages/core/src/store.ts`.
+  - **Why low:** one agent per tab is the normal case, and a version id still restores exactly.
+  - **Fix:** say "agent edits made in this tab (all agents), until it reloads".
+
+- **Two agent errors don't say what's wrong.**
+  - **What:** `get_library({ filters: { tags: [...many] } })` fails with Zod's bare `too_big`. `set_view({ page: "diagram" })` without `diagramId` returns `not_found` for `undefined`, rather than saying diagramId is required.
+  - **Where:** `packages/webmcp/src/index.ts`, the `get_library` schema and `set_view` (about lines 445–448). The second is related to "set_view's previewVersion needs diagramId…".
+  - **Why low:** agent-only. A retry with a valid input works.
+  - **Fix:** describe the limit in the schema. In `set_view`, fail with "page \"diagram\" needs diagramId", or default to the open diagram.
+
+- **Two first-visit tabs each seed "Welcome to Eos", and a restore into a new browser adds a second one.**
+  - **What:** a first visit seeds the sample diagram. Two tabs opened at once on a first visit both seed it, and the library shows two "Welcome to Eos". Restoring a backup in a fresh browser keeps the just-seeded Welcome next to the backup's own.
+  - **Where:** `packages/core/src/store.ts` (first-run seeding from `samples.ts`) and `importBackup`.
+  - **Why low:** it's a duplicate sample, not lost data, and it can be deleted.
+  - **Fix:** seed under a Web Lock (`navigator.locks.request("eos-seed", …)`) and re-check inside it. On a replace import, drop an untouched seeded Welcome.
+
+- **The theme parser breaks on a ";" inside a quoted value.**
+  - **What:** `parseVars` splits declarations with a regex. A value like `--x: "a;b";` ends at the quoted `;`, swallows the next declaration, and saves broken CSS.
+  - **Where:** `apps/web/src/lib/theme.ts`, `parseVars` (about line 51). Repro: A3 `arch/specs/css.spec.ts`.
+  - **Why low:** custom properties with quoted semicolons are rare in a theme.
+  - **Fix:** platform-first. Parse with `new CSSStyleSheet().replaceSync(css)` and walk the rules' `style` declarations, keeping `--*` properties.
+
+- **preview.spec's "after Back to latest/Restore, focus is back in the source" can time out under load.**
+  - **What:** it failed once each on Firefox and WebKit under the full suite. The Restore's IndexedDB write sometimes outlasts the default 4 s expect, and it passed 30/30 with a 15 s timeout. It isn't a product race.
+  - **Where:** `e2e/preview.spec.ts` (about line 553).
+  - **Why low:** test timing only.
+  - **Fix:** `test.slow()`, or a longer timeout on that one assertion.
+
+- **Clear or Escape can focus another copy of the card, when grouped by subtag.**
+  - **What:** grouped by subtag, one diagram shows once per group. `focusOffSelection` remembers the last-toggled card by id, so it focuses the first copy, not the one the person toggled.
+  - **Where:** `apps/web/src/lib/selection.ts` (`lastToggled`), `components/diagram-card.tsx` (`toggleSelected` callers).
+  - **Why low:** focus lands on the same diagram, in view, and nothing scrolls.
+  - **Fix:** remember the toggled card element (or its group key with the id), and prefer it when it's still connected.
+
+- **On phones, focus moved off the selection bar can land on a card hidden under the sticky header.**
+  - **What:** when no better target is in view, the fallback takes the topmost card in view. On a phone, where the page scrolls under a sticky header, that card can be all but covered.
+  - **Where:** `apps/web/src/lib/selection.ts`, `inView`.
+  - **Why low:** a fallback of a fallback. The card is focused, and the next arrow or Tab scrolls it in.
+  - **Fix:** take the sticky header's bottom as the top edge (or require the card's centre to be visible).
+
+- **tags.spec's "a card dragged onto a tag…" can fail on Firefox before the second card is tagged.**
+  - **What:** `Store.addTags` tags the dragged selection one diagram after another. The test polls only the first ("Two") and then reads "Three" once, and on Firefox about 1 run in 4 that read comes before Three's write. The failure's page snapshot shows both cards tagged. It predates A2, with no load.
+  - **Where:** `e2e/tags.spec.ts` (about lines 152–153).
+  - **Why low:** test only. Every selected card is tagged.
+  - **Fix:** poll both, for example `expect.poll(async () => [(await diagram("Two")).tags, (await diagram("Three")).tags])`. Do the same for the Starred drag at lines 155–158.
 
 ## Refactors to consider (from the round 11 cleanup review)
 
