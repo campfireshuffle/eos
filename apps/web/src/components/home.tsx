@@ -77,6 +77,17 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   const mobile = useIsMobile()
   const scroller = useRef<HTMLDivElement>(null)
   useScrollRestoration(mobile ? null : scroller, rows !== undefined, [homeHref({ ...route, q: "" }), mobile])
+  // A new search starts at the top, where its best match is. Only within an entry: the first rows an entry shows
+  // (once they're for its own search, not the last entry's) keep the position back/forward restores.
+  // After a frame: WebKit moves a page scrolled before then partway back down.
+  const shownSearch = useRef<{ entry: string; q: string }>(undefined)
+  useEffect(() => {
+    const q = library?.filter.query?.trim() ?? ""
+    if (!library || (shownSearch.current?.entry !== entry && q !== route.q.trim())) return
+    const last = shownSearch.current
+    shownSearch.current = { entry, q }
+    if (last?.entry === entry && last.q !== q) requestAnimationFrame(() => (mobile ? window : scroller.current)?.scrollTo({ top: 0 }))
+  }, [library, entry, route.q, mobile])
   const emoji = route.tag ? findEmoji(tags ?? [], route.tag) : null
   const empty = rows?.length === 0
   useEffect(() => clearSelection(), [route.tag, route.starred, route.deleted])

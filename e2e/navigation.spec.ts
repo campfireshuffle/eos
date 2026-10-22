@@ -242,3 +242,81 @@ test("pressing in-app Back or Forward with the keyboard to the end of history ke
     await expect(page).toHaveURL(url)
   }
 })
+
+for (const [size, viewport] of Object.entries({ desktop: { width: 1280, height: 800 }, phone: { width: 390, height: 844 } })) {
+  test.describe(`searching while scrolled, at ${size} width`, () => {
+    test.use({ viewport })
+    const phone = size === "phone"
+
+    /** 150 cards, sorted so "Login flow" comes last. Desktop scrolls the library's pane; phones scroll the page. */
+    async function longLibrary(context: BrowserContext) {
+      await withAgentTools(context)
+      const page = await context.newPage()
+      await page.goto("/#/")
+      await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+      await page.evaluate(async () => {
+        const tools = (window as unknown as { __tools: Record<string, { execute(x: unknown): Promise<unknown> }> }).__tools
+        for (let i = 0; i < 149; i++) await tools.create_diagram.execute({ title: `Diagram ${String(i).padStart(3, "0")}`, open: false })
+        await tools.create_diagram.execute({ title: "Login flow", open: false })
+      })
+      await page.evaluate(() => (location.hash = "/?sort=title"))
+      const cards = page.locator("[data-card-id]")
+      await expect(cards).toHaveCount(151) // and the welcome diagram
+      const top = () => page.evaluate((phone) => (phone ? scrollY : document.querySelector(".eos-library-scroller")!.scrollTop), phone)
+      const scrollTo = async (y: number) => {
+        const scrolled = () =>
+          page.evaluate(
+            ([phone, y]) => {
+              const el = phone ? document.scrollingElement! : document.querySelector(".eos-library-scroller")!
+              el.scrollTo({ top: y })
+              return el.scrollTop
+            },
+            [phone, y] as const
+          )
+        await expect.poll(scrolled).toBe(y)
+        // The scroll event for getting there fires with the next frame; wait it out, so it's saved.
+        await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+      }
+      const search = page.getByRole("textbox", { name: "Search diagrams" }).locator("visible=true")
+      return { page, cards, top, scrollTo, search }
+    }
+
+    test("a new search starts at the top, showing its best match, with the caret still in the search box", async ({ context }) => {
+      const { cards, top, scrollTo, search } = await longLibrary(context)
+      await scrollTo(3000)
+      await search.click()
+      await search.pressSequentially("Login flow")
+      await expect(cards.first()).toContainText("Login flow")
+      await expect.poll(top).toBe(0)
+      // In view, below the search box (and the header it's in, which sticks to the top on phones).
+      const below = await search.evaluate((el) => el.getBoundingClientRect().bottom)
+      const card = (await cards.first().boundingBox())!
+      expect(card.y).toBeGreaterThanOrEqual(below)
+      expect(card.y + card.height).toBeLessThanOrEqual(viewport.height)
+      await expect(search).toBeFocused()
+      // Clearing the search is a new search too.
+      await search.fill("Diagram")
+      await expect(cards.filter({ hasText: "Login flow" })).toHaveCount(0)
+      await scrollTo(2000)
+      await search.fill("")
+      await expect(cards).toHaveCount(151)
+      await expect.poll(top).toBe(0)
+    })
+
+    test("back to a search returns to where its results were scrolled", async ({ context }) => {
+      const { page, cards, top, scrollTo, search } = await longLibrary(context)
+      await search.fill("Diagram")
+      await expect(page).toHaveURL(/q=Diagram/)
+      await expect(cards.filter({ hasText: "Login flow" })).toHaveCount(0)
+      await scrollTo(1500)
+      // Clicked where it sits: Playwright's own click would first scroll it into view.
+      const shown = await cards.evaluateAll((all) => all.findIndex((c) => c.getBoundingClientRect().top > 200))
+      await cards.nth(shown).evaluate((a: HTMLElement) => a.click())
+      await page.locator(".cm-content").waitFor()
+      await page.goBack()
+      await expect(cards.filter({ hasText: "Diagram 148" })).toHaveCount(1)
+      await page.waitForTimeout(300)
+      expect(await top()).toBe(1500)
+    })
+  })
+}
