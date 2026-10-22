@@ -9,9 +9,6 @@ interface UiState {
   /**
    * The in-page dialog on screen: a confirm, or with no `action`, a message to dismiss. It stays after it's answered
    * (`open: false`), so its text holds while it fades out. A new one replaces it, with a new `id`.
-   *
-   * Focus invariant: a dialog returns focus to what had focus when it was asked for (`opener`). If that was the
-   * dialog fading out, focus goes to that dialog's own opener. If nothing had focus, focus is left alone.
    */
   confirm: {
     id: number
@@ -20,7 +17,6 @@ interface UiState {
     message: string
     action: string | null
     resolve: (ok: boolean) => void
-    opener: HTMLElement | null
   } | null
   sidebarCollapsed: boolean
   mobileNavOpen: boolean
@@ -94,13 +90,7 @@ function showDialog(c: Pick<NonNullable<UiState["confirm"]>, "title" | "message"
     c.resolve(false)
     return null
   }
-  // The opener is recorded now, when the dialog is asked for: focus is still on the control, or on the dialog
-  // fading out, and not yet dropped on <body>.
-  const focused = document.activeElement
-  const active = focused instanceof HTMLElement && focused !== document.body ? focused : null
-  // Focus still in the dialog fading out means the person just answered it: go back to where that one came from.
-  const opener = active?.closest("[role=alertdialog]") ? (state.confirm?.opener ?? null) : active
-  const entry = { ...c, id: ++confirmN, open: true, opener }
+  const entry = { ...c, id: ++confirmN, open: true }
   setUi({ confirm: entry })
   return entry
 }
