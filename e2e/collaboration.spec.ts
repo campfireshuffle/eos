@@ -83,11 +83,13 @@ test("an agent's line appended where the person is typing doesn't take their car
   expect(await storedText(a, id)).toBe("graph TD\n  A --> B12\n  C --> D")
 })
 
-for (const [indent, source] of [
-  ["indented", "graph TD\n  A --> B"],
-  ["at column 0", "sequenceDiagram\nAlice->>Bob: hi"],
+// The agent's source is diffed by lines, so its line goes in at the start of the person's line: after an indent the
+// caret is past, which keeps the caret before its line's text, or, at column 0, at the caret, so after it.
+for (const [indent, source, typed] of [
+  ["indented", "graph TD\n  A --> B", "graph TD\n  NEW\n  ZA --> B"],
+  ["at column 0", "sequenceDiagram\nAlice->>Bob: hi", "sequenceDiagram\nZNEW\nAlice->>Bob: hi"],
 ] as const) {
-  test(`an agent's line inserted above the person's ${indent} line leaves their caret before its text`, async () => {
+  test(`an agent's line inserted above the person's ${indent} line, with the caret at its text's start`, async () => {
     const id = await openInBoth(source)
     await cursorAtEndOf(a, 1)
     await a.keyboard.press("Home") // the start of the line's text
@@ -97,14 +99,12 @@ for (const [indent, source] of [
     await tool(a, "update_diagram", { id, source: added, baseVersion: version })
     await expectEditor(a, added)
     await a.keyboard.type("Z")
-    const lead = lines[1]!.match(/^ */)![0]
-    const expected = [lines[0], lead + "NEW", lead + "Z" + lines[1]!.trimStart()].join("\n")
-    await expectEditor(a, expected)
-    expect(await storedText(a, id)).toBe(expected)
+    await expectEditor(a, typed)
+    expect(await storedText(a, id)).toBe(typed)
   })
 }
 
-test("an agent's text inserted at the person's caret within a line goes before the caret", async () => {
+test("an agent's text inserted at the person's caret within a line goes after the caret", async () => {
   const id = await openInBoth("graph TD\n  A --> B")
   await cursorAtEndOf(a, 1)
   for (let i = 0; i < 6; i++) await a.keyboard.press("ArrowLeft") // just after the A
@@ -112,8 +112,8 @@ test("an agent's text inserted at the person's caret within a line goes before t
   await tool(a, "update_diagram", { id, source: "graph TD\n  AX --> B", baseVersion: version })
   await expectEditor(a, "graph TD\n  AX --> B")
   await a.keyboard.type("Z")
-  await expectEditor(a, "graph TD\n  AXZ --> B")
-  expect(await storedText(a, id)).toBe("graph TD\n  AXZ --> B")
+  await expectEditor(a, "graph TD\n  AZX --> B")
+  expect(await storedText(a, id)).toBe("graph TD\n  AZX --> B")
 })
 
 test("an agent's edit merges with typing done after the version it read", async () => {

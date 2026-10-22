@@ -1,5 +1,5 @@
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands"
-import { Annotation, EditorSelection, EditorState, StateEffect, StateField } from "@codemirror/state"
+import { Annotation, EditorState, StateEffect, StateField } from "@codemirror/state"
 import { Decoration, EditorView, keymap, lineNumbers, drawSelection, highlightSpecialChars, type DecorationSet } from "@codemirror/view"
 import { useEffect, useId, useRef } from "react"
 
@@ -175,49 +175,10 @@ export function CodeEditor({
         },
       }
     }
-    // Changes from elsewhere arrive as edits, in the coordinates of the text the editor shows.
-    const unbind = binding?.onChange((changes, own) => {
-      const apply = () => {
-        // The caret stays with the text of its own line. A line someone else adds at the caret ("\n…") goes after
-        // it, unless the caret is at the start of its line's text, where the line is added above. What they add at
-        // the end of a line's text up to a line break of its own ("2\n…") extends that line, so it goes before the
-        // caret and the rest after. Anything else they insert there (a line above, text within the line) goes
-        // before it. Text the person's own undo, redo or restore puts back goes before the caret, as CodeMirror's
-        // undo does.
-        const set = v.state.changes(changes)
-        /** Which side of what's inserted at the caret the caret goes to, and how far into it when it's split. */
-        const place = (at: number): { assoc: 1 | -1; into: number } => {
-          const inserted = changes
-            .filter((c) => c.from === at && c.to === at)
-            .map((c) => c.insert)
-            .join("")
-          const line = v.state.doc.lineAt(at)
-          if (own || !inserted.includes("\n") || at <= line.from + line.text.search(/\S/)) return { assoc: 1, into: 0 }
-          const br = inserted.indexOf("\n")
-          if (br === 0) return { assoc: -1, into: 0 }
-          return at === line.to && /\S/.test(line.text) ? { assoc: -1, into: br } : { assoc: 1, into: 0 }
-        }
-        // An external change never interrupts a composition. Setting the selection, even to where CodeMirror would
-        // map it, ends one and commits its letters as typed text, so it's set only when the rules above move the
-        // caret, and never while composing.
-        const plain = v.state.selection.map(set)
-        const selection = v.composing
-          ? plain
-          : EditorSelection.create(
-              v.state.selection.ranges.map((r) => {
-                const { assoc, into } = place(r.head)
-                const mapped = r.map(set, assoc)
-                return into && r.empty ? EditorSelection.cursor(mapped.head + into) : mapped
-              }),
-              v.state.selection.mainIndex
-            )
-        v.dispatch({ changes: set, ...(selection.eq(plain) ? {} : { selection }), annotations: external.of(true) })
-        // Belt and braces: if the two ever disagree, show what's stored.
-        const stored = binding.text()
-        if (v.state.doc.toString() !== stored) {
-          v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: stored }, annotations: external.of(true) })
-        }
-      }
+    // Changes from elsewhere arrive as edits, in the coordinates of the text the editor shows. CodeMirror maps the
+    // selection: what's inserted at the caret goes after it, and a composition carries on.
+    const unbind = binding?.onChange((changes) => {
+      const apply = () => v.dispatch({ changes, annotations: external.of(true) })
       // A change can land while CodeMirror is mid-update, which it refuses; apply it right after.
       try {
         apply()

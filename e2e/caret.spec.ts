@@ -3,8 +3,8 @@ import { expect, test, type Page } from "@playwright/test"
 import { editorText, expectEditor, newDiagram, openEditor, storedText, tool, withAgentTools } from "./helpers"
 
 // Where text someone else inserts lands relative to the person's caret and line: caret spot × insertion × source
-// (the cells `runs` picks). One rule covers them all: the caret, and what the person types, stay with the text of
-// their own line. Then edits an agent merges from an older version while the person types, which keep what both typed.
+// (the cells `runs` picks). CodeMirror maps the caret: what's inserted at it goes after it. Then edits an agent merges
+// from an older version while the person types, which keep what both typed, the person's typing together.
 
 const SPOTS = {
   "start of an unindented line": { line: "A --> B", col: 0 },
@@ -31,17 +31,13 @@ const doc = (line: string, last = false) => (last ? `graph TD\n${line}` : `graph
 const HEAD = "graph TD\n".length
 
 /**
- * How far past the insertion's start the caret ends up: someone else's new line ("\n…") goes after the caret unless
- * the caret is at the start of its line's text, and at the end of a line's text what they insert up to a line break
- * extends the line, so it goes before the caret and the rest after. Anything else, and whatever the person's own
- * undo or redo puts back, goes before it.
+ * How far past the insertion's start the caret ends up: none, as what's inserted at the caret goes after it. An agent's
+ * source is diffed by lines, so a line it adds above the caret's line, when the caret is past that line's start, goes in
+ * at the line's start, before the caret.
  */
-function expectedCaret(line: string, col: number, insert: string, own: boolean) {
-  const textStart = line.search(/\S/)
-  const atTextStart = textStart >= 0 && col <= textStart
-  if (own || atTextStart || !insert.includes("\n")) return insert.length
-  if (insert.startsWith("\n")) return 0
-  return textStart >= 0 && col === line.length ? insert.indexOf("\n") : insert.length
+function expectedCaret(line: string, col: number, insert: string, by: (typeof SOURCES)[number]) {
+  const before = line.slice(0, col)
+  return by === "an agent" && before && (before + insert).endsWith("\n" + before) ? insert.length : 0
 }
 
 async function caretAt(page: Page, pos: number) {
@@ -68,12 +64,10 @@ const SOURCES = ["another tab", "an agent", "own undo", "own redo"] as const
 
 /**
  * The cells of spot × insertion × source that run. Someone else's line break at the start of a line (or of its text)
- * is where the caret rule has a case of its own, so every one of those runs, as does an agent's line added above
- * before an indent (the diff slides it to the line start). Otherwise each source meets each spot once, the insertion
- * rotating so that it also meets each of the first six, plus the own-edit cell that shows undo and redo aren't
- * treated as someone else's. Text then a line, from another tab or an agent, runs at every spot. A cell not run
- * follows the same rule as a neighbour that runs, except an agent's line added in the middle of a line, which Loro's
- * diff slides a character off the caret (contrived, so not run).
+ * runs everywhere, as does an agent's line added above before an indent, where the agent's line diff decides where the
+ * insertion goes. Otherwise each source meets each spot once, the insertion rotating so that it also meets each of the
+ * first six, plus an own redo of a line. Text then a line, from another tab or an agent, runs at every spot. An
+ * agent's line added in the middle of a line, which the diff slides a character off the caret, isn't run (contrived).
  */
 function runs(spot: number, insert: number, source: number) {
   const spotName = Object.keys(SPOTS)[spot]!
@@ -86,7 +80,7 @@ function runs(spot: number, insert: number, source: number) {
   return insert === (spot + source) % 6
 }
 
-// What's checked here is the same in every engine: the caret rule maps CodeMirror's state, and the merges are core's
+// What's checked here is the same in every engine: CodeMirror maps the caret, and the merges are core's
 // diff. So every test runs on Chromium, and these few on every engine too, for the wiring.
 const EVERY_ENGINE = new Set([
   "another tab: a blank line (\\n) at the caret at the middle of a line",
@@ -103,11 +97,10 @@ for (const [spot, [spotName, { line, col, last }]] of Object.entries(SPOTS).entr
     for (const [s, source] of SOURCES.entries()) {
       if (!runs(spot, i, s)) continue
       test(`${source}: ${insertName} at the caret at the ${spotName}`, async ({ context }) => {
-        const own = source.startsWith("own")
         const before = doc(line, last)
         const p = HEAD + col
         const after = before.slice(0, p) + insert + before.slice(p)
-        const q = p + expectedCaret(line, col, insert, own)
+        const q = p + expectedCaret(line, col, insert, source)
         const expected = after.slice(0, q) + "Z" + after.slice(q)
         const a = await context.newPage()
         const id = await newDiagram(a, source === "own undo" ? after : before)
@@ -177,11 +170,12 @@ for (const [spotName, { line, col, last }] of Object.entries(SPOTS)) {
       const source = agentLines.join("\n")
       await tool(a, "update_diagram", { id, source, baseVersion: version })
       await a.keyboard.type("!")
-      // Everything either side typed is there once: less the person's "ob" and "!", it's the agent's text. Of the two
-      // insertions at one spot, the person's goes first, so "ob" stays right after the text of its line it was typed after.
-      await expect.poll(async () => (await editorText(a)).replace("ob", "").replace("!", "")).toBe(source)
+      // Everything either side typed is there once: less the person's "ob!", typed together, it's the agent's text. Of
+      // the two insertions at one spot, the person's goes first, so "ob!" stays right after the text of its line it was
+      // typed after, and what the agent inserted there goes after it.
+      await expect.poll(async () => (await editorText(a)).replace("ob!", "")).toBe(source)
       const merged = await editorText(a)
-      expect(merged.includes("\n" + line.slice(0, col) + "ob"), merged).toBe(true)
+      expect(merged.includes("\n" + line.slice(0, col) + "ob!"), merged).toBe(true)
       expect(await storedText(a, id)).toBe(merged)
     })
   }
@@ -191,7 +185,7 @@ for (const [spotName, { line, col, last }] of Object.entries(SPOTS)) {
 // stays right after the old end, so before the "2…" the agent added there, or after what the agent replaced "B" with.
 for (const last of [false, true]) {
   for (const [lineNow, added, mine] of [
-    ["  A --> B2", "  B2 --> X", ["  A --> Bob2!", "  B2 --> X"]],
+    ["  A --> B2", "  B2 --> X", ["  A --> Bob!2", "  B2 --> X"]],
     ["  A --> Z", "  Y --> Z", ["  A --> Z", "  Y --> Zob!"]],
   ] as const) {
     test(`merge: the person types at the end of ${last ? "the last line" : "a line"} while an agent changes it to "${lineNow.trim()}" and adds a line below`, async ({
