@@ -1212,16 +1212,21 @@ function diffText(a: string, b: string): TextChange[] {
  * elsewhere in the text are kept.
  *
  * Lines are units: a line break belongs to the line it ends, and nothing the agent does joins
- * the person's text onto another line or takes a line the person added since. So:
+ * the person's text onto another line or takes a line the person added since, except one
+ * added between two lines the agent changes or removes, as one character diff of changed
+ * lines can run across both. So:
  * - An insertion inside a line goes right after the old character before it, so it stays next
  *   to what it followed even when text was added after that since. A line added after a line's
  *   text ("\n…") goes after what has been typed at the end of that line since.
  * - At a line's start, whole lines go right after the old line break before it (at the very
  *   start, before anything typed there), above lines the person added there; part of a line
- *   goes onto the old line's text, after those lines.
+ *   goes onto the old line's text, after those lines. One insertion of both is split so.
  * - A removed range is pinned on its own first and last characters, so it never takes text
- *   typed next to it. A removed line ends at the line break that ends it now, and the last
- *   lines come out from the line break now before them, so lines added below or above stay.
+ *   typed next to it. Removed lines go from where the first one's text starts now to the line
+ *   break that now ends the last one's (the break stays when the person has joined the first
+ *   onto the line above), and the last lines come out from the line break now before them,
+ *   with what was typed at the end of the last; so lines added below or above stay. Where the
+ *   person has deleted a removal's end already, it stays pinned on its characters.
  * - Once the person has typed after the text's final line break, it ends their line: the agent
  *   dropping it keeps it, and what the agent puts on the old empty last line goes on a line of
  *   its own.
@@ -1235,13 +1240,14 @@ function editsFromBase(d: Editable, base: string, source: string): TextChange[] 
     const now = d.doc.getCursorPos(old.getCursor(i)!)
     return now ? now.offset + (now.update ? 0 : char.length) : i + char.length
   }
+  // Whether the old text's i-th character is still there.
+  const kept = (i: number) => !d.doc.getCursorPos(old.getCursor(i)!)?.update
   const text = old.toString()
   const now = d.text.toString()
-  // Where the gap after the old text's code point ending at i is now: a cursor can't sit on the second half of a surrogate pair.
-  const after = (i: number) => {
-    const back = /[\udc00-\udfff]/.test(text[i - 1]!) && i > 1 ? 2 : 1
-    return gapAfter(i - back, text.slice(i - back, i))
-  }
+  // The length of the old text's code point ending at i: a cursor can't sit on the second half of a surrogate pair.
+  const width = (i: number) => (/[\udc00-\udfff]/.test(text[i - 1]!) && i > 1 ? 2 : 1)
+  // Where the gap after the old text's code point ending at i is now.
+  const after = (i: number) => gapAfter(i - width(i), text.slice(i - width(i), i))
   // Where the text of the old line starting at i starts now: after any line breaks typed above it.
   const lineStart = (i: number) => {
     const at = i ? after(i) : 0
@@ -1257,22 +1263,28 @@ function editsFromBase(d: Editable, base: string, source: string): TextChange[] 
     if (!cut.insert && cut.to === end && text.endsWith("\n") && put.from === end)
       changes.splice(i - 1, 2, { ...put, from: cut.from, to: cut.from }, cut)
   }
+  const place = (from: number, insert: string): TextChange => {
+    const atLineStart = !from || text[from - 1] === "\n"
+    let at: number
+    if (insert.startsWith("\n") && (from === end || text[from] === "\n")) {
+      at = gapBefore(from)
+      // After the old text's end: before a final line break the person added there.
+      if (from === end && end && !text.endsWith("\n") && after(end) < now.length && now.endsWith("\n")) at--
+    } else if (!atLineStart) at = after(from)
+    else at = !insert.endsWith("\n") ? lineStart(from) : from ? after(from) : 0
+    // On the old empty last line: below the last line's text, and apart from what the person typed there.
+    if (from === end && atLineStart && !insert.startsWith("\n")) {
+      if (at && now[at - 1] !== "\n") insert = "\n" + insert
+      if (!insert.endsWith("\n") && at < now.length) insert += "\n"
+    }
+    return { from: at, to: at, insert }
+  }
   return changes.flatMap(({ from, to, insert }): TextChange[] => {
     if (insert) {
-      const atLineStart = !from || text[from - 1] === "\n"
-      let at: number
-      if (insert.startsWith("\n") && (from === end || text[from] === "\n")) {
-        at = gapBefore(from)
-        // After the old text's end: before a final line break the person added there.
-        if (from === end && end && !text.endsWith("\n") && after(end) < now.length && now.endsWith("\n")) at--
-      } else if (!atLineStart) at = after(from)
-      else at = !insert.endsWith("\n") ? lineStart(from) : from ? after(from) : 0
-      // On the old empty last line: below the last line's text, and apart from what the person typed there.
-      if (from === end && atLineStart && !insert.startsWith("\n")) {
-        if (at && now[at - 1] !== "\n") insert = "\n" + insert
-        if (!insert.endsWith("\n") && at < now.length) insert += "\n"
-      }
-      return [{ from: at, to: at, insert }]
+      // At a line's start, whole lines then part of a line: each goes where its kind goes.
+      const br = insert.lastIndexOf("\n") + 1
+      const split = (!from || text[from - 1] === "\n") && br > 1 && br < insert.length
+      return split ? [place(from, insert.slice(0, br)), place(from, insert.slice(br))] : [place(from, insert)]
     }
     // Dropping the final line break but not the line it ends: that line break alone is pinned on itself.
     const toEnd = to === end
@@ -1283,19 +1295,35 @@ function editsFromBase(d: Editable, base: string, source: string): TextChange[] 
       finalBreak = !typedAfterEnd
     }
     if (from < to) {
+      // The line rules below go by the old characters at the removal's ends, so each applies only while
+      // its character is still there: what the person deleted already, and typed at its spot since, is theirs.
+      const lastKept = kept(to - width(to))
+      // Whole lines from where the first one's text starts now, with what was typed at its start.
+      const atLineStart = !from || text[from - 1] === "\n"
+      const wholeLines = atLineStart && text[to - 1] === "\n"
+      let start = wholeLines && kept(from) ? lineStart(from) : gapBefore(from)
       // The last lines, from the line break before them: the one now directly before the first one's text.
-      const br = toEnd && text[from] === "\n" ? lineStart(from + 1) - 1 : -1
-      const start = br >= gapBefore(from) && now[br] === "\n" ? br : gapBefore(from)
+      const lastLines = toEnd && text[from] === "\n" && lastKept
+      if (lastLines && kept(from + 1)) {
+        const br = lineStart(from + 1) - 1
+        if (br >= start && now[br] === "\n") start = br
+      }
       let stop = after(to)
-      const wholeLines = !from || text[from - 1] === "\n"
-      // Whole lines: up to the line break that now ends the last one's text.
-      if (wholeLines && text[to - 1] === "\n" && to - 1 > from && text[to - 2] !== "\n") {
+      const lineText = to - 1 > from && text[to - 2] !== "\n" // the last whole line isn't empty
+      if (wholeLines && lineText && kept(to - 1 - width(to - 1))) {
+        // Whole lines: up to the line break that now ends the last one's text, and through it when they
+        // start a line now (not when the person has joined the first onto the line above).
         const ends = now.indexOf("\n", after(to - 1))
-        if (ends >= 0 && ends < stop) stop = ends + 1
-      } else if (wholeLines && toEnd && !text.endsWith("\n")) {
-        // The whole last line, with the line break the person has typed after it since.
+        if (ends >= 0 && ends < stop) stop = ends + (!start || now[start - 1] === "\n" ? 1 : 0)
+      } else if (lastLines) {
+        // With what was typed at the last one's end, up to a line break after it.
         const ends = now.indexOf("\n", stop)
-        if (ends >= 0) stop = ends + 1
+        stop = ends < 0 ? now.length : ends
+      } else if (atLineStart && toEnd && lastKept && !text.endsWith("\n") && source.endsWith("\n")) {
+        // The last line's text, leaving it empty: with the line break typed after it since, when the
+        // removal starts a line now, so that line goes rather than leave a blank line above the person's.
+        const ends = now.indexOf("\n", stop)
+        if (ends >= 0 && (!start || now[start - 1] === "\n")) stop = ends + 1
       }
       edits.push({ from: start, to: stop, insert: "" })
     }
