@@ -308,6 +308,11 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** what an agent relies on still holds: only what differs changes, and the rest of the text (and what the person typed on it) is kept.
   - **Fix:** say "applied as a line-by-line diff, so unchanged lines are kept as they are".
 
+- **Closing a tab loses a title that's still being typed.**
+  - **What:** the title field commits on blur, Enter, unmount, `beforeunload`, `pagehide` and hidden. A reload keeps the typed title, except sometimes in WebKit at 0 ms (the `title.spec` cell is fixme there). Closing the tab loses it in all three engines, because a write started while the tab closes never lands.
+  - **Where:** `apps/web/src/components/editor.tsx` (`TitleInput`), `e2e/title.spec.ts`.
+  - **Why it's here:** fixing it means saving the title while it's typed, for example debounced, which changes when renames reach history and other tabs. That's new behaviour, for the owner to decide.
+
 ## Refactors to consider (from the round 11 cleanup review)
 
 - **What the preview shows, as one pure function.**
