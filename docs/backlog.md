@@ -803,18 +803,6 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** only very tall diagrams; SVG export works.
   - **Fix:** scale down to fit the canvas limit, or say why it failed and suggest SVG.
 
-- **Firefox: resizing a window across 768px and back can leave the source scrolled away from the caret.**
-  - **What:** desktop → phone width, type, desktop again: in Firefox the source can end up at scrollTop 0 with the caret off-screen. `e2e/caret.spec.ts` "resizing a window across 768px keeps the caret, the scroll and focus" fails every time in Firefox when run alone (A8's gatekeeper ran it once; the editor audit ran it 5 of 5), at the second `kept()`. The phone-rotation variant passes.
-  - **Where:** `apps/web/src/components/code-editor.tsx` (`keepCaretInView`), `App.tsx` (layout switch).
-  - **Why low:** not a regression (the page used to remount and lose everything), and a desktop resize across 768px mid-edit is rare. **But the e2e suite is red in Firefox**, so fix it soon.
-  - **Fix:** run `keepCaretInView` again once the layout has settled (next frame, or the panel group's layout callback).
-
-- **The Version history popover can overrun a short window by up to 1px, and its accessibility test is flaky.**
-  - **What:** at rest the popover reaches 0.5–1px past the bottom edge. A7's short-viewport test sometimes passes mid-animation. Found by the A8 editor and arch audits.
-  - **Where:** `apps/web/src/components/editor.tsx` (the history popover), `e2e/accessibility.spec.ts`.
-  - **Why low:** every version can still be picked; the overrun is sub-pixel.
-  - **Fix:** `collisionPadding={8}` on the popover, and wait for the open animation to end in the test.
-
 - **Small landscape phones show only 1–2 lines of source.**
   - **What:** the stacked editor split (42/58) leaves the Source pane about 30px tall on an iPhone SE in landscape (667×320).
   - **Where:** `apps/web/src/components/editor.tsx` (the phone split via `setLayout`).
@@ -826,6 +814,54 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `packages/core/src/search.ts` (Orama always matches prefixes).
   - **Why low:** since the A8 ranking batch, whole-word matches rank first and these trail at the bottom; only the hit count is inflated.
   - **Fix:** index the header keyword in a separate, unboosted field, or leave it out of `source`.
+
+- **At 320px wide the Version history popover runs 8px off the right edge.**
+  - **What:** the popover is `w-80` (320px) with `collisionPadding={8}`, so on a 320px screen it can't fit and overhangs the right edge by 8px. Its content stays readable and every version can be picked. A side effect of A8's collisionPadding.
+  - **Where:** `apps/web/src/components/history-menu.tsx` (the popover content's width).
+  - **Why low:** only at 320px; nothing is cut off that matters.
+  - **Fix:** `w-[min(20rem,calc(100vw-1rem))]`.
+
+- **The search box has no clear button and Escape doesn't clear it.**
+  - **What:** `type="search"` without a visible clear control; Escape leaves the query in place. Clearing means selecting the text and deleting it.
+  - **Where:** `apps/web/src/components/home.tsx` (the search input).
+  - **Why low:** the query is easy to delete by hand; nothing is lost.
+  - **Fix:** a clear button (with an accessible name) shown while there's a query, and Escape clears a non-empty query (a second Escape blurs).
+
+- **The Group select is enabled but does nothing while searching.**
+  - **What:** since A8, search results are one flat list, but the Group select stays enabled, so changing it while searching has no visible effect until the search is cleared.
+  - **Where:** `apps/web/src/components/home.tsx` (the Group select).
+  - **Why low:** grouping applies again once the search is cleared, as docs/data-model.md says.
+  - **Fix:** disable it while a query is active, with a hint ("Search results are ranked"), or mark it `aria-disabled` with a tooltip.
+
+- **get_library returns about 36k tokens for a 300-diagram library.**
+  - **What:** at ~300 diagrams, `get_library` returns ~127 KB; `sourcePreview` is about half of it.
+  - **Where:** `packages/webmcp/src/index.ts` (`get_library`).
+  - **Why low:** not a regression; agents can filter by tag or query, and read one diagram with `get_diagram`.
+  - **Fix:** leave out `sourcePreview` by default (an `include: ["preview"]` option), or cap the list with a `limit`/`cursor`.
+
+- **Settings' App CSS pre-fill doesn't follow a system light/dark change while Settings is open.**
+  - **What:** with color mode System, switching the OS between light and dark while Settings is open leaves the App CSS editor showing the other mode's pre-fill. (Related to, but not the same as, "After Save, switching color mode keeps the saved App CSS in the editor.")
+  - **Where:** `apps/web/src/components/settings*.tsx` (the App CSS pre-fill).
+  - **Why low:** rare; reopening Settings shows the right pre-fill, and nothing is saved wrongly.
+  - **Fix:** derive the pre-fill from the resolved mode (subscribe to `prefers-color-scheme`) while the field is untouched.
+
+- **Importing a backup with an unknown version shows a cryptic Zod error.**
+  - **What:** a backup file whose `v` is unknown (from a newer Eos, say) fails with a raw schema error instead of "This backup is from a newer version of Eos".
+  - **Where:** `packages/core/src/backup*.ts` (import parsing).
+  - **Why low:** nothing is changed or lost; only the message is unclear.
+  - **Fix:** check `v` before the full schema parse and give a plain message.
+
+- **WebKit: a preview.spec test can flake on a same-document `goto` plus resize.**
+  - **What:** Playwright's `page.goto` to a hash URL of the current document, followed by a resize, can race with the Navigation API in WebKit, so `openEditor` sometimes lands on the old view.
+  - **Where:** `e2e/preview.spec.ts` (`openEditor`).
+  - **Why low:** a test-harness flake; the app behaves.
+  - **Fix:** open the editor with `location.hash = …` inside the page, or by clicking the card.
+
+- **(After the A9 search batch) Porter stems "status" and "statuses" differently.**
+  - **What:** the Porter stemmer gives `status → statu` but `statuses → status`, so "status" finds "Statuses" only as a prefix match, ranked below diagrams that have "status" whole. Check after the batch lands.
+  - **Where:** `packages/core/src/search.ts` (stem terms).
+  - **Why low:** the diagram is still found; one irregular word.
+  - **Fix:** none needed unless reported. If it matters, also index the stem of the word without a final "es".
 
 ## Refactors to consider (from the round 11 cleanup review)
 
