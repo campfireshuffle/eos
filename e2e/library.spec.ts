@@ -1,4 +1,4 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test"
+import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test"
 
 import { newDiagram, openEditor, tool, withAgentTools } from "./helpers"
 
@@ -168,6 +168,81 @@ test.describe("selecting", () => {
     await page.keyboard.press("Escape")
     await card(page, "Apple crumble").click()
     await expect(page).toHaveURL(/#\/d\//)
+  })
+
+  /** Expects focus on `target`: not dropped to the page, and not left inside the selection bar's inert part. */
+  async function expectFocusOn(page: Page, target: Locator) {
+    await expect(target).toBeFocused()
+    expect(await page.evaluate(() => document.activeElement !== document.body && !document.activeElement?.closest("[inert]"))).toBe(true)
+  }
+  const bar = (page: Page) => page.getByRole("toolbar", { name: "Selection" })
+  /** Selects `target` with Space, then presses Enter on the bar's `action`. */
+  async function selectAndPress(page: Page, target: Locator, action: string) {
+    await target.focus()
+    await page.keyboard.press(" ")
+    await expect(page.getByText("1 selected")).toBeVisible()
+    await bar(page).getByRole("button", { name: action, exact: true }).focus()
+    await page.keyboard.press("Enter")
+  }
+  /** Moves the cards titled `gone` to Deleted, and opens Deleted. */
+  async function deleteThenOpenDeleted(page: Page, gone: string[]) {
+    for (const title of gone) await card(page, title).click({ button: "right" })
+    await bar(page).getByRole("button", { name: "Delete", exact: true }).click()
+    await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click()
+    await expect(selectionCount(page)).toHaveText("0 selected")
+    await page.evaluate(() => (location.hash = "/?deleted=1"))
+    await expect(page.locator("[data-card-id]")).toHaveCount(gone.length)
+  }
+
+  test("Clear selection from the keyboard leaves focus on the card last selected", async ({ context }) => {
+    const page = await library(context)
+    const second = page.locator("[data-card-id]").nth(1)
+    await selectAndPress(page, second, "Clear selection")
+    await expect(selectionCount(page)).toHaveText("0 selected")
+    await expectFocusOn(page, second)
+  })
+
+  test("Esc on the selection bar leaves focus on the card last selected", async ({ context }) => {
+    const page = await library(context)
+    const second = page.locator("[data-card-id]").nth(1)
+    await second.focus()
+    await page.keyboard.press(" ")
+    await bar(page).getByRole("button", { name: "Star" }).focus()
+    await page.keyboard.press("Escape")
+    await expect(selectionCount(page)).toHaveText("0 selected")
+    await expectFocusOn(page, second)
+  })
+
+  test("Delete from the keyboard, once confirmed, moves focus to the next card", async ({ context }) => {
+    const page = await library(context)
+    const cards = page.locator("[data-card-id]")
+    const [first, second] = await cards.evaluateAll((els) => els.slice(0, 2).map((el) => el.getAttribute("data-card-id")))
+    const next = page.locator(`[data-card-id="${second}"]`)
+    await selectAndPress(page, cards.first(), "Delete")
+    await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click()
+    await expect(page.locator(`[data-card-id="${first}"]`)).toHaveCount(0)
+    await expect(selectionCount(page)).toHaveText("0 selected")
+    await expectFocusOn(page, next)
+  })
+
+  test("Restore from the keyboard moves focus to a card still in Deleted", async ({ context }) => {
+    const page = await library(context)
+    await deleteThenOpenDeleted(page, ["Apple pie", "Pear crumble"])
+    await selectAndPress(page, card(page, "Apple pie"), "Restore")
+    await expect(page.locator("[data-card-id]")).toHaveCount(1)
+    await expect(selectionCount(page)).toHaveText("0 selected")
+    await expectFocusOn(page, card(page, "Pear crumble"))
+  })
+
+  test("Delete forever on the last card in Deleted moves focus to the library, not the page", async ({ context }) => {
+    const page = await library(context)
+    await deleteThenOpenDeleted(page, ["Apple pie"])
+    await selectAndPress(page, card(page, "Apple pie"), "Delete forever")
+    await page.getByRole("alertdialog").getByRole("button", { name: "Delete forever" }).click()
+    await expect(page.getByText("Nothing deleted.")).toBeVisible()
+    await expectFocusOn(page, page.locator(".eos-library-scroller"))
+    // Focusable for this, but never a Tab stop.
+    await expect(page.locator(".eos-library-scroller")).toHaveAttribute("tabindex", "-1")
   })
 
   test("⌘A in the search box selects its text, not the cards", async ({ context }) => {

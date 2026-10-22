@@ -4,7 +4,7 @@ import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { useEos } from "@/lib/eos"
-import { clearSelection, useSelection } from "@/lib/selection"
+import { clearSelection, focusOffSelection, useSelection } from "@/lib/selection"
 import { askConfirm } from "@/lib/ui-state"
 
 import { TagMenu } from "./tag-menu"
@@ -46,6 +46,7 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
                 size="sm"
                 className="rounded-full"
                 onClick={async () => {
+                  focusOffSelection(true)
                   await eos.restoreDiagram(ids)
                   clearSelection()
                 }}
@@ -59,6 +60,7 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
                 onClick={async () => {
                   const what = count === 1 ? "this diagram" : `${count} diagrams`
                   if (!(await askConfirm(`Permanently delete ${what}? This can’t be undone.`, "Delete forever"))) return
+                  focusOffSelection(true)
                   await eos.purge(ids)
                   clearSelection()
                 }}
@@ -78,6 +80,7 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
                 className="rounded-full text-destructive hover:text-destructive"
                 onClick={async () => {
                   if (!(await askConfirm(`Move ${count === 1 ? "this diagram" : `${count} diagrams`} to Deleted?`))) return
+                  focusOffSelection(true)
                   await eos.deleteDiagram(ids)
                   clearSelection()
                 }}
@@ -92,7 +95,10 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
             size="icon-sm"
             className="rounded-full text-muted-foreground"
             aria-label="Clear selection"
-            onClick={clearSelection}
+            onClick={() => {
+              focusOffSelection(false)
+              clearSelection()
+            }}
           >
             <X />
           </Button>
