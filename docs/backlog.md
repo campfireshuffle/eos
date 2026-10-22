@@ -822,7 +822,7 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Fix:** `w-[min(20rem,calc(100vw-1rem))]`.
 
 - **The search box has no clear button and Escape doesn't clear it.**
-  - **What:** `type="search"` without a visible clear control; Escape leaves the query in place. Clearing means selecting the text and deleting it.
+  - **What:** a plain text input with no clear control; Escape leaves the query in place. Clearing means selecting the text and deleting it.
   - **Where:** `apps/web/src/components/home.tsx` (the search input).
   - **Why low:** the query is easy to delete by hand; nothing is lost.
   - **Fix:** a clear button (with an accessible name) shown while there's a query, and Escape clears a non-empty query (a second Escape blurs).
@@ -853,15 +853,9 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
 
 - **WebKit: a preview.spec test can flake on a same-document `goto` plus resize.**
   - **What:** Playwright's `page.goto` to a hash URL of the current document, followed by a resize, can race with the Navigation API in WebKit, so `openEditor` sometimes lands on the old view.
-  - **Where:** `e2e/preview.spec.ts` (`openEditor`).
+  - **Where:** `e2e/helpers.ts` (`openEditor`), used by `e2e/preview.spec.ts`.
   - **Why low:** a test-harness flake; the app behaves.
   - **Fix:** open the editor with `location.hash = …` inside the page, or by clicking the card.
-
-- **(After the A9 search batch) Porter stems "status" and "statuses" differently.**
-  - **What:** the Porter stemmer gives `status → statu` but `statuses → status`, so "status" finds "Statuses" only as a prefix match, ranked below diagrams that have "status" whole. Check after the batch lands.
-  - **Where:** `packages/core/src/search.ts` (stem terms).
-  - **Why low:** the diagram is still found; one irregular word.
-  - **Fix:** none needed unless reported. If it matters, also index the stem of the word without a final "es".
 
 ## Refactors to consider (from the round 11 cleanup review)
 
