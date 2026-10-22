@@ -24,6 +24,7 @@ export interface DiagramIndexRow {
   createdAt: number
   updatedAt: number
   titleKey: string
+  /** From the workspace doc, added when the row is read; never stored (see StoredRow). */
   starred: 0 | 1
   sourcePreview: string
   /** Full source for search. Missing on rows written before search indexed it. */
@@ -86,8 +87,11 @@ export interface SourceBinding {
   text(): string
   /** Applies the person's edit. Changes are in ascending order, in the coordinates of text() before the edit. */
   edit(changes: TextChange[]): void
-  /** Calls `listener` with each change made by anything other than edit(), in the coordinates of the text before it. */
-  onChange(listener: (changes: TextChange[]) => void): () => void
+  /**
+   * Calls `listener` with each change made by anything other than edit(), in the coordinates of the text before it.
+   * `own` is true for the person's own changes in this tab (undo, redo, a restore), false for other tabs and agents.
+   */
+  onChange(listener: (changes: TextChange[], own: boolean) => void): () => void
   /**
    * Calls `listener` when the diagram is closed underneath the binding (deleted, or
    * replaced by a backup). edit() then does nothing; bind again to keep editing.

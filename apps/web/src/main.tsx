@@ -8,7 +8,6 @@ import { App } from "./App.tsx"
 import "./app.css"
 import { ErrorBoundary } from "./components/error-boundary"
 import { EosProvider } from "./lib/eos"
-import { initHistory } from "./lib/history"
 import { connectWebMcp } from "./lib/webmcp"
 
 const root = document.getElementById("root")!
@@ -30,7 +29,6 @@ function status(message: string) {
   root.append(p)
 }
 
-initHistory()
 const slow = setTimeout(() => status("Opening your diagrams…"), 800)
 
 try {
@@ -70,5 +68,7 @@ try {
 } catch (error) {
   clearTimeout(slow)
   console.error(error)
-  status(`Eos couldn't open your diagrams: ${(error as Error).message}. Try reloading.`)
+  // Some errors (a QuotaExceededError) carry no message, only a name.
+  const { message, name } = error as Error
+  status(`Eos couldn't open your diagrams: ${message || name}. Try reloading.`)
 }

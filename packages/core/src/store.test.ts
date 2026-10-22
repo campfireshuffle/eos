@@ -1,17 +1,38 @@
 import "fake-indexeddb/auto"
 
 import { LoroDoc, type LoroMap } from "loro-crdt"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { fromBase64, toBase64 } from "./base64"
 import { openEosDB, type Database } from "./db"
-import { compact, loadDoc } from "./docs"
+import { compact, lastChangeAt, loadDoc, newDiagramDoc, setTags } from "./docs"
 import { decodeShare, encodeShare } from "./share"
 import { Eos, UnknownVersionError } from "./store"
 import type { Actor, DiagramIndexRow, TextChange } from "./types"
 
 let n = 0
 const fresh = () => Eos.create({ dbName: `test-${n++}`, seed: false })
+
+/**
+ * Every tab opened since the last disconnectTabs. Tabs share one BroadcastChannel, whatever their database,
+ * so tabs left connected hear every later test's messages, and a test with many tabs slows to a crawl.
+ */
+const connected: Eos[] = []
+const create = Eos.create.bind(Eos)
+Eos.create = async (options) => {
+  const eos = await create(options)
+  connected.push(eos)
+  return eos
+}
+/** Cuts the tabs opened so far off the channel: they stop hearing other tabs, and what they send goes nowhere. */
+function disconnectTabs() {
+  for (const eos of connected.splice(0)) {
+    const tab = eos as unknown as { channel: BroadcastChannel | null }
+    tab.channel?.close()
+    tab.channel = null
+  }
+}
+afterEach(disconnectTabs)
 
 describe("Eos store", () => {
   it("creates, edits and lists diagrams", async () => {
@@ -144,8 +165,26 @@ describe("Eos store", () => {
       ["a😀b", "a😀Xb", "ab", "aXb"],
       // An edit at the end of the old text stays there, before what the person added after it.
       ["A --> B", "A --> B\nC --> D", "A --> Z", "A --> Z\nC --> D"],
-      ["ab", "abX", "abY", "abYX"],
-      ["a😀", "a😀X", "a😀Y", "a😀YX"],
+      // Of two insertions at one spot, the person's goes first.
+      ["ab", "abX", "abY", "abXY"],
+      ["a😀", "a😀X", "a😀Y", "a😀XY"],
+      ["graph TD\n\n  C --> D", "graph TD\nob\n  C --> D", "graph TD\n  X --> Y\n\n  C --> D", "graph TD\nob  X --> Y\n\n  C --> D"],
+      ["graph TD\n  A --> B", "graph TD\nob  A --> B", "graph TD\n  X --> Y\n  A --> B", "graph TD\nob  X --> Y\n  A --> B"],
+      // A line added after a line keeps off what the person typed at that line's end.
+      ["graph TD\n  A --> B", "graph TD\n  A --> Bob", "graph TD\n  A --> B\n  B --> C", "graph TD\n  A --> Bob\n  B --> C"],
+      // What the person typed at a line's end stays after the old end: after what the agent added there, or what it replaced it with.
+      [
+        "graph TD\n  A --> B\n  C --> D",
+        "graph TD\n  A --> Bob\n  C --> D",
+        "graph TD\n  A --> B2\n  B2 --> X\n  C --> D",
+        "graph TD\n  A --> Bob2\n  B2 --> X\n  C --> D",
+      ],
+      [
+        "graph TD\n  A --> B\n  C --> D",
+        "graph TD\n  A --> Bob\n  C --> D",
+        "graph TD\n  A --> Z\n  Y --> Z\n  C --> D",
+        "graph TD\n  A --> Z\n  Y --> Zob\n  C --> D",
+      ],
     ] as const
     for (const [base, person, edit, merged] of cases) {
       const id = await eos.createDiagram({ source: base })
@@ -153,6 +192,435 @@ describe("Eos store", () => {
       await eos.setSource(id, person)
       await eos.editDiagram(id, { source: edit }, undefined, { base: version })
       expect(await eos.getSource(id)).toBe(merged)
+    }
+  })
+
+  it("merges an edit that removes a line, keeping what the person typed on the line after it", async () => {
+    const eos = await fresh()
+    // The text at the base, the person's keystroke since, the edit made from the base, and the merge.
+    const cases = [
+      ["graph TD\n  A --> B\n  A --> C\n", { from: 21, to: 22, insert: "X" }, "graph TD\n  A --> C\n", "graph TD\n  X --> C\n"],
+      ["graph TD\n  A --> B\n  C --> D\n", { from: 19, to: 19, insert: "%%" }, "graph TD\n  C --> D\n", "graph TD\n%%  C --> D\n"],
+      [
+        "sequenceDiagram\n  A->>B: hi\n  A->>B: yo\n",
+        { from: 31, to: 31, insert: "!" },
+        "sequenceDiagram\n  A->>B: yo\n",
+        "sequenceDiagram\n  A!->>B: yo\n",
+      ],
+      // Both remove the same line, the person from its start.
+      ["graph TD\n  A --> B\n  A --> C\n", { from: 9, to: 19, insert: "" }, "graph TD\n  A --> C\n", "graph TD\n  A --> C\n"],
+      // A removed last line comes out with the line break before it, leaving the identical line above alone.
+      ["graph TD\nA --> B\n  A --> B", { from: 13, to: 14, insert: "X" }, "graph TD\nA --> B", "graph TD\nA --X B"],
+    ] as const
+    for (const [base, keystroke, edit, merged] of cases) {
+      const id = await eos.createDiagram({ source: base })
+      const version = (await eos.getDiagram(id))!.version
+      ;(await eos.bindSource(id)).edit([keystroke])
+      await eos.editDiagram(id, { source: edit }, undefined, { base: version })
+      expect.soft(await eos.getSource(id), JSON.stringify(keystroke)).toBe(merged)
+    }
+  })
+
+  it("merges an edit that removes the last lines, keeping what the person typed on an identical line above", async () => {
+    const eos = await fresh()
+    // The text at the base, the person's keystroke since, the edit made from the base, and the merge.
+    const subgraphs = "flowchart TD\n  subgraph a\n    A\n  end\n  subgraph b\n    B\n  end"
+    const cases = [
+      [
+        subgraphs,
+        { from: 37, to: 37, insert: "\n  C --> A" },
+        "flowchart TD\n  subgraph a\n    A\n  end",
+        "flowchart TD\n  subgraph a\n    A\n  end\n  C --> A",
+      ],
+      [
+        subgraphs,
+        { from: 37, to: 37, insert: " %% a" },
+        "flowchart TD\n  subgraph a\n    A\n  end",
+        "flowchart TD\n  subgraph a\n    A\n  end %% a",
+      ],
+      ["graph TD\n  A --> B\n  A --> B", { from: 18, to: 18, insert: "ob" }, "graph TD\n  A --> B", "graph TD\n  A --> Bob"],
+    ] as const
+    for (const [base, keystroke, edit, merged] of cases) {
+      const id = await eos.createDiagram({ source: base })
+      const version = (await eos.getDiagram(id))!.version
+      ;(await eos.bindSource(id)).edit([keystroke])
+      await eos.editDiagram(id, { source: edit }, undefined, { base: version })
+      expect.soft(await eos.getSource(id), JSON.stringify(keystroke)).toBe(merged)
+    }
+  })
+
+  it("merges an edit from an older version line by line: lines the agent kept keep what the person typed on them", async () => {
+    const eos = await fresh()
+    const alice = "sequenceDiagram\n  participant A as Alice\n  participant B as Bob\n  A->>B: Hello Bob\n  B-->>A: Hi\n"
+    const login = "flowchart TD\n  A[Login] --> B{Valid?}\n  B -->|Yes| C[Dashboard]\n  B -->|No| D[Error]\n  D --> A\n"
+    const front = "---\ntitle: Checkout\n---\n"
+    const hi = "sequenceDiagram\n  Alice->>Bob: Hi there\n  Alice->>Bob: Hi"
+    // The text at the base with "^" where the person typed "ob" since, the edit made from the base, and the merge.
+    const cases = [
+      // The agent removes lines around the person's line, or adds one after it, its end like the person's line's end.
+      [
+        alice.replace("Bob\n", "Bob^\n"),
+        "sequenceDiagram\n  participant B as Bob\n  B-->>A: Hi\n",
+        "sequenceDiagram\n  participant B as Bob^\n  B-->>A: Hi\n",
+      ],
+      [
+        "sequenceDiagram\n  participant A as Alice\n  participant B as Bob^\n  B-->>A: Hi\n",
+        "sequenceDiagram\n  participant B as Bob\n  A->>B: Hello Bob\n  B-->>A: Hi\n",
+        "sequenceDiagram\n  participant B as Bob^\n  A->>B: Hello Bob\n  B-->>A: Hi\n",
+      ],
+      [
+        login.replace("Dashboard]", "Dashboard]^"),
+        "flowchart TD\n  B -->|Yes| C[Dashboard]\n  D --> A\n",
+        "flowchart TD\n  B -->|Yes| C[Dashboard]^\n  D --> A\n",
+      ],
+      [
+        "flowchart TD\n  Start --> Check\n  Check --> Done^",
+        "flowchart TD\n  Begin --> Check\n  Check --> Done\n  Retry --> Done",
+        "flowchart TD\n  Begin --> Check\n  Check --> Done^\n  Retry --> Done",
+      ],
+      [
+        "flowchart TD\n  X --> Y\n  A --> C^",
+        "flowchart TD\n  X --> Z\n  A --> C\n  D --> C",
+        "flowchart TD\n  X --> Z\n  A --> C^\n  D --> C",
+      ],
+      [
+        "graph TD\n  A --> G\n  F114 --> D\n  P^22 --> F",
+        "graph TD\n  A --> G2\n  P22 --> F\n  C --> F",
+        "graph TD\n  A --> G2\n  P^22 --> F\n  C --> F",
+      ],
+      // The agent removes a line the person's last line begins like.
+      ["flowchart TD\n  A --> B\n^  A", "flowchart TD\n  A", "flowchart TD\n^  A"],
+      [hi.replace(/Hi$/, "H^i"), "sequenceDiagram\n  Alice->>Bob: Hi", "sequenceDiagram\n  Alice->>Bob: H^i"],
+      // The agent adds lines above the first line (at the spot the person typed at, so after their typing), or a line after a line it keeps.
+      ["^flowchart TD\n  A --> B\n", front + "flowchart TD\n  A --> B\n", "^" + front + "flowchart TD\n  A --> B\n"],
+      ["graph TD\nB^", "graph TD\nB\nA --> B", "graph TD\nB^\nA --> B"],
+      ["graph TD\n^B", "graph TD\nB\nA --> B", "graph TD\n^B\nA --> B"],
+    ] as const
+    for (const [marked, edit, merged] of cases) {
+      const at = marked.indexOf("^")
+      const id = await eos.createDiagram({ source: marked.replace("^", "") })
+      const version = (await eos.getDiagram(id))!.version
+      ;(await eos.bindSource(id)).edit([{ from: at, to: at, insert: "ob" }])
+      await eos.editDiagram(id, { source: edit }, undefined, { base: version })
+      expect.soft(await eos.getSource(id), marked).toBe(merged.replace("^", "ob"))
+    }
+  })
+
+  it("merges an edit from an older version keeping what the person replaced on a line the agent kept", async () => {
+    const eos = await fresh()
+    const alice = "sequenceDiagram\n  participant A as Alice\n  participant B as Bob\n  A->>B: Hello Bob\n  B-->>A: Hi\n"
+    // The text at the base, the person's change since, the edit made from the base, and the merge.
+    const cases = [
+      [
+        alice,
+        ["Bob\n", "Robert\n"],
+        "sequenceDiagram\n  participant B as Bob\n  B-->>A: Hi\n",
+        "sequenceDiagram\n  participant B as Robert\n  B-->>A: Hi\n",
+      ],
+      // The person's replacement and the agent's lines go in at one spot, the person's first.
+      [
+        "flowchart TD\n  A --> B\n",
+        ["flowchart", "graph"],
+        "---\ntitle: Checkout\n---\nflowchart TD\n  A --> B\n",
+        "graph---\ntitle: Checkout\n---\n TD\n  A --> B\n",
+      ],
+      ["graph TD\n  A --> B2\n  A --> B", [/-->(?= B$)/, "-.->"], "graph TD\n  A --> B", "graph TD\n  A -.-> B"],
+    ] as const
+    for (const [base, [find, replace], edit, merged] of cases) {
+      const id = await eos.createDiagram({ source: base })
+      const version = (await eos.getDiagram(id))!.version
+      const at = typeof find === "string" ? base.indexOf(find) : base.search(find)
+      const length = typeof find === "string" ? find.length : base.match(find)![0].length
+      ;(await eos.bindSource(id)).edit([{ from: at, to: at + length, insert: replace }])
+      await eos.editDiagram(id, { source: edit }, undefined, { base: version })
+      expect.soft(await eos.getSource(id), JSON.stringify(base)).toBe(merged)
+    }
+  })
+
+  it("merges an edit from an older version that changes the first line's start, after lines the person added above it", async () => {
+    const eos = await fresh()
+    // The text at the base, the lines the person added at its start since, the edit made from the base, and the merge.
+    const cases = [
+      [
+        "graph TD\n  X --> Y\n",
+        "---\ntitle: Plan\n---\n",
+        "sequenceDiagram\n  X --> Y\n",
+        "---\ntitle: Plan\n---\nsequenceDiagram\n  X --> Y\n",
+      ],
+      ["classDiagram\n  X --> Y\n", "%% note\n", "flowchart TD\n  X --> Y\n", "%% note\nflowchart TD\n  X --> Y\n"],
+      ["A --> B\n  X --> Y\n", "graph TD\n", "  A --> B\n  X --> Y\n", "graph TD\n  A --> B\n  X --> Y\n"],
+    ] as const
+    for (const [base, lines, edit, merged] of cases) {
+      const id = await eos.createDiagram({ source: base })
+      const version = (await eos.getDiagram(id))!.version
+      ;(await eos.bindSource(id)).edit([{ from: 0, to: 0, insert: lines }])
+      await eos.editDiagram(id, { source: edit }, undefined, { base: version })
+      expect.soft(await eos.getSource(id), JSON.stringify(base)).toBe(merged)
+    }
+  })
+
+  it("merges an edit from an older version safely at every line boundary", { timeout: 120_000 }, async () => {
+    // Where the person typed, on which line, the agent's edit, and whether the base, the agent's text and
+    // the person's text end in "\n", all crossed; each cell checked for what any merge must keep.
+    const base = ["graph TD", "  A --> B", "  C --> D"]
+    const last = base.length - 1
+    const P = "  P --> Q" // a whole line the person adds
+    const at = (from: number, insert: string): TextChange => ({ from, to: from, insert })
+    // Where the person typed around line k, which starts at s and ends at e: the keystrokes, the line's
+    // offset typed at if in a line, and whether they typed at one of the line's ends.
+    type Typing = { keys: TextChange[]; offset?: number; atEnds?: boolean }
+    const typings: Record<string, (k: number, s: number, e: number, text: string) => Typing | null> = {
+      nothing: () => ({ keys: [] }),
+      "a line above (Enter, up, type)": (_, s) => ({ keys: [at(s, "\n"), at(s, P)], atEnds: true }),
+      "a line above (type, Enter)": (_, s) => ({ keys: [at(s, P), at(s + P.length, "\n")], atEnds: true }),
+      "a line below (End, Enter, type)": (_, __, e) => ({ keys: [at(e, "\n"), at(e + 1, P)], atEnds: true }),
+      "at the line's start": () => ({ keys: [at(0, "ob")], offset: 0 }),
+      "in the line's middle": () => ({ keys: [at(4, "ob")], offset: 4 }),
+      "at the line's end": (k) => ({ keys: [at(base[k]!.length, "ob")], offset: base[k]!.length }),
+      "on the empty last line": (k, _, __, text) => (k === last && text.endsWith("\n") ? { keys: [at(text.length, P)] } : null),
+      "joining it onto the line above": (k, s) => (k ? { keys: [{ from: s - 1, to: s, insert: "" }] } : null),
+    }
+    // The agent's edit to line k: its lines, each with the base line it came from (none for a line it adds).
+    const X = "  X --> Y"
+    type Line = { l: string; o?: number }
+    const edits: Record<string, (L: Line[], k: number) => Line[] | null> = {
+      "nothing but the last line break": (L) => L,
+      "adds a line above": (L, k) => L.toSpliced(k, 0, { l: X }),
+      "adds a line below": (L, k) => L.toSpliced(k + 1, 0, { l: X }),
+      "removes the line": (L, k) => L.toSpliced(k, 1),
+      "removes it and the line above": (L, k) => (k ? L.toSpliced(k - 1, 2) : null),
+      indents: (L, k) => L.with(k, { l: "  " + L[k]!.l, o: k }),
+      "comments out": (L, k) => L.with(k, { l: "%%" + L[k]!.l, o: k }),
+      "changes the end": (L, k) => L.with(k, { l: L[k]!.l.slice(0, -1) + "Z", o: k }),
+      "changes the middle": (L, k) => L.with(k, { l: L[k]!.l.slice(0, 4) + "~" + L[k]!.l.slice(5), o: k }),
+      rewrites: (L, k) => L.with(k, { l: "  R --> S", o: k }),
+      "extends, then adds a line": (L, k) => L.toSpliced(k, 1, { l: L[k]!.l + "2", o: k }, { l: "  B2 --> X" }),
+      "changes the line above and comments it out": (L, k) =>
+        k ? L.with(k - 1, { l: "flowchart LR", o: k - 1 }).with(k, { l: "%%" + L[k]!.l, o: k }) : null,
+      "removes the line above and comments it out": (L, k) => (k ? L.with(k, { l: "%%" + L[k]!.l, o: k }).toSpliced(k - 1, 1) : null),
+    }
+    const P2 = "  P2 --> Q2" // a line the person adds below the last line, as well
+    const count = (text: string, part: string) => text.split(part).length - 1
+    /** Adds each character of `text`, `sign` times, to the tally `into`. */
+    const tally = (text: string, into = new Map<string, number>(), sign = 1) => {
+      for (const c of text) into.set(c, (into.get(c) ?? 0) + sign)
+      return into
+    }
+    // A diagram per merge, in a database of their own every so often: lookups slow as the database grows.
+    let eos = await fresh()
+    const merge = async (text: string, keys: TextChange[], agent: string) => {
+      const id = await eos.createDiagram({ source: text })
+      const version = (await eos.getDiagram(id))!.version
+      const editor = await eos.bindSource(id)
+      for (const key of keys) editor.edit([key])
+      await eos.editDiagram(id, { source: agent }, undefined, { base: version })
+      return await eos.getSource(id)
+    }
+    const cells: (() => Promise<string | null>)[] = []
+    for (let k = 0; k < base.length; k++)
+      for (const ends of [true, false])
+        for (const [where, typing] of Object.entries(typings))
+          for (const addsBelow of [false, true])
+            for (const flipPerson of [false, true])
+              for (const [what, edit] of Object.entries(edits))
+                for (const flipAgent of [false, true]) {
+                  const text = base.join("\n") + (ends ? "\n" : "")
+                  const s = base.slice(0, k).join("").length + k
+                  const typed = typing(k, s, s + base[k]!.length, text)
+                  const lines = edit(
+                    base.map((l, o) => ({ l, o })),
+                    k
+                  )
+                  if (
+                    !typed ||
+                    !lines ||
+                    (!flipAgent && lines.every((x, i) => x.o === i && x.l === base[i]) && lines.length === base.length)
+                  )
+                    continue
+                  // The person's keystrokes, each in the coordinates of the text as it's typed.
+                  const keys = typed.keys.map((key) => (typed.offset === undefined ? key : { ...key, from: s + key.from, to: s + key.to }))
+                  const typedOver = (t: string) => keys.reduce((now, key) => now.slice(0, key.from) + key.insert + now.slice(key.to), t)
+                  // The lines the person typed in or at an end of: there, of their typing and the agent's at one spot, either can go first.
+                  const touched = new Set<number>(typed.offset !== undefined || typed.atEnds ? [k] : [])
+                  if (addsBelow) {
+                    const now = typedOver(text)
+                    const end = now.endsWith("\n") ? now.length - 1 : now.length
+                    keys.push(at(end, "\n"), at(end + 1, P2))
+                    touched.add(last)
+                  }
+                  if (flipPerson) {
+                    const now = typedOver(text)
+                    keys.push(now.endsWith("\n") ? { from: now.length - 1, to: now.length, insert: "" } : at(now.length, "\n"))
+                    if (!now.endsWith("\n")) touched.add(last)
+                  }
+                  const person = typedOver(text)
+                  const agent = lines.map((x) => x.l).join("\n") + (ends !== flipAgent ? "\n" : "")
+                  const again = cells.length % 4 === 0
+                  cells.push(async () => {
+                    const merged = await merge(text, keys, agent)
+                    const bad: string[] = []
+                    // Every character the person typed is there once, and every one they deleted (a line break) is gone:
+                    // the merge has the agent's characters and theirs, less any line break both deleted.
+                    const inserted = keys.map((key) => key.insert).join("")
+                    const deleted = keys.filter((key) => key.to > key.from).length
+                    for (const [c, n] of tally(inserted, tally(agent, tally(merged), -1), -1))
+                      if (c === "\n" ? n > 0 || n < -deleted : n !== 0) bad.push(`${n > 0 ? "extra" : "lost"} ${JSON.stringify(c)}`)
+                    for (const run of [P, P2, "ob"])
+                      if (count(merged, run) !== count(inserted, run)) bad.push(`person's ${JSON.stringify(run)}`)
+                    // Every line the agent kept is there whole, unless the person typed inside it; every one it added is,
+                    // and every one it changed, unless the person typed in or at an end of it.
+                    const typedIn = typed.offset !== undefined && typed.offset > 0 && typed.offset < base[k]!.length ? k : -1
+                    for (const x of lines) {
+                      const kept = x.o !== undefined && x.l === base[x.o]
+                      if (x.o === typedIn || (!kept && x.o !== undefined && touched.has(x.o))) continue
+                      if (!merged.includes(x.l)) bad.push(`agent's line ${JSON.stringify(x.l)}`)
+                    }
+                    // Every line the agent removed or changed is gone as a line, unless the person typed at an end of it,
+                    // and one it removed is gone altogether unless the person typed inside it.
+                    for (const [i, line] of base.entries()) {
+                      if (lines.some((x) => x.l === line)) continue
+                      if (!touched.has(i) && merged.split("\n").includes(line)) bad.push(`old line ${JSON.stringify(line)}`)
+                      else if (!lines.some((x) => x.o === i) && i !== typedIn && merged.includes(line))
+                        bad.push(`removed ${JSON.stringify(line)}`)
+                    }
+                    if (!keys.length && merged !== agent) bad.push("not the agent's text")
+                    // The same edits merge the same way, whatever the person's peer (checked in every fourth cell).
+                    if (again && (await merge(text, keys, agent)) !== merged) bad.push("not deterministic")
+                    if (!bad.length) return null
+                    return `${bad.join(", ")}: ${JSON.stringify({ k, ends, where, addsBelow, flipPerson, what, flipAgent, person, agent, merged })}`
+                  })
+                }
+    const failures: string[] = []
+    for (const [i, cell] of cells.entries()) {
+      if (i % 250 === 0) {
+        disconnectTabs()
+        eos = await fresh()
+      }
+      const failure = await cell()
+      if (failure) failures.push(failure)
+    }
+    expect(cells.length).toBe(4364)
+    expect(failures.slice(0, 20), `${failures.length} failures`).toEqual([])
+  })
+
+  it("merges an edit from an older version at line boundaries, keeping everything the person typed", async () => {
+    const eos = await fresh()
+    const start = "flowchart TD\n  A[Start] --> B[End]\n"
+    const two = "graph TD\n  A --> B\n  C --> D"
+    const c = two.indexOf("  C")
+    // The text at the base, the person's keystrokes since, the edit made from the base, and the merge.
+    const cases: [string, TextChange[], string, string][] = [
+      // The person types a new last line after the final line break. Where the agent adds one there too, the
+      // person's goes first; where it drops that line break, what the person typed is left on the line above.
+      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start + "  B --> D", start + "  B --> C  B --> D"],
+      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start + "  B --> D\n", start + "  B --> C  B --> D\n"],
+      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start.trimEnd(), start.trimEnd() + "  B --> C"],
+      [
+        start,
+        [{ from: start.length, to: start.length, insert: "  B --> C" }],
+        "flowchart TD\n  A[Start] --> B[Finish]",
+        "flowchart TD\n  A[Start] --> B[Finish]  B --> C",
+      ],
+      [start, [{ from: start.length, to: start.length, insert: "  B --> C\n" }], start + "  B --> D", start + "  B --> C\n  B --> D"],
+      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start + "\n  B --> D", start + "  B --> C\n  B --> D"],
+      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start + "\n", start + "  B --> C\n"],
+      // The agent removes the last line, below a line the person added: by Enter at its start (so the line break the
+      // agent removes is the one before the person's line), or at the end of the line above.
+      [
+        two,
+        [
+          { from: c, to: c, insert: "\n" },
+          { from: c, to: c, insert: "  E --> F" },
+        ],
+        "graph TD\n  A --> B",
+        "graph TD\n  A --> B  E --> F\n",
+      ],
+      [
+        two + "\n",
+        [
+          { from: c, to: c, insert: "\n" },
+          { from: c, to: c, insert: "  E --> F" },
+        ],
+        "graph TD\n  A --> B\n",
+        "graph TD\n  A --> B\n  E --> F\n",
+      ],
+      [two, [{ from: c - 1, to: c - 1, insert: "\n  E --> F" }], "graph TD\n  A --> B", "graph TD\n  A --> B\n  E --> F"],
+      // The agent changes the start of a line the person added a line above.
+      [
+        "graph TD\nA --> B\n  X --> Y\n",
+        [{ from: 9, to: 9, insert: "  C --> D\n" }],
+        "graph TD\n  A --> B\n  X --> Y\n",
+        "graph TD\n  C --> D\n  A --> B\n  X --> Y\n",
+      ],
+      [
+        "graph TD\n  A --> B\n  X --> Y\n",
+        [{ from: 19, to: 19, insert: "  C --> D\n" }],
+        "graph TD\n  A --> B\n%%  X --> Y\n",
+        "graph TD\n  A --> B\n  C --> D\n%%  X --> Y\n",
+      ],
+      // Part of a line at a line's start goes after what the person typed there, at the very start too.
+      ["graph TD\nA --> B\n", [{ from: 0, to: 0, insert: "ob" }], "Xgraph TD\nA --> B\n", "obXgraph TD\nA --> B\n"],
+      ["graph TD\nA --> B\n", [{ from: 9, to: 9, insert: "ob" }], "graph TD\nXA --> B\n", "graph TD\nobXA --> B\n"],
+      // What the person typed on the last lines the agent removes stays.
+      [two + "\n", [{ from: two.length, to: two.length, insert: " x" }], "graph TD\n  A --> B", "graph TD\n  A --> B x"],
+      [
+        "graph TD\n  A --> B\n  C --> D\n  E --> F\n",
+        [{ from: 18 + 10, to: 18 + 10, insert: " x" }],
+        "graph TD\n  A --> B",
+        "graph TD\n  A --> B x",
+      ],
+      // A line the person added below the last line stays its own line, whatever they did to the line the agent removes.
+      [
+        two,
+        [
+          { from: c, to: c, insert: "x " },
+          { from: two.length + 2, to: two.length + 2, insert: "\n  E --> F" },
+        ],
+        "graph TD\n  A --> B\n",
+        "graph TD\n  A --> B\nx \n  E --> F",
+      ],
+      [
+        two,
+        [
+          { from: c - 1, to: c, insert: "" },
+          { from: two.length - 1, to: two.length - 1, insert: "\n  E --> F" },
+        ],
+        "graph TD\n  A --> B\n",
+        "graph TD\n  A --> B\n  E --> F",
+      ],
+      // The agent changes two lines, the person adds one between them: one character diff runs across the line break
+      // there, so the agent's "%%" goes at the start of the person's line.
+      [
+        "graph TD\n  A --> B\n",
+        [
+          { from: 9, to: 9, insert: "\n" },
+          { from: 9, to: 9, insert: "  P --> Q" },
+        ],
+        "flowchart TD\n%%  A --> B\n",
+        "flowchart TD\n%%  P --> Q\n  A --> B\n",
+      ],
+    ]
+    for (const [base, keystrokes, edit, merged] of cases) {
+      const id = await eos.createDiagram({ source: base })
+      const version = (await eos.getDiagram(id))!.version
+      const editor = await eos.bindSource(id)
+      for (const keystroke of keystrokes) editor.edit([keystroke])
+      await eos.editDiagram(id, { source: edit }, undefined, { base: version })
+      expect.soft(await eos.getSource(id), JSON.stringify(edit)).toBe(merged)
+    }
+  })
+
+  it("applies an edit without a base as exactly the text given", async () => {
+    const eos = await fresh()
+    let seed = 1
+    const rnd = (k: number) => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) % k
+    const parts = ["\n", "\n", " ", "  ", "A", "B", "end", "-->", "😀", "é", "\t"]
+    const text = () => Array.from({ length: rnd(30) }, () => parts[rnd(parts.length)]).join("")
+    const id = await eos.createDiagram({ source: "" })
+    for (let i = 0; i < 300; i++) {
+      const source = text()
+      await eos.setSource(id, source)
+      expect(await eos.getSource(id)).toBe(source)
     }
   })
 
@@ -352,6 +820,65 @@ describe("durability", () => {
     expect(await later.getSource(id)).toBe("AB")
   })
 
+  it("brings a row behind its doc up to date on the next start, when the page went away before rewriting it", async () => {
+    const name = `stale-row-${n++}`
+    const eos = await Eos.create({ dbName: name, seed: false })
+    const id = await eos.createDiagram({ source: "graph TD\n  A --> B\n" })
+    ;(await eos.bindSource(id)).edit([{ from: 19, to: 19, insert: "  B --> Zebra42\n" }])
+    // The page dies before the pause in typing that rewrites the row: the doc's write lands, the row's never starts.
+    const timers = (eos as unknown as { indexTimers: Map<string, { timer: ReturnType<typeof setTimeout> }> }).indexTimers
+    for (const { timer } of timers.values()) clearTimeout(timer)
+    await settle()
+    expect((await dbOf(eos).get("diagrams", id))!.sourceText).not.toContain("Zebra42")
+    const later = await Eos.create({ dbName: name, seed: false })
+    const doc = await loadDoc(dbOf(later), id)
+    const row = (await dbOf(later).get("diagrams", id))!
+    expect(row.sourceText).toBe("graph TD\n  A --> B\n  B --> Zebra42\n")
+    expect(row.updatedAt).toBe(lastChangeAt(doc))
+    expect((await later.listDiagrams({ query: "Zebra42" })).map((r) => r.id)).toEqual([id])
+    expect(await dbOf(later).count("pendingRows")).toBe(0)
+  })
+
+  it("opens when a row behind its doc can't be rebuilt, and rebuilds it on a later start", async () => {
+    const name = `full-disk-${n++}`
+    const eos = await Eos.create({ dbName: name, seed: false })
+    const id = await eos.createDiagram({ source: "graph TD\n  A --> B\n" })
+    ;(await eos.bindSource(id)).edit([{ from: 19, to: 19, insert: "  B --> Zebra42\n" }])
+    const timers = (eos as unknown as { indexTimers: Map<string, { timer: ReturnType<typeof setTimeout> }> }).indexTimers
+    for (const { timer } of timers.values()) clearTimeout(timer)
+    await settle()
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    const restore = failWrites("put", "diagrams") // aborts the rebuild, as a full disk would
+    let later: Eos
+    try {
+      later = await Eos.create({ dbName: name, seed: false })
+    } finally {
+      restore()
+    }
+    expect(error).toHaveBeenCalledOnce()
+    error.mockRestore()
+    expect(await later.getSource(id)).toBe("graph TD\n  A --> B\n  B --> Zebra42\n")
+    expect(await dbOf(later).count("pendingRows")).toBe(1)
+    const fixed = await Eos.create({ dbName: name, seed: false })
+    expect((await dbOf(fixed).get("diagrams", id))!.sourceText).toContain("Zebra42")
+    expect(await dbOf(fixed).count("pendingRows")).toBe(0)
+  })
+
+  it("leaves no row to rebuild on the next start once rows are rewritten", async () => {
+    const eos = await fresh()
+    const id = await eos.createDiagram({ source: "graph TD\n  A --> B\n" })
+    ;(await eos.bindSource(id)).edit([{ from: 19, to: 19, insert: "  B --> C\n" }])
+    await new Promise((r) => setTimeout(r, 400)) // past the pause in typing that rewrites the row
+    await eos.editDiagram(
+      id,
+      { source: "graph TD\n  A --> B\n  B --> D\n", title: "Renamed" },
+      { kind: "agent", tool: "update_diagram", changes: ["source", "title"] }
+    )
+    await eos.addTags(id, ["work"])
+    await settle()
+    expect(await dbOf(eos).count("pendingRows")).toBe(0)
+  })
+
   it("saves the stars and tag emoji a backup brings in", async () => {
     const a = await fresh()
     const id = await a.createDiagram({ source: "x", tags: ["work"] })
@@ -364,7 +891,7 @@ describe("durability", () => {
       await settle()
       const later = await Eos.create({ dbName: name, seed: false })
       expect((await later.listTags()).map((t) => t.emoji)).toEqual(["🔥"])
-      await later.renameDiagram(id, "Renamed") // rewrites the index row from the saved stars
+      await later.renameDiagram(id, "Renamed") // rewrites the index row; the star still comes from the saved workspace
       expect((await later.listDiagrams())[0]?.starred).toBe(1)
     }
   })
@@ -410,7 +937,7 @@ describe("durability", () => {
     await eos.setStarred(id, true)
     await settle()
     const later = await Eos.create({ dbName: name, seed: false })
-    await later.renameDiagram(id, "Renamed") // rewrites the index row from the saved stars
+    await later.renameDiagram(id, "Renamed") // rewrites the index row; the star still comes from the saved workspace
     expect((await later.listDiagrams())[0]?.starred).toBe(1)
   })
 
@@ -630,10 +1157,31 @@ describe("editor binding", () => {
     expect(ed.state.text).toBe(await eos.getSource(id))
     expect(ed.state.text).toContain("B --> C")
   })
+
+  it("reports which changes are the person's own: their undo and redo, not an agent's edit or another tab's", async () => {
+    const name = `own-${n++}`
+    const one = await Eos.create({ dbName: name, seed: false })
+    const id = await one.createDiagram({ source: "flowchart TD\n  A --> B" })
+    const two = await Eos.create({ dbName: name, seed: false })
+    const a = await editor(one, id)
+    const b = await editor(two, id)
+    const own: boolean[] = []
+    a.binding.onChange((_, mine) => own.push(mine))
+    a.type(a.state.text.length, "\n  B --> C")
+    await one.editDiagram(id, { source: a.state.text + "\n  C --> D" }, { kind: "agent", tool: "update_diagram" })
+    expect(own).toEqual([false])
+    await settle()
+    b.type(0, "%% hi\n")
+    await settle()
+    expect(own).toEqual([false, false])
+    expect(await one.undo(id)).toBe(true)
+    expect(await one.redo(id)).toBe(true)
+    expect(own).toEqual([false, false, true, true])
+  })
 })
 
 describe("library events and reads", () => {
-  /** Long enough for every tab to hear the others, and for typing's index refresh (300ms) to run. */
+  /** Long enough for every tab to hear the others, but not for typing's index refresh (300ms). */
   const settle = (ms = 50) => new Promise((r) => setTimeout(r, ms))
   const openCount = (eos: Eos) => (eos as unknown as { open: Map<string, unknown> }).open.size
   /** How many times each topic fires on `eos`. */
@@ -953,6 +1501,160 @@ describe("library events and reads", () => {
     expect((await eos.listDiagrams()).map((r) => r.tags)).toEqual([["job"], ["job"]])
     expect((await eos.listTags()).map((t) => [t.path, t.emoji])).toEqual([["job", "💼"]])
   })
+
+  describe("stars, which live only in the workspace", () => {
+    const dbOf = (eos: Eos) => (eos as unknown as { db: Database }).db
+    const starsOf = (eos: Eos) =>
+      (eos as unknown as { workspace: { starred: LoroMap } }).workspace.starred.toJSON() as Record<string, unknown>
+    const tab = (name: string) => Eos.create({ dbName: name, seed: false })
+
+    it("stars many diagrams without sending an index message or reloading other tabs once per diagram", async () => {
+      const { eos, other, ids } = await tabs(200)
+      const sent: string[][] = []
+      const listener = new BroadcastChannel("eos")
+      listener.onmessage = ({ data }: MessageEvent<{ type: string; ids?: string[] }>) => {
+        if (data.type === "index" && data.ids?.some((id) => ids.includes(id))) sent.push(data.ids)
+      }
+      const there = count(other, "library")
+      await eos.setStarred(ids, true)
+      await settle(200)
+      listener.close()
+      expect(sent).toEqual([])
+      expect(there.library).toBeLessThanOrEqual(2)
+      expect((await other.counts()).starred).toBe(200)
+    }, 60_000)
+
+    it("ignores a star an older version saved in a row", async () => {
+      const name = `legacy-star-${n++}`
+      const eos = await Eos.create({ dbName: name, seed: false })
+      const id = await eos.createDiagram({ source: "x" })
+      const row = (await dbOf(eos).get("diagrams", id))!
+      await dbOf(eos).put("diagrams", { ...row, starred: 1 } as typeof row)
+      for (const reader of [eos, await Eos.create({ dbName: name, seed: false })]) {
+        expect((await reader.listDiagrams())[0]!.starred).toBe(0)
+        expect(await reader.listDiagrams({ starred: true })).toEqual([])
+        expect((await reader.counts()).starred).toBe(0)
+        expect((await reader.getDiagram(id))!.starred).toBe(false)
+      }
+      await eos.deleteDiagram(id) // rewrites the row, dropping the leftover
+      expect("starred" in (await dbOf(eos).get("diagrams", id))!).toBe(false)
+    })
+
+    it("never saves a star in a row", async () => {
+      const name = `no-stored-star-${n++}`
+      const eos = await Eos.create({ dbName: name, seed: false })
+      const other = await Eos.create({ dbName: name, seed: false })
+      const id = await eos.createDiagram({ source: "x" })
+      const shut = await eos.createDiagram({ source: "y" })
+      await Promise.all([eos.getSource(id), other.getSource(id)]) // open in both, so the other tab rebuilds its row too
+      await settle()
+      const stored = async () => (await dbOf(eos).getAll("diagrams")).filter((row) => "starred" in row).map((row) => row.id)
+      await eos.setStarred([id, shut], true)
+      expect(await stored()).toEqual([])
+      await eos.renameDiagram(id, "Renamed")
+      await eos.renameDiagram(shut, "Renamed too")
+      await eos.addTags([id, shut], ["work"])
+      await settle(100)
+      expect(await stored()).toEqual([])
+      await eos.importBackup(await eos.exportBackup(), "merge")
+      expect(await stored()).toEqual([])
+      await eos.importBackup(await eos.exportBackup(), "replace")
+      expect(await stored()).toEqual([])
+      expect((await eos.listDiagrams()).map((r) => r.starred)).toEqual([1, 1])
+    })
+
+    it("tells another tab's editor when a diagram there is starred", async () => {
+      const { eos, other, ids } = await tabs(1)
+      const id = ids[0]!
+      const there = count(other, `diagram:${id}`)
+      await eos.setStarred(id, true)
+      await settle()
+      expect(there[`diagram:${id}`]).toBeGreaterThanOrEqual(1)
+      expect((await other.getDiagram(id))!.starred).toBe(true)
+    })
+
+    it("shows a star set in one tab while another, the only one with it open, renames it", async () => {
+      const lost: string[] = []
+      for (let k = 0; k < 60; k += 3) {
+        const name = `star-race-view-${n++}`
+        const a = await tab(name)
+        const b = await tab(name)
+        const id = await a.createDiagram({ source: "x" })
+        await a.getSource(id)
+        await settle()
+        b.subscribe("library", () => void b.listDiagrams()) // as the grid re-reads on each event
+        const star = b.setStarred(id, true)
+        await ticks(k)
+        await a.renameDiagram(id, "Renamed")
+        await star
+        await settle(200)
+        if ((await b.listDiagrams())[0]!.starred !== 1) lost.push(`k=${k}`)
+        disconnectTabs()
+      }
+      expect(lost).toEqual([])
+    }, 60_000)
+
+    /**
+     * Tab b stars or unstars a diagram while tab a makes another change to it, the second landing at
+     * each of several points in the first. After both, every tab lists the stars of the merged workspace.
+     */
+    type Change = (a: Eos, id: string) => Promise<unknown>
+    const second: Record<string, Change> = {
+      rename: (a, id) => a.renameDiagram(id, "Renamed"),
+      addTags: (a, id) => a.addTags(id, ["t"]),
+      editDiagram: (a, id) => a.editDiagram(id, { title: "Edited", addTags: ["q"] }),
+      setSource: (a, id) => a.setSource(id, "flowchart LR\n  A --> Z"),
+      delete: (a, id) => a.deleteDiagram(id),
+      restore: (a, id) => a.restoreDiagram(id),
+      renameTag: (a) => a.renameTag("x", "y"),
+      "opposite star": () => Promise.resolve(), // made in the case, as it depends on the first change
+      "Delete all": (a) => a.deleteAll(),
+      purge: (a, id) => a.purge(id),
+      "merge import": async (a) => a.importBackup(await a.exportBackup(), "merge"),
+      "replace import": async (a) => a.importBackup(await a.exportBackup(), "replace"),
+    }
+    /** Changes after which the star is whatever tab b set: the rest race it, or take the diagram away. */
+    const keepsStar = new Set(["rename", "addTags", "editDiagram", "setSource", "delete", "restore", "renameTag", "merge import"])
+    for (const star of [true, false])
+      for (const name of Object.keys(second))
+        it(`lists the stars every tab agrees on when one ${star ? "stars" : "unstars"} a diagram while another makes a ${name}`, async () => {
+          const wrong: string[] = []
+          for (const open of ["neither", "a", "b", "both"] as const)
+            for (const k of [0, 3, 7, 15, 28]) {
+              const db = `star-matrix-${n++}`
+              const a = await tab(db)
+              const b = await tab(db)
+              const id = await a.createDiagram({ source: "x", tags: ["x"] })
+              if (name === "restore" || name === "purge") await a.deleteDiagram(id)
+              if (!star) await a.setStarred(id, true)
+              if (open === "a" || open === "both") await a.getSource(id)
+              if (open === "b" || open === "both") await b.getSource(id)
+              await settle(20)
+              if (!star) await vi.waitFor(() => expect(starsOf(b)[id]).toBe(true)) // b has the star it's about to remove
+              for (const t of [a, b]) t.subscribe("library", () => void t.listDiagrams({ includeDeleted: true }).catch(() => {}))
+              const first = b.setStarred(id, star).catch(() => {})
+              await ticks(k)
+              const change = name === "opposite star" ? a.setStarred(id, !star) : second[name]!(a, id)
+              await change.catch(() => {})
+              await first
+              await settle(80)
+              const c = await tab(db) // a tab opened later
+              const merged = starsOf(c)
+              for (const [label, t] of [
+                ["a", a],
+                ["b", b],
+                ["c", c],
+              ] as const) {
+                for (const row of await t.listDiagrams({ includeDeleted: true }))
+                  if (row.starred !== (merged[row.id] ? 1 : 0)) wrong.push(`open=${open} k=${k} ${label}: starred=${row.starred}`)
+                if (keepsStar.has(name) && (await t.getDiagram(id))!.starred !== star)
+                  wrong.push(`open=${open} k=${k} ${label}: lost the star`)
+              }
+              disconnectTabs()
+            }
+          expect(wrong).toEqual([])
+        }, 60_000)
+  })
 })
 
 describe("backup import", () => {
@@ -999,7 +1701,7 @@ describe("backup import", () => {
     await new Promise((r) => setTimeout(r, 50))
     const later = await Eos.create({ dbName: name, seed: false })
     expect((await later.listTags()).map((t) => t.emoji)).toEqual(["🔥"])
-    await later.renameDiagram(id, "Renamed") // rewrites the index row from the saved stars
+    await later.renameDiagram(id, "Renamed") // rewrites the index row; the star still comes from the saved workspace
     expect((await later.listDiagrams())[0]?.starred).toBe(1)
   })
 
@@ -1167,6 +1869,55 @@ describe("share imports", () => {
     expect((await eos.listDiagrams()).length).toBe(2)
   })
 })
+describe("line endings", () => {
+  // Every source coming in is stored with \n line breaks only.
+  for (const [ending, eol] of [
+    ["CRLF", "\r\n"],
+    ["lone CR", "\r"],
+  ] as const) {
+    const crlf = (lines: string[]) => lines.join(eol) + eol
+    const want = (lines: string[]) => lines.join("\n") + "\n"
+    const one = ["flowchart TD", "  A --> B"]
+    const two = ["flowchart TD", "  A --> C"]
+
+    it(`stores a source that arrives with ${ending} line endings with \\n line breaks`, async () => {
+      const eos = await fresh()
+      const id = await eos.createDiagram({ source: crlf(one) })
+      expect(await eos.getSource(id)).toBe(want(one))
+      await eos.editDiagram(id, { source: crlf(two) })
+      expect(await eos.getSource(id)).toBe(want(two))
+      const base = (await eos.getDiagram(id))!.version
+      await eos.setSource(id, crlf(one))
+      expect(await eos.getSource(id)).toBe(want(one))
+      await eos.editDiagram(id, { source: crlf([...two, "  C --> D"]) }, undefined, { base }) // merged from an older version
+      expect(await eos.getSource(id)).not.toContain("\r")
+      const shared = await eos.importShare({ title: "Shared", source: crlf(two) })
+      expect(await eos.getSource(shared)).toBe(want(two))
+      // A link with the same diagram finds the copy it made.
+      expect(await eos.importShare({ title: "Shared", source: crlf(two) })).toBe(shared)
+    })
+  }
+
+  it("reuses a diagram an older version made from a CRLF share link when the link is opened again", async () => {
+    // Saved as it came, as versions before line endings were normalised did.
+    const name = `crlf-share-${n++}`
+    const source = "flowchart TD\r\n  A --> B\r\n"
+    const old = await Eos.create({ dbName: name, seed: false })
+    const id = await old.createDiagram({ title: "Shared" })
+    const doc = newDiagramDoc()
+    doc.getMap("meta").set("title", "Shared")
+    doc.getMap("meta").set("createdAt", Date.now())
+    setTags(doc.getMap("meta"), [])
+    doc.getText("source").insert(0, source)
+    doc.commit()
+    const db = (old as unknown as { db: Database }).db
+    await db.put("snapshots", { id, bytes: doc.export({ mode: "snapshot" }), savedAt: Date.now() })
+    await db.put("diagrams", { ...(await db.get("diagrams", id))!, sourceText: source, sourcePreview: source })
+    const eos = await Eos.create({ dbName: name, seed: false })
+    expect(await eos.importShare({ title: "Shared", source })).toBe(id)
+    expect((await eos.listDiagrams()).length).toBe(1)
+  })
+})
 
 describe("share links", () => {
   it("round-trips a payload", async () => {
@@ -1227,7 +1978,7 @@ describe("share links", () => {
     expect(d.source).not.toContain("C-->D")
     expect(d.meta.title).toBe("Agent title")
 
-    // Newest first: agent undo, the person's undo, the agent's two edits (grouped), the person's edit, creation.
+    // Newest first: agent undo, the person's undo, the agent's two edits (grouped), then creation and the person's edit (one entry).
     const kinds = (await eos.history(id)).map((e) => [e.actor.kind, e.changes?.sort()])
     expect(kinds).toEqual([
       ["agent", ["undo"]],
@@ -1235,5 +1986,38 @@ describe("share links", () => {
       ["agent", ["source", "tags", "title"]],
       ["user", undefined],
     ])
+  })
+
+  it("saves, shows and undoes an agent's edit from an older version like any agent edit", async () => {
+    const dbName = `test-${n++}`
+    const eos = await Eos.create({ dbName, seed: false })
+    const other = await Eos.create({ dbName, seed: false })
+    const agent: Actor = { kind: "agent", tool: "update_diagram", changes: ["title", "source"] }
+    const id = await eos.createDiagram({ title: "T", source: "graph TD\n  A --> B\n" })
+    const version = (await eos.getDiagram(id))!.version
+    await other.getSource(id) // open in the other tab, which hears the edits
+    const editor = await eos.bindSource(id)
+    const heard: [TextChange[], boolean][] = []
+    editor.onChange((changes, own) => heard.push([changes, own]))
+    editor.edit([{ from: 9, to: 9, insert: "  P --> Q\n" }])
+    await eos.editDiagram(id, { title: "Agent", source: "graph TD\n  A --> C\n" }, agent, { base: version })
+    const merged = "graph TD\n  P --> Q\n  A --> C\n"
+    expect(await eos.getSource(id)).toBe(merged)
+    expect(heard).toEqual([[[{ from: 27, to: 28, insert: "C" }], false]])
+    await vi.waitFor(async () => expect(await other.getSource(id)).toBe(merged))
+    const h = await eos.history(id)
+    expect([h[0]!.actor.kind, h[0]!.changes?.sort(), h[0]!.version]).toEqual([
+      "agent",
+      ["source", "title"],
+      (await eos.getDiagram(id))!.version,
+    ])
+    // Saved: a fresh start reads it back.
+    expect(await (await Eos.create({ dbName, seed: false })).getSource(id)).toBe(merged)
+    // The person's ⌘Z takes back only their line; the agent's undo, only the agent's change.
+    await eos.undo(id)
+    expect(await eos.getSource(id)).toBe("graph TD\n  A --> C\n")
+    await eos.undo(id, "agent")
+    expect(await eos.getSource(id)).toBe("graph TD\n  A --> B\n")
+    expect((await eos.getDiagram(id))!.meta.title).toBe("Agent")
   })
 })

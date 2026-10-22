@@ -94,17 +94,16 @@ interface DiagramMeta {
   createdAt: number // ms epoch; set once at creation
 }
 
-function sourceOf(doc: LoroDoc): LoroText {
-  return doc.getText("source")
-}
-function metaOf(doc: LoroDoc): LoroMap {
-  return doc.getMap("meta")
-}
+// docs.ts reads them from an open diagram, whose `text` is doc.getText("source") and `meta` is doc.getMap("meta").
+function sourceOf(d: { text: LoroText }): string
+// Malformed fields read as their defaults (a backup can come from anywhere), and tags are deduplicated.
+function metaOf(d: { meta: LoroMap }): DiagramMeta
 ```
 
 Notes:
 
-- **Editor binding.** CodeMirror transactions map to `LoroText.insert/delete`. If a whole-buffer replacement comes from an external source, such as an agent's `update_diagram({ source })` or a paste-replace, use `text.update(newSource)`, which runs a minimal diff. That keeps concurrent edits elsewhere in the text intact.
+- **Editor binding.** CodeMirror transactions, a paste included, map to `LoroText.insert/delete`. A whole-buffer replacement from an external source, such as an agent's `update_diagram({ source })`, is applied as a diff by lines (`diffText` in `store.ts`): lines it keeps are left alone, lines it adds or removes go in or come out whole, between lines, and only lines it changes get a character diff (Loro's, as `text.update` makes it). That keeps concurrent edits elsewhere in the text intact, and whatever the person has typed on a line the agent kept stays on that line.
+- **Line breaks.** The editor's only line break is `\n` (`EditorState.lineSeparator`), so it counts every other character, `\r` included, one for one with Loro: their positions always agree, whatever the text holds. A source coming into core (`createDiagram`, `editDiagram`, `setSource`, a share link) has its `\r\n` and lone `\r` made `\n`, and so does text pasted or dropped into the editor. A `\r` saved before that (by an older version, or in a backup, and so in a version a restore brings back) stays as it is: the editor shows it as a marker (␍), and Pele renders the source the same. A share link finds its existing copy with line breaks normalised on both sides.
 - **Tags** go in a `LoroList<string>` under `meta.tags`. `setTags` edits the list in place (deleting tags no longer wanted, inserting missing ones), so concurrent tag edits merge. `normalizeTags` (`tags.ts`) de-duplicates on write and `metaOf` on read, since two sides adding the same tag leave it in the list twice.
 - **`updatedAt` is not stored in the doc.** It is derived from the last change's timestamp (see §4) and cached in the index (§2).
 - **Doc-level settings applied on every open:** `doc.setRecordTimestamp(true)`, so each `Change` carries a Unix timestamp in seconds, and `setChangeMergeInterval(0)` (both in `newDiagramDoc`, `docs.ts`). Every commit is its own `Change` with its own timestamp: Loro's default would merge a peer's commits with the same message for up to 1,000 seconds, dating a later edit by an earlier one. History does its own folding (§4).
@@ -129,11 +128,12 @@ Reasons for keeping this in a separate doc:
 - **Renaming or moving a tag** (`work/backend` → `eng/backend`): one commit per affected diagram doc rewrites that tag and every tag under it, with a `details:` origin so it is not on the person's undo stack. Then one workspace commit moves their `tagEmoji` keys; a tag merged into one that has its own emoji keeps that one. These are not atomic across docs, but the rename is idempotent, so running it again after an interruption finishes it.
 - **Deleting a tag** removes it and every tag under it from each diagram, then drops their `tagEmoji` keys.
 - **Deleting a diagram** keeps its `starred` key, so it's still starred if restored; purging it removes the key, in a workspace commit made as the person.
+- **`starred` is the only record of stars.** Index rows (§2) never store one: every read adds `starred` from this tab's workspace doc, as the tag tree adds emoji. So no row write can save a stale star, and starring writes no row and sends no `index` (§5).
 - Edits to the workspace doc are committed like a diagram's, with the actor who made them as the commit message (§3): the person, an agent, or `system` for Delete all. Nothing shows the workspace doc's history.
 
 ## 2. IndexedDB schema
 
-Database `eos`, version 2, opened through `idb` (`openEosDB` in `db.ts`). Version 1 also had a `thumbnails` store, which was never used; upgrading to 2 deletes it.
+Database `eos`, version 3, opened through `idb` (`openEosDB` in `db.ts`). Version 1 also had a `thumbnails` store, which was never used; upgrading to 2 deletes it. Version 3 adds `pendingRows`.
 
 ```ts
 interface EosDB {
@@ -151,17 +151,20 @@ interface EosDB {
   /** Denormalised rows for the library grid and tag tree. Rebuildable from snapshots+updates. */
   diagrams: {
     key: DiagramId
-    value: DiagramIndexRow
+    value: StoredRow
     indexes: {
       byUpdatedAt: number
       byTag: TagPath // multiEntry over tagPrefixes
     }
   }
+  /** Diagrams whose `diagrams` row may be behind their doc: rebuilt on the next start (see Write path). */
+  pendingRows: { key: DiagramId; value: { id: DiagramId } }
   /** Singleton app settings. */
   settings: { key: "app"; value: AppSettings }
 }
 
-interface DiagramIndexRow {
+// db.ts. A read adds `starred` to it, which makes it the DiagramIndexRow of types.ts.
+interface StoredRow {
   id: DiagramId
   title: string
   tags: TagPath[]
@@ -170,17 +173,18 @@ interface DiagramIndexRow {
   createdAt: number
   updatedAt: number // ms; from last change timestamp
   titleKey: string // title folded for sorting (NFKD, diacritics stripped, lowercased)
-  starred: 0 | 1 // mirrored from workspace.starred
   sourcePreview: string // first 200 characters
   sourceText?: string // full source, for search; missing on rows written before search used it
   deletedAt?: number // soft delete → "Deleted"
 }
 ```
 
+Reads (`listDiagrams`, `counts`, `getDiagram`, the starred filter) add `starred: 0 | 1` to each row from `workspace.starred` (§1a), giving a `DiagramIndexRow`. Rows never store it; a `starred` field left in a row by an older version is ignored.
+
 ### Write path
 
-1. `doc.subscribeLocalUpdates(bytes => …)` fires after each local commit, and each update is appended to `updates` as it comes, one write after another (`persistDoc` in `docs.ts`). If a write fails, the log is missing an update that every later one builds on, so the next write saves a full snapshot instead (see Compaction), or sooner on `pagehide` or when the tab is hidden. A diagram's queued writes are dropped when it is closed, which only a delete does.
-2. The `diagrams` row is rewritten separately, after each change. While someone is typing it waits for a 300 ms pause, and a pending rewrite runs at once on `pagehide` or when the tab is hidden. A new diagram's snapshot and row are written in one transaction, so neither exists without the other.
+1. `doc.subscribeLocalUpdates(bytes => …)` fires after each local commit, and each update is appended to `updates` as it comes, one write after another (`persistDoc` in `docs.ts`). If a write fails, the log is missing an update that every later one builds on, so the next write saves a full snapshot instead (see Compaction). It's also tried at once on `pagehide` or when the tab is hidden, though a write started then may never land. A diagram's queued writes are dropped when it is closed, which only a delete does.
+2. The `diagrams` row is rewritten separately, after each change's write. While someone is typing it waits for a 300 ms pause, and a pending rewrite is tried at once on `pagehide` or when the tab is hidden. That may not land either, so each diagram update is written together with a `pendingRows` mark, in one transaction, and rewriting the row from the doc clears it. On start, Eos rebuilds the row of every marked diagram (`repairRows`), so a page that went away before rewriting a row leaves it behind only until the next start. A new diagram's snapshot and row are written in one transaction, so neither exists without the other.
 3. Imported ops (a backup restored or merged) aren't local updates, so `subscribeLocalUpdates` never sees them. The import saves each doc it changes as a full snapshot and posts the imported bytes as an `update` (§5) itself.
 4. Delete all clears the workspace doc's saved history along with everything else, so the change that unstars and drops tag emoji is saved as a full snapshot too. Logged on its own, it would build on history no longer on disk.
 5. Updates that arrive from other tabs (§5) are **not** persisted by the receiving tab. The tab that wrote them already did, so the log never holds duplicates. Importing an update twice is harmless anyway, because Loro dedupes by op id.
@@ -220,7 +224,7 @@ interface LibraryQuery {
 }
 
 function matches(row: DiagramIndexRow, q: LibraryQuery) {
-  return !row.deletedAt && (!q.starred || row.starred === 1) && q.tags.every((t) => row.tagPrefixes.includes(t))
+  return !row.deletedAt && (!q.starred || isStarred(row.id)) && q.tags.every((t) => row.tagPrefixes.includes(t)) // isStarred reads workspace.starred
 }
 ```
 
@@ -231,11 +235,11 @@ The `diagrams` store has two indexes (`db.ts`):
 - `byUpdatedAt`, over `updatedAt`. Nothing queries it today, since the library reads every row.
 - `byTag` (multiEntry over `tagPrefixes`): the key `"work"` returns everything under `work/*`. Renaming or deleting a tag uses it to find the diagrams to change.
 
-**Fallback past ~20k diagrams:** add a `tagMembership` store with rows `{ prefix, id, updatedAt, createdAt, titleKey, starred }` and compound indexes `[prefix, updatedAt]` etc., one row per (diagram, tag prefix). Query the most selective chip through its index and filter the remaining chips in memory.
+**Fallback past ~20k diagrams:** add a `tagMembership` store with rows `{ prefix, id, updatedAt, createdAt, titleKey }` and compound indexes `[prefix, updatedAt]` etc., one row per (diagram, tag prefix). Query the most selective chip through its index and filter the remaining chips in memory.
 
 Sort, grouping, search and chips are view state only and live in the URL hash (`#/?tag=work/backend&starred=1&sort=title`) so Back/Forward work.
 
-**Rebuilding the index** (after a migration or corruption): open each diagram doc and the workspace doc, re-derive the rows, and rewrite `diagrams`.
+**Rebuilding the index** (after a migration or corruption): open each diagram doc, re-derive the rows, and rewrite `diagrams` (stars stay in the workspace doc).
 
 ### Library cards
 
@@ -323,8 +327,8 @@ interface SyncMessage {
 }
 ```
 
-- `update` (`id`, `bytes`): a local change to a diagram, or to the workspace doc (`id: "__workspace"`). `subscribeLocalUpdates(bytes)` posts it once its write to IndexedDB (§2) has finished, or failed, so a tab that opens the doc from disk meanwhile can't miss it; a backup import posts each doc's imported bytes once it has saved them. A receiving tab calls `doc.import(bytes)` if it has that doc open and does not persist the bytes; a tab without it open reads it from disk when it opens it. A diagram's update doesn't refresh the library, whose row changes with the `index` that follows. The exception is a tab that has the diagram open: when the update changes its title or tags, that tab rebuilds the row from the merged doc and sends `index` itself, since the sender's row can lack a details change made there at the same time. The workspace's update does refresh the library (stars, tag emoji). When it changes a diagram's star, the receiving tab also rewrites that row's `starred` from the merged workspace and sends `index`, since a row written in either tab before the star reached its workspace has the old star.
-- `index` (`ids`): these `diagrams` rows changed, so other tabs refresh their grid and tag tree. A change to many diagrams (renaming a tag, a bulk star or delete, a backup import) sends one, listing them all.
+- `update` (`id`, `bytes`): a local change to a diagram, or to the workspace doc (`id: "__workspace"`). `subscribeLocalUpdates(bytes)` posts it once its write to IndexedDB (§2) has finished, or failed, so a tab that opens the doc from disk meanwhile can't miss it; a backup import posts each doc's imported bytes once it has saved them. A receiving tab calls `doc.import(bytes)` if it has that doc open and does not persist the bytes; a tab without it open reads it from disk when it opens it. A diagram's update doesn't refresh the library, whose row changes with the `index` that follows. The exception is a tab that has the diagram open: when the update changes its title or tags, that tab rebuilds the row from the merged doc and sends `index` itself, since the sender's row can lack a details change made there at the same time. The workspace's update does refresh the library (stars, tag emoji), and tells the views of each diagram whose star it changed (`diagram:<id>`, which the editor's Star button listens to). It writes no row: reads take stars from the workspace (§1a).
+- `index` (`ids`): these `diagrams` rows changed, so other tabs refresh their grid and tag tree. A change to many diagrams (renaming a tag, a bulk delete, a backup import) sends one, listing them all. A star sends no `index`: the workspace's `update` refreshes the library.
 - `settings`: settings changed; other tabs re-read them.
 - `close` (`id?`): a diagram was purged, or with no `id` every diagram was deleted. Other tabs close their open copies so they stop saving edits to data that is gone.
 
@@ -386,19 +390,19 @@ Backups carry only the theme. Agent settings are the person's say over what agen
 
 ## 9. Lifecycle summary
 
-| Event           | Doc                                              | IndexedDB                                          | Broadcast                   |
-| --------------- | ------------------------------------------------ | -------------------------------------------------- | --------------------------- |
-| New diagram     | `new LoroDoc()`, set meta, commit as its creator | put snapshot + index row                           | `index`                     |
-| Keystroke       | `text.insert/delete`, committed per edit         | append `updates`                                   | `update`                    |
-| Agent tool      | store write, committed as the agent (§3)         | append `updates`                                   | `update`                    |
-| Other tab edit  | `import(bytes)`                                  | —                                                  | —                           |
-| Undo            | `undo.undo()`                                    | append `updates`                                   | `update`                    |
-| Restore version | `revertTo` + commit                              | append `updates`                                   | `update`                    |
-| Star / unstar   | workspace `starred` set/delete                   | workspace `updates`; mirror `starred` in index row | workspace `update`; `index` |
-| Tag emoji       | workspace `tagEmoji` entry                       | workspace `updates`                                | workspace `update`          |
-| Delete          | — (keeps its `starred` key)                      | set `deletedAt` on the index row                   | `index`                     |
-| Purge           | close the doc; drop its `starred` key            | delete snapshot, `updates` and index row           | `close`                     |
-| Open share link | new doc from payload                             | snapshot + index row                               | `index`                     |
+| Event           | Doc                                              | IndexedDB                                | Broadcast          |
+| --------------- | ------------------------------------------------ | ---------------------------------------- | ------------------ |
+| New diagram     | `new LoroDoc()`, set meta, commit as its creator | put snapshot + index row                 | `index`            |
+| Keystroke       | `text.insert/delete`, committed per edit         | append `updates`, mark `pendingRows`     | `update`           |
+| Agent tool      | store write, committed as the agent (§3)         | append `updates`, mark `pendingRows`     | `update`           |
+| Other tab edit  | `import(bytes)`                                  | —                                        | —                  |
+| Undo            | `undo.undo()`                                    | append `updates`, mark `pendingRows`     | `update`           |
+| Restore version | `revertTo` + commit                              | append `updates`, mark `pendingRows`     | `update`           |
+| Star / unstar   | workspace `starred` set/delete                   | workspace `updates`                      | workspace `update` |
+| Tag emoji       | workspace `tagEmoji` entry                       | workspace `updates`                      | workspace `update` |
+| Delete          | — (keeps its `starred` key)                      | set `deletedAt` on the index row         | `index`            |
+| Purge           | close the doc; drop its `starred` key            | delete snapshot, `updates` and index row | `close`            |
+| Open share link | new doc from payload                             | snapshot + index row                     | `index`            |
 
 ## 10. WebMCP tools
 
@@ -406,7 +410,7 @@ Backups carry only the theme. Agent settings are the person's say over what agen
 
 - **Writes are attributed to the agent** (`{ kind: "agent", tool, changes }`), shown apart from the person's in the history menu, and kept off the person's undo stack (§4).
 - **Results are typed.** `{ ok: true, … }` or `{ ok: false, code, message }` with codes like `not_found`, `invalid_input`, `parse_error`, `stale`, `user_declined`, and `busy` when another dialog is already open, so nothing was asked.
-- **Mermaid is always checked.** Tools that take or return source report `valid` and, on failure, the error's line and column.
+- **Mermaid is always checked.** Tools that take or return source report `valid` and, on failure, the error's line and column. The exception is `export` with `format: "link"`, which returns only the link.
 - **Confirmation is in the page.** Deletes open Eos's own dialog and wait; a model can't get past it. Agents can read but not change agent settings, so they can't turn confirmation off.
 - **Off switch.** With `settings.agent.webmcpEnabled` false, no tools are registered.
 
@@ -416,7 +420,7 @@ Backups carry only the theme. Agent settings are the person's say over what agen
 | `get_diagram({ id, version?, history? })`                                                                                     | read        | Title, tags, star, source (now or at a version) and the version it's at; `history` adds the version list.                                                                                                                                                                                        |
 | `get_view()`                                                                                                                  | read        | Page, open diagram, filters, zoom, Settings and sidebar open.                                                                                                                                                                                                                                    |
 | `get_settings()`                                                                                                              | read        | Settings, the theme in effect with full CSS, storage used.                                                                                                                                                                                                                                       |
-| `export({ format, id? \| source?, includeTags?, download? })`                                                                 | read        | `svg`, `png`, `mmd` (with its version), `link`, `backup`. Doubles as a dry-run parse check.                                                                                                                                                                                                      |
+| `export({ format, id? \| source?, includeTags?, download? })`                                                                 | read        | `svg`, `png`, `mmd` (with its version), `link`, `backup`. `svg`, `png` and `mmd` double as a dry-run parse check.                                                                                                                                                                                |
 | `create_diagram({ title?, source?, tags?, starred?, fromShareLink?, open? })`                                                 | write       | New diagram, duplicate (from `get_diagram`'s source) or import a share link.                                                                                                                                                                                                                     |
 | `update_diagram({ id, title?, source?, starred?, addTags?, removeTags?, revert?, deleted?, baseVersion?, expectedVersion? })` | write       | Every edit as one change. `revert`: `"undo"`, `"redo"` or a version id. `deleted: true` moves to Deleted (asks). `source` merges as changes from `baseVersion` (else replaces the text); the result returns the merged source if others' edits were kept. `expectedVersion` refuses stale edits. |
 | `update_tag({ path, moveTo?, emoji? })`                                                                                       | write       | Rename or move a tag (including to the top level), set its icon.                                                                                                                                                                                                                                 |

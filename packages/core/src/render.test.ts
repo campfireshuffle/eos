@@ -33,5 +33,7 @@ describe("validate", () => {
       column: 8,
       snippet: "  C -->> D\n-------^",
     })
+    // On the text's last line: inside it, not clamped past its end.
+    expect(errorOf("flowchart LR\n  C -->> D")).toMatchObject({ line: 2, column: 8 })
   })
 })

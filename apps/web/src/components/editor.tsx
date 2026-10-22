@@ -95,12 +95,14 @@ export function Editor({ id }: { id: string }) {
   // Previewing a past version shows its source read-only in both panes.
   const preview = useUi((s) => s.preview)
   const previewing = preview?.id === id ? preview : null
-  const [previewSource, setPreviewSource] = useState<string | null>(null)
+  // The past version's source, null until it has loaded, so its read-only editor starts with it.
+  const [loaded, setLoaded] = useState<{ id: string; version: string; source: string } | null>(null)
+  const previewSource = loaded?.id === id && loaded.version === previewing?.version ? loaded.source : null
   useEffect(() => {
-    if (!previewing) return setPreviewSource(null)
+    if (!previewing) return
     let alive = true
     eos.getSource(id, previewing.version).then(
-      (s) => alive && setPreviewSource(s),
+      (source) => alive && setLoaded({ id, version: previewing.version, source }),
       () => {}
     )
     return () => {
@@ -222,15 +224,9 @@ export function Editor({ id }: { id: string }) {
                 {copied ? <Check className="text-[var(--eos-green)]" /> : <Copy />}
               </IconButton>
             </PanelHeader>
-            {previewing ? (
-              <CodeEditor
-                key={`preview:${previewing.version}`}
-                value={previewSource ?? ""}
-                readOnly
-                errorAt={errorLine}
-                handleRef={editorRef}
-              />
-            ) : binding ? (
+            {previewing && previewSource !== null ? (
+              <CodeEditor key={`preview:${previewing.version}`} value={previewSource} readOnly errorAt={errorLine} handleRef={editorRef} />
+            ) : binding && !previewing ? (
               <CodeEditor
                 key={key}
                 binding={binding}
@@ -309,7 +305,10 @@ function TitleInput({ value, onCommit }: { value: string; onCommit: (v: string) 
   const [draft, setDraft] = useState(value)
   // What's typed and not yet committed; a new title from elsewhere replaces it, as it does the draft.
   const typed = useRef<string | null>(null)
+  // The title saved on leaving the page (see below), which coming back as `value` leaves both alone.
+  const saved = useRef<string | null>(null)
   useEffect(() => {
+    if (value === saved.current) return void (saved.current = null)
     setDraft(value)
     typed.current = null
   }, [value])
@@ -319,12 +318,35 @@ function TitleInput({ value, onCommit }: { value: string; onCommit: (v: string) 
   }
   // Leaving the diagram (going back, a swipe, an agent opening another page) unmounts this
   // without a blur, so a title still being typed is committed then. StrictMode's extra
-  // unmount in dev comes before anything is typed, so it commits nothing.
-  const commitRef = useRef(commit)
+  // unmount in dev comes before anything is typed, so it commits nothing. Leaving the page
+  // (a reload, closing the tab) does neither, so the title is also saved on beforeunload, the
+  // one event early enough for a reload's write to land, and on pagehide; and when the page
+  // is hidden, as switching tabs does, since a hidden tab may be discarded. The person may
+  // come back and carry on typing, so that saves only a title that isn't blank, trimmed as
+  // a commit would be, and leaves the field as it is: a blur or Enter still commits it.
+  const save = () => {
+    const title = typed.current?.trim()
+    if (!title || title === value) return
+    saved.current = title
+    onCommit(title)
+  }
+  const latest = useRef({ commit, save })
   useEffect(() => {
-    commitRef.current = commit
+    latest.current = { commit, save }
   })
-  useEffect(() => () => commitRef.current(), [])
+  useEffect(() => {
+    const onLeave = () => latest.current.save()
+    const onHidden = () => document.visibilityState === "hidden" && latest.current.save()
+    addEventListener("beforeunload", onLeave)
+    addEventListener("pagehide", onLeave)
+    document.addEventListener("visibilitychange", onHidden)
+    return () => {
+      removeEventListener("beforeunload", onLeave)
+      removeEventListener("pagehide", onLeave)
+      document.removeEventListener("visibilitychange", onHidden)
+      latest.current.commit()
+    }
+  }, [])
   return (
     <input
       aria-label="Diagram title"
@@ -417,8 +439,8 @@ function useShortcuts(actions: ReturnType<typeof useExportActions>) {
                     ? () => requestZoom("actual")
                     : null
       if (!action) return
-      // ⌘ shortcuts would otherwise zoom or act on the whole page.
-      if (mod) e.preventDefault()
+      // ⌘ shortcuts would otherwise zoom or act on the whole page; ⇧0 and ⇧1 act only off text fields, where their ")" and "!" have nowhere to go.
+      e.preventDefault()
       action()
     }
     window.addEventListener("keydown", onKey)

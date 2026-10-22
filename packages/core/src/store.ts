@@ -1,9 +1,8 @@
-import { diffChars } from "diff"
-import { type Frontiers, LoroDoc, type LoroMap, type LoroText, UndoManager, type Value } from "loro-crdt"
+import { type Delta, type Frontiers, LoroDoc, type LoroMap, type LoroText, UndoManager, type Value } from "loro-crdt"
 import * as z from "zod/mini"
 
 import { fromBase64, toBase64 } from "./base64"
-import { openEosDB, WORKSPACE_ID, type Database, type OpenHooks } from "./db"
+import { openEosDB, WORKSPACE_ID, type Database, type OpenHooks, type StoredRow } from "./db"
 import {
   actorOrigin,
   commit,
@@ -50,6 +49,13 @@ const MERGE_MS = 800
 /** How long the library index waits for typing to pause. */
 const INDEX_MS = 300
 
+/**
+ * A source with \n line breaks only, as every source coming in is stored. A `\r` already stored (by
+ * an older version, or in a backup) is kept as it is: the editor counts it as a character like any
+ * other, so the editor and the doc still agree on every position.
+ */
+const lf = (source: string) => source.replace(/\r\n?/g, "\n")
+
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: { mode: "system", customCss: null, diagramCss: null },
   agent: { webmcpEnabled: true, confirmDestructive: true },
@@ -76,7 +82,8 @@ type Editable = Pick<DiagramDoc, "id" | "doc" | "text" | "meta">
 
 /**
  * One diagram, or several. A change to several is one batch (one library event, one index
- * message to other tabs) and skips any that are missing; a single missing one throws.
+ * message to other tabs) and skips any that are missing; a single missing one throws, except in
+ * purge, which has nothing left to remove.
  */
 export type Ids = DiagramId | DiagramId[]
 
@@ -137,14 +144,15 @@ export class Eos {
     const eos = new Eos(db, { doc, starred: doc.getMap("starred"), tagEmoji: doc.getMap("tagEmoji"), persisted })
     eos.settingsCache = withDefaults(await db.get("settings", "app"))
     eos.listenToOtherTabs()
-    // Save what's pending if the tab is closed, or hidden: a mobile browser may discard a
-    // hidden tab without a pagehide.
+    // Try to save what's pending if the tab is closed, or hidden: a mobile browser may discard a
+    // hidden tab without a pagehide. Writes started then may never land; rows are repaired below.
     if (typeof addEventListener === "function") addEventListener("pagehide", () => eos.saveNow())
     // Shown again, check the cached rows: a tab closed partway through a bulk change never sent
     // the index message for it.
     if (typeof document !== "undefined")
       document.addEventListener("visibilitychange", () => (document.visibilityState === "hidden" ? eos.saveNow() : void eos.recheckRows()))
     await eos.backfillSearchText()
+    await eos.repairRows()
     if (options.seed !== false && (await db.count("diagrams")) === 0) {
       for (const s of SAMPLES) await eos.createDiagram(s, { kind: "system", reason: "seed" })
     }
@@ -250,7 +258,7 @@ export class Eos {
       meta: metaOf(d),
       source: sourceOf(d),
       version: encodeVersion(d.doc),
-      starred: row.starred === 1,
+      starred: !!this.workspace.starred.get(id),
       updatedAt: row.updatedAt,
       deletedAt: row.deletedAt,
     }
@@ -263,7 +271,7 @@ export class Eos {
     meta.set("title", input.title?.trim() || "Untitled")
     meta.set("createdAt", Date.now())
     setTags(meta, normalizeTags(input.tags ?? []))
-    doc.getText("source").insert(0, input.source ?? "flowchart TD\n  A[Start] --> B[End]\n")
+    doc.getText("source").insert(0, lf(input.source ?? "flowchart TD\n  A[Start] --> B[End]\n"))
     commit(doc, actor)
     await compact(this.db, id, doc, () => this.indexRow(id, doc))
     this.indexChanged(id)
@@ -273,8 +281,8 @@ export class Eos {
   /**
    * Changes title, source and tags. Title and tags are details, on nobody's undo stack;
    * the source change is undoable. With `base`, the version the source was read at, the
-   * source is applied as the edits that turn that version into it, so anything changed
-   * since (e.g. the person typing while an agent worked) is kept instead of overwritten.
+   * edits that turn that version into the source are merged by Loro with anything changed
+   * since (e.g. the person typing while an agent worked), as another tab's edits would be.
    */
   async editDiagram(
     id: DiagramId,
@@ -282,10 +290,11 @@ export class Eos {
     actor: Actor = USER,
     { base }: { base?: string } = {}
   ) {
+    if (edit.source !== undefined) edit = { ...edit, source: lf(edit.source) }
     await this.mutate(id, actor, (d) => {
-      // Work out the source edits first: reading the old version forks the doc, which
-      // would otherwise save this edit's other changes early, without their label.
-      const fromBase = edit.source !== undefined && base && base !== encodeVersion(d.doc) ? editsFromBase(d, base, edit.source) : null
+      // Merge the source first: forking the doc commits it, which would otherwise save this
+      // edit's other changes early, without their label.
+      const merged = edit.source !== undefined && base && base !== encodeVersion(d.doc) ? mergeFromBase(d, base, edit.source) : null
       if (edit.title !== undefined) d.meta.set("title", edit.title.trim() || "Untitled")
       if (edit.addTags?.length || edit.removeTags?.length) {
         const drop = new Set(normalizeTags(edit.removeTags ?? []))
@@ -296,8 +305,8 @@ export class Eos {
       }
       // Title and tags are details (see mutate); the source change below stays undoable.
       commit(d.doc, actor, { details: true })
-      if (fromBase) applyEdits(d.text, fromBase)
-      else if (edit.source !== undefined) d.text.update(edit.source)
+      if (merged) d.text.applyDelta(merged)
+      else if (edit.source !== undefined) applyEdits(d.text, diffText(sourceOf(d), edit.source))
     })
   }
 
@@ -351,23 +360,15 @@ export class Eos {
           if (batch.by === "local" && batch.origin === EDITOR_ORIGIN) return
           for (const event of batch.events) {
             if (event.diff.type !== "text") continue
-            const changes: TextChange[] = []
-            let pos = 0
-            for (const op of event.diff.diff) {
-              if (op.retain !== undefined) pos += op.retain
-              else if (op.delete !== undefined) {
-                changes.push({ from: pos, to: pos + op.delete, insert: "" })
-                pos += op.delete
-              } else if (op.insert !== undefined) changes.push({ from: pos, to: pos, insert: op.insert })
-            }
-            if (changes.length) listener(changes)
+            const changes = changesOf(event.diff.diff)
+            if (changes.length) listener(changes, batch.by === "local" && batch.origin === actorOrigin(USER))
           }
         }),
     }
   }
 
   async setSource(id: DiagramId, source: string, actor: Actor = USER) {
-    await this.mutate(id, actor, (d) => d.text.update(source))
+    await this.mutate(id, actor, (d) => applyEdits(d.text, diffText(sourceOf(d), lf(source))))
   }
 
   // ── History ────────────────────────────────────────────────────────────────
@@ -424,12 +425,14 @@ export class Eos {
   // ── Organisation ───────────────────────────────────────────────────────────
 
   async setStarred(ids: Ids, starred: boolean, actor: Actor = USER) {
+    // A workspace change only (see withStar): no row is written, and other tabs hear the workspace's update.
     try {
       await this.each(ids, async (id) => {
-        await this.patchIndex(id, { starred: starred ? 1 : 0 })
-        // Only once the diagram is known to be there, so a missing one isn't left a star.
+        // A missing diagram isn't left a star.
+        if (!(await this.db.get("diagrams", id))) throw new Error(`Diagram ${id} not found`)
         if (starred) this.workspace.starred.set(id, true)
         else this.workspace.starred.delete(id)
+        this.emit("library", `diagram:${id}`)
       })
     } finally {
       commit(this.workspace.doc, actor)
@@ -646,8 +649,9 @@ export class Eos {
     this.emit("library")
   }
 
-  /** Imports a shared diagram, or returns the existing one if it's byte-for-byte the same. */
-  async importShare(payload: SharePayload): Promise<DiagramId> {
+  /** Imports a shared diagram, or returns an existing one with the same title and source (line endings aside, whatever its tags). */
+  async importShare(shared: SharePayload): Promise<DiagramId> {
+    const payload = { ...shared, source: lf(shared.source) }
     const existing = await this.findIdentical(payload.title, payload.source)
     if (existing) return existing
     return this.createDiagram(payload, { kind: "import", source: "share-link" })
@@ -655,10 +659,11 @@ export class Eos {
 
   private async findIdentical(title: string, source: string): Promise<DiagramId | null> {
     const candidates = (await this.allRows()).filter(
-      (r) => !r.deletedAt && r.title === (title.trim() || "Untitled") && r.sourceText === source
+      // Line breaks aside: a diagram saved before they were normalised can still hold \r.
+      (r) => !r.deletedAt && r.title === (title.trim() || "Untitled") && r.sourceText !== undefined && lf(r.sourceText) === source
     )
     // The index can trail an edit by a moment, so check the diagram itself before reusing it.
-    for (const row of candidates) if ((await this.getSource(row.id)) === source) return row.id
+    for (const row of candidates) if (lf(await this.getSource(row.id)) === source) return row.id
     return null
   }
 
@@ -824,7 +829,7 @@ export class Eos {
     return () => set.delete(listener)
   }
 
-  private refreshIndexSoon(id: DiagramId, d: DiagramDoc) {
+  private refreshIndexSoon(id: DiagramId, d: OpenDiagram) {
     clearTimeout(this.indexTimers.get(id)?.timer)
     const run = () => {
       this.indexTimers.delete(id)
@@ -834,8 +839,10 @@ export class Eos {
   }
 
   /**
-   * When the page goes away: retries a failed write instead of waiting for the next edit,
-   * then refreshes pending index rows. The docs go first, as the index can be rebuilt from them.
+   * When the page goes away: retries a failed write instead of waiting for the next edit, then
+   * refreshes pending index rows. The docs go first, as the index can be rebuilt from them. Both
+   * are only attempts: the page can die before they land, so a row left behind its doc is
+   * rebuilt on the next start (see persistDoc).
    */
   private saveNow() {
     this.workspace.persisted.retry()
@@ -848,18 +855,19 @@ export class Eos {
     void Promise.all(opened).then(() => this.flushIndex())
   }
 
-  /** Runs a pending index refresh now (before closing a diagram, or when the page goes away). */
-  flushIndex(id?: DiagramId) {
-    for (const [key, pending] of [...this.indexTimers]) {
-      if (id !== undefined && key !== id) continue
+  /** Runs every pending index refresh now (once saveNow's writes are retried, when the page is hidden or goes away). */
+  flushIndex() {
+    for (const pending of [...this.indexTimers.values()]) {
       clearTimeout(pending.timer)
       pending.run()
     }
   }
 
   /** Rebuilds an open diagram's index row. Returns false, writing nothing, if the diagram has been purged. */
-  private async afterChange(id: DiagramId, d: DiagramDoc): Promise<boolean> {
-    if (!(await updateRow(this.db, id, (saved) => this.rowOf(id)(d.doc, saved)))) return false
+  private async afterChange(id: DiagramId, d: OpenDiagram): Promise<boolean> {
+    // After the doc's writes, so this row clears the pending marks they leave (see persistDoc).
+    await d.persisted.written()
+    if (!(await updateRow(this.db, id, (saved) => this.rowOf(id)(d.doc, saved), { fromDoc: true }))) return false
     this.indexChanged(id)
     return true
   }
@@ -869,7 +877,7 @@ export class Eos {
     return (doc, saved) => saved && this.indexRow(id, doc, saved.deletedAt)
   }
 
-  private indexRow(id: DiagramId, doc: LoroDoc, deletedAt?: number): DiagramIndexRow {
+  private indexRow(id: DiagramId, doc: LoroDoc, deletedAt?: number): StoredRow {
     const d = { text: doc.getText("source"), meta: doc.getMap("meta") }
     const meta = metaOf(d)
     const source = sourceOf(d)
@@ -881,10 +889,23 @@ export class Eos {
       createdAt: meta.createdAt,
       updatedAt: lastChangeAt(doc) || Date.now(),
       titleKey: meta.title.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase(),
-      starred: this.workspace.starred.get(id) ? 1 : 0,
       sourcePreview: source.slice(0, 200),
       sourceText: source,
       ...(deletedAt ? { deletedAt } : {}),
+    }
+  }
+
+  /**
+   * Rebuilds the rows marked as behind their docs: a page went away before it rewrote them (see persistDoc).
+   * One that fails to save (a full disk) keeps its mark, for the next start, and doesn't stop Eos opening.
+   */
+  private async repairRows() {
+    for (const id of await this.db.getAllKeys("pendingRows")) {
+      try {
+        if (await compact(this.db, id, newDiagramDoc(), this.rowOf(id))) this.indexChanged(id)
+      } catch (error) {
+        console.error(`Couldn't rebuild the library row of diagram ${id}`, error)
+      }
     }
   }
 
@@ -898,22 +919,34 @@ export class Eos {
     }
   }
 
-  private async patchIndex(id: DiagramId, patch: Partial<DiagramIndexRow>) {
+  private async patchIndex(id: DiagramId, patch: Partial<StoredRow>) {
     const patched = await updateRow(this.db, id, (row) => {
       if (!row) return undefined
-      const next = { ...row, ...patch }
+      const next: StoredRow & { starred?: unknown } = { ...row, ...patch }
       if (patch.deletedAt === undefined && "deletedAt" in patch) delete next.deletedAt
+      delete next.starred // left by an older version (see withStar)
       return next
     })
     if (!patched) throw new Error(`Diagram ${id} not found`)
     this.indexChanged(id)
   }
 
+  /**
+   * A stored row as it's read, with its star. Invariant: stars live only in the workspace doc.
+   * Rows on disk never hold a star (an older row's leftover `starred` is overwritten here), and
+   * every read adds it from this tab's workspace, so no row write can save a stale star, and a
+   * star change writes no row. Every change to the workspace's stars emits "library".
+   */
+  private withStar(row: StoredRow): DiagramIndexRow {
+    return { ...row, starred: this.workspace.starred.get(row.id) ? 1 : 0 }
+  }
+
   /** Every index row, from the cache when the library hasn't changed since the last read. */
   private allRows(): Promise<DiagramIndexRow[]> {
-    const read = (this.rows ??= this.db.getAll("diagrams").then((rows) => {
+    const read = (this.rows ??= this.db.getAll("diagrams").then((stored) => {
       // Unchanged rows keep their old object, so views that memoise on a row can skip it.
-      const kept = rows.map((row) => {
+      const kept = stored.map((raw) => {
+        const row = this.withStar(raw)
         const old = this.rowsById.get(row.id)
         return old && sameRow(old, row) ? old : row
       })
@@ -929,9 +962,9 @@ export class Eos {
   private async recheckRows() {
     const cached = this.rowsById
     const rows = await this.db.getAll("diagrams")
-    const differs = (row: DiagramIndexRow) => {
+    const differs = (row: StoredRow) => {
       const old = cached.get(row.id)
-      return !old || !sameRow(old, row)
+      return !old || !sameRow(old, this.withStar(row))
     }
     if (rows.length !== cached.size || rows.some(differs)) this.emit("library")
   }
@@ -965,29 +998,26 @@ export class Eos {
         this.emit("settings")
       } else if (data.type === "update" && data.id && data.bytes) {
         if (data.id === WORKSPACE_ID) {
+          // Stars and tag emoji, which the library shows. Reads add stars from the workspace (see
+          // withStar), so a star needs no row write: the views of each diagram whose star flipped are told.
           const before = this.workspace.starred.toJSON() as Record<string, unknown>
           this.workspace.doc.import(data.bytes)
           const after = this.workspace.starred.toJSON() as Record<string, unknown>
-          // A row written in either tab before a star reached its workspace has the old star:
-          // rewrite it from the merged one. This transaction runs after any such write queued here.
-          for (const id of new Set([...Object.keys(before), ...Object.keys(after)]))
-            if (!before[id] !== !after[id])
-              void updateRow(this.db, id, (row) => row && { ...row, starred: this.workspace.starred.get(id) ? 1 : 0 }).then(
-                (written) => written && this.indexChanged(id)
-              )
-        } else if (this.open.has(data.id)) {
-          const d = await this.openDiagram(data.id)
-          const before = JSON.stringify(metaOf(d))
-          d.doc.import(data.bytes)
-          // The other tab saved a row from its own copy, which can lack a details change made
-          // here at the same time: rebuild it from the merged doc. That sends "index", never
-          // "update", so the tabs can't set each other off. The row's star comes from this tab's
-          // workspace; a star set there that hasn't reached it yet corrects the row when it does.
-          if (JSON.stringify(metaOf(d)) !== before) void this.afterChange(data.id, d)
+          const flipped = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((id) => !before[id] !== !after[id])
+          this.emit("library", ...flipped.map((id) => `diagram:${id}` as const))
+        } else {
+          if (this.open.has(data.id)) {
+            const d = await this.openDiagram(data.id)
+            const before = JSON.stringify(metaOf(d))
+            d.doc.import(data.bytes)
+            // The other tab saved a row from its own copy, which can lack a details change made
+            // here at the same time: rebuild it from the merged doc. That sends "index", never
+            // "update", so the tabs can't set each other off.
+            if (JSON.stringify(metaOf(d)) !== before) void this.afterChange(data.id, d)
+          }
+          // Otherwise a diagram's index row changes with the "index" message that follows (once typing pauses).
+          this.emit(`diagram:${data.id}`)
         }
-        // Otherwise a diagram's index row changes with the "index" message that follows (once
-        // typing pauses); the workspace holds stars and tag emoji, which the library shows.
-        this.emit(data.id === WORKSPACE_ID ? "library" : `diagram:${data.id}`)
       } else if (data.type === "index") {
         this.emit("library", ...(data.ids ?? []).map((id) => `diagram:${id}` as const))
       } else if (data.type === "close") {
@@ -1081,45 +1111,131 @@ function frontiersOf(d: Editable, version: string): Frontiers {
   return frontiers
 }
 
-/**
- * The edits that turn the text at version `base` into `source`, each placed where that
- * spot of text is now. Loro cursors map positions from the old text to the current one,
- * so changes made since `base` elsewhere in the text are kept. A removed range is pinned on
- * its own first and last characters, and an insertion on the character before it, so neither
- * takes or lands past text typed since next to it.
- */
-function editsFromBase(d: Editable, base: string, source: string): TextChange[] {
-  const old = d.doc.forkAt(frontiersOf(d, base)).getText("source")
-  // Where the gap before the old text's i-th character is now (where it was, if deleted since).
-  const gapBefore = (i: number) => (i >= old.length ? d.text.length : (d.doc.getCursorPos(old.getCursor(i)!)?.offset ?? i))
-  // Where the gap after the old text's `char`, at i, is now. Nothing is left of it if deleted since.
-  const gapAfter = (i: number, char: string) => {
-    const now = d.doc.getCursorPos(old.getCursor(i)!)
-    return now ? now.offset + (now.update ? 0 : char.length) : i + char.length
-  }
-  const text = old.toString()
-  // An insertion goes right after the old character before it, so it stays next to what it
-  // followed even when text was added after that since (at the very start, before the first).
-  const insertAt = (i: number) => {
-    if (i === 0) return gapBefore(0)
-    const back = /[\udc00-\udfff]/.test(text[i - 1]!) && i > 1 ? 2 : 1
-    return gapAfter(i - back, text.slice(i - back, i))
-  }
-  const edits: TextChange[] = []
+/** A Loro text delta as edits in the coordinates of the text before it, in order: text deleted and inserted at one spot is one replacement. */
+function changesOf(delta: Delta<string>[]): TextChange[] {
+  const changes: TextChange[] = []
   let pos = 0
-  for (const part of diffChars(text, source)) {
-    if (part.added) edits.push({ from: insertAt(pos), to: insertAt(pos), insert: part.value })
-    else {
-      if (part.removed) {
-        // By code point: a cursor can't sit on the second half of a surrogate pair.
-        const last = [...part.value].at(-1)!
-        const from = gapBefore(pos)
-        edits.push({ from, to: Math.max(from, gapAfter(pos + part.value.length - last.length, last)), insert: "" })
-      }
-      pos += part.value.length
+  for (const op of delta) {
+    const last = changes.at(-1)
+    if (op.retain !== undefined) pos += op.retain
+    else if (op.delete !== undefined) {
+      if (last?.to === pos) last.to += op.delete
+      else changes.push({ from: pos, to: pos + op.delete, insert: "" })
+      pos += op.delete
+    } else if (op.insert !== undefined) {
+      if (last?.to === pos) last.insert += op.insert
+      else changes.push({ from: pos, to: pos, insert: op.insert })
     }
   }
-  return edits
+  return changes
+}
+
+/**
+ * The edits that turn `a` into `b`, by Loro's diff (`LoroText.update`). By default Loro tidies a
+ * minimal diff up for reading (a few kept characters among changes are replaced as well); `exact`
+ * keeps it minimal.
+ */
+function charDiff(a: string, b: string, exact = false): TextChange[] {
+  const doc = new LoroDoc()
+  const text = doc.getText("source")
+  text.insert(0, a)
+  doc.commit()
+  const from = doc.frontiers()
+  text.update(b, { useRefinedDiff: !exact })
+  doc.commit()
+  const diff = doc.diff(from, doc.frontiers(), false)[0]?.[1]
+  doc.free()
+  return diff?.type === "text" ? changesOf(diff.diff) : []
+}
+
+/** The runs of lines that differ, in order: lines [i0, i1) of `a` become lines [j0, j1) of `b`. */
+function lineHunks(a: string[], b: string[]) {
+  // Lines that match at the start come first, so of two identical lines it's the first that stays.
+  let pre = 0
+  while (pre < a.length && pre < b.length && a[pre] === b[pre]) pre++
+  let suf = 0
+  while (suf < a.length - pre && suf < b.length - pre && a[a.length - 1 - suf] === b[b.length - 1 - suf]) suf++
+  const mid = { i0: pre, i1: a.length - suf, j0: pre, j1: b.length - suf }
+  // The lines between, one character each (below the surrogates), so a diff of the two strings is a diff of lines.
+  const ids = new Map<string, string>()
+  const encode = (lines: string[]) => lines.map((l) => ids.get(l) ?? ids.set(l, String.fromCharCode(0x100 + ids.size)).get(l)!).join("")
+  const ea = encode(a.slice(mid.i0, mid.i1))
+  const eb = encode(b.slice(mid.j0, mid.j1))
+  if (!ea || !eb || ids.size > 0xd800 - 0x100) return ea || eb ? [mid] : []
+  const hunks: (typeof mid)[] = []
+  let shift = 0 // lines `b` has gained on `a` so far
+  for (const e of charDiff(ea, eb, true)) {
+    const i0 = pre + e.from
+    const last = hunks.at(-1)
+    // A removal and an insertion with no line between them are one run.
+    if (last?.i1 === i0) {
+      last.i1 = pre + e.to
+      last.j1 += e.insert.length
+    } else hunks.push({ i0, i1: pre + e.to, j0: i0 + shift, j1: i0 + shift + e.insert.length })
+    shift += e.insert.length - (e.to - e.from)
+  }
+  return hunks
+}
+
+/**
+ * The edits that turn `a` into `b`, line by line. Invariant: lines `b` keeps are left alone, lines it
+ * adds or removes go in or come out whole between lines, and only lines it changes get a character
+ * diff, so whatever was typed on a kept line stays on that line. Whole lines go in as "  X\n" at the
+ * start of a line, or "\n  X" at the end of the text.
+ */
+function diffText(a: string, b: string): TextChange[] {
+  const A = a.split("\n")
+  const B = b.split("\n")
+  // Where each line starts.
+  const starts = (lines: string[]) => {
+    const at = [0]
+    for (const l of lines) at.push(at.at(-1)! + l.length + 1)
+    return at
+  }
+  const sa = starts(A)
+  const sb = starts(B)
+  return lineHunks(A, B).flatMap(({ i0, i1, j0, j1 }): TextChange[] => {
+    const lines = B.slice(j0, j1).join("\n")
+    if (i0 === i1) {
+      const at = i0 < A.length ? sa[i0]! : a.length
+      return [{ from: at, to: at, insert: i0 < A.length ? lines + "\n" : "\n" + lines }]
+    }
+    if (j0 === j1) return [i1 < A.length ? { from: sa[i0]!, to: sa[i1]!, insert: "" } : { from: sa[i0]! - 1, to: a.length, insert: "" }]
+    // The changed lines' text, without the line break after the last.
+    const at = sa[i0]!
+    return charDiff(a.slice(at, sa[i1]! - 1), b.slice(sb[j0]!, sb[j1]! - 1)).map((e) => ({ ...e, from: at + e.from, to: at + e.to }))
+  })
+}
+
+/**
+ * The change that turns the text at version `base` into `source`, merged with everything changed
+ * since, as a delta on the text now. The edits are made on a copy of the doc at `base`, where
+ * diffText's positions are exact, and Loro merges them into a copy of the doc now, as it merges
+ * another tab's: what anyone changed since `base` is kept.
+ */
+function mergeFromBase(d: Editable, base: string, source: string): Delta<string>[] {
+  const old = d.doc.forkAt(frontiersOf(d, base))
+  const now = d.doc.fork()
+  try {
+    // The highest peer the doc doesn't have (Loro reserves the maximum), so the edits are new ops to
+    // it, and of two insertions at one spot Loro puts the lower peer's first: the agent's go after
+    // the person's, whose typing stays next to what it followed.
+    const peers = d.doc.oplogVersion()
+    let peer = 2n ** 64n - 2n
+    while (peers.get(peer) !== undefined) peer--
+    old.setPeerId(peer)
+    const from = old.oplogVersion()
+    const text = old.getText("source")
+    applyEdits(text, diffText(text.toString(), source))
+    old.commit()
+    const before = now.frontiers()
+    now.import(old.export({ mode: "update", from }))
+    const diff = now.diff(before, now.frontiers(), false).find(([id]) => id === d.text.id)?.[1]
+    return diff?.type === "text" ? diff.diff : []
+  } finally {
+    old.free()
+    now.free()
+  }
 }
 
 /** Runs `fn` and commits what it did as `actor`: one step on `undo`, if given (see Eos.mutate). */
@@ -1138,7 +1254,7 @@ function change(
   }
 }
 
-/** Whether two reads of an index row hold the same values. Rows are flat apart from their tag lists. */
+/** Whether two reads of an index row (with their stars, see withStar) hold the same values. Rows are flat apart from their tag lists. */
 function sameRow(a: DiagramIndexRow, b: DiagramIndexRow): boolean {
   const keys = Object.keys(b) as (keyof DiagramIndexRow)[]
   if (keys.length !== Object.keys(a).length) return false

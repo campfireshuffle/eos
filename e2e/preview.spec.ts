@@ -377,16 +377,16 @@ test("with the sidebar collapsed the version banner keeps the same gap from the 
   await previewYesterday(page)
   await tool(page, "set_view", { sidebarOpen: false })
   await expect(page.locator(".eos-shell")).toHaveAttribute("data-collapsed", "true")
+  // Once the collapse animation has settled (layout.ts clears data-animating after it), the left gap matches the right one.
+  // Measured once: mid-collapse the left gap slides through the right one's width, so a poll could pass on the way.
+  await expect(page.locator("[data-animating]")).toHaveCount(0)
   const banner = page.getByText("Viewing the version from").locator("..")
-  // Once the collapse animation has settled, the left gap matches the right one.
-  await expect
-    .poll(() =>
-      banner.evaluate((el) => {
-        const r = el.getBoundingClientRect()
-        return Math.round(r.left) === Math.round(innerWidth - r.right) && r.left > 0
-      })
-    )
-    .toBe(true)
+  const gaps = await banner.evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    return { left: Math.round(r.left), right: Math.round(innerWidth - r.right) }
+  })
+  expect(gaps.right).toBeGreaterThan(0)
+  expect(gaps.left).toBe(gaps.right)
 })
 
 test("back to latest with no valid version to show leaves the preview empty, with nothing to export", async ({ context }) => {
@@ -499,4 +499,144 @@ test("rotating a phone keeps showing the past version, and leaving the diagram e
   await openEditor(page, id)
   await expect(page.locator(".cm-content")).toHaveAttribute("contenteditable", "true")
   await expect(banner).toHaveCount(0)
+})
+
+test("⇧0 and ⇧1 zoom without typing into the source, wherever focus was left", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const source = chain(2)
+  const id = await newDiagram(page, source)
+  await openEditor(page, id)
+  await expect.poll(() => zoom(page)).toBe(2)
+  // Focus moved off the source without a click: Safari used to keep the source's selection and type ")" and "!" into it.
+  await cursorAtEndOf(page, 1)
+  await page.keyboard.press("Escape")
+  await page.getByLabel("Diagram preview").focus()
+  await page.keyboard.press("Shift+Digit0")
+  await expect.poll(() => zoom(page)).toBe(1)
+  await page.keyboard.press("Shift+Digit1")
+  await expect.poll(() => zoom(page)).toBe(2)
+  // After a button that doesn't keep focus in Safari (Star), so focus is on the body.
+  await cursorAtEndOf(page, 1)
+  await page.getByRole("button", { name: "Star", exact: true }).click()
+  await page.keyboard.press("Shift+Digit0")
+  await expect.poll(() => zoom(page)).toBe(1)
+  expect(await storedText(page, id)).toBe(source)
+})
+
+/** Selects the last `n` characters of the source's second line. */
+async function selectEndOfLine1(page: Page, n: number) {
+  await cursorAtEndOf(page, 1)
+  for (let i = 0; i < n; i++) await page.keyboard.press("Shift+ArrowLeft")
+}
+
+// The source keeps its selection after focus leaves it (in Safari, or after a click on Star or the preview), and a
+// key, a paste, a cut or committed text from wherever focus went is aimed at it. An editor without focus takes none.
+for (const [how, leave] of [
+  ["Escape, then Tab", async (page: Page) => (await page.keyboard.press("Escape"), await focusNext(page))],
+  [
+    "Escape, then Tab to the preview",
+    async (page: Page) => (await page.keyboard.press("Escape"), await focusNext(page), await focusNext(page)),
+  ],
+  ["clicking Star", (page: Page) => page.getByRole("button", { name: "Star", exact: true }).click()],
+  ["clicking Settings", (page: Page) => page.getByRole("button", { name: "Settings" }).click()],
+  [
+    "an agent's confirm",
+    async (page: Page) => {
+      void tool(page, "delete_all_data").catch(() => {})
+      await expect(page.getByRole("alertdialog")).toBeVisible()
+    },
+  ],
+  ["clicking the preview", (page: Page) => page.getByLabel("Diagram preview").click()],
+] as const) {
+  test(`after ${how}, nothing typed, pasted, cut or inserted goes into the source`, async ({ context, browserName }) => {
+    await withAgentTools(context)
+    const page = await context.newPage()
+    const source = "flowchart LR\n  A --> B"
+    const id = await newDiagram(page, source)
+    await openEditor(page, id)
+    // Something to paste.
+    await page.getByLabel("Diagram title").click()
+    await page.keyboard.press("ControlOrMeta+a")
+    await page.keyboard.press("ControlOrMeta+c")
+    await selectEndOfLine1(page, 3)
+    await leave(page)
+    await expect(page.locator(".cm-content").first()).not.toBeFocused()
+    await page.keyboard.type("xyz")
+    await page.keyboard.press("ControlOrMeta+v")
+    await page.keyboard.press("ControlOrMeta+x")
+    // After a preview click, Chrome inserts committed text without a beforeinput to cancel (see the backlog).
+    if (!(browserName === "chromium" && how === "clicking the preview")) await page.keyboard.insertText("😀")
+    await page.waitForTimeout(300)
+    expect(await storedText(page, id)).toBe(source)
+    // The source's own lines: Settings has editors of its own.
+    const shown = await page
+      .locator(".cm-content")
+      .first()
+      .evaluate((e) => [...e.querySelectorAll(".cm-line")].map((l) => l.textContent).join("\n"))
+    expect(shown).toBe(source)
+  })
+}
+
+test("Escape, then Tab leaves the source even when Escape collapses a selection", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const source = "mindmap\n  root\n    a\n    b"
+  const id = await newDiagram(page, source)
+  await openEditor(page, id)
+  await cursorAtEndOf(page, 3)
+  await page.keyboard.press("Shift+ArrowLeft")
+  await page.keyboard.press("Escape")
+  await page.keyboard.press("Tab")
+  await expect(page.locator(".cm-content")).not.toBeFocused()
+  await page.waitForTimeout(300)
+  expect(await storedText(page, id)).toBe(source)
+})
+
+test("leaving the source and coming back keeps its caret", async ({ context, browserName }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const id = await newDiagram(page, "flowchart LR\n  A --> B")
+  await openEditor(page, id)
+  await cursorAtEndOf(page, 1)
+  await page.keyboard.press("ArrowLeft")
+  await page.keyboard.press("Escape")
+  await focusNext(page)
+  await page.keyboard.press(browserName === "webkit" ? "Alt+Shift+Tab" : "Shift+Tab")
+  await expect(page.locator(".cm-content")).toBeFocused()
+  await page.keyboard.type("Z")
+  await expect.poll(() => storedText(page, id)).toBe("flowchart LR\n  A --> ZB")
+})
+
+for (const [how, leave] of [
+  ["clicking Star", (page: Page) => page.getByRole("button", { name: "Star", exact: true }).click()],
+  ["clicking the preview", (page: Page) => page.getByLabel("Diagram preview").click()],
+] as const) {
+  test(`after ${how}, ⌘C copies the source's selection`, async ({ context }) => {
+    await withAgentTools(context)
+    const page = await context.newPage()
+    const id = await newDiagram(page, "flowchart LR\n  A --> B")
+    await openEditor(page, id)
+    await page.evaluate(() => {
+      const copies: string[] = ((window as unknown as { copies: string[] }).copies = [])
+      document.addEventListener("copy", () => copies.push(document.getSelection()?.toString() ?? ""), true)
+    })
+    await selectEndOfLine1(page, 3)
+    await leave(page)
+    await page.keyboard.press("ControlOrMeta+c")
+    expect(await page.evaluate(() => (window as unknown as { copies: string[] }).copies)).toEqual(["> B"])
+  })
+}
+
+test("after leaving the source, right-clicking its selection and typing replaces it", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const id = await newDiagram(page, "flowchart LR\n  A --> B")
+  await openEditor(page, id)
+  await selectEndOfLine1(page, 5)
+  await page.getByRole("button", { name: "Star", exact: true }).click()
+  const highlight = (await page.locator(".cm-selectionBackground").first().boundingBox())!
+  await page.mouse.click(highlight.x + highlight.width / 2, highlight.y + highlight.height / 2, { button: "right" })
+  await page.keyboard.type("Z")
+  await expect.poll(() => storedText(page, id)).toBe("flowchart LR\n  A Z")
 })

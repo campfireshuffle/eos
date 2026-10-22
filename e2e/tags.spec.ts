@@ -17,7 +17,7 @@ async function viewing(context: BrowserContext, tag: string) {
 test("moving the tag being viewed keeps showing its diagrams", async ({ context }) => {
   const page = await viewing(context, "projects/work")
   await page.getByRole("row", { name: "projects/work" }).click({ button: "right" })
-  await page.getByRole("button", { name: "Move to top level" }).click()
+  await page.getByRole("menuitem", { name: "Move to top level" }).click()
   await expect(page).toHaveURL(/#\/\?tag=work$/)
   await expect(page.locator("[data-card-id]")).toHaveCount(2)
 })
@@ -25,7 +25,7 @@ test("moving the tag being viewed keeps showing its diagrams", async ({ context 
 test("deleting a tag above the one being viewed goes back to the whole library", async ({ context }) => {
   const page = await viewing(context, "work/notes")
   await page.getByRole("row", { name: "work", exact: true }).click({ button: "right" })
-  await page.getByRole("button", { name: "Delete tag" }).click()
+  await page.getByRole("menuitem", { name: "Delete tag" }).click()
   await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click()
   await expect(page).toHaveURL(/#\/$/)
   await expect(page.getByText("No diagrams match.")).toBeHidden()
@@ -199,7 +199,7 @@ test("on a phone, a long unbroken tag name keeps the delete confirm's buttons in
   await tool(page, "create_diagram", { title: "Cluster", tags: [tag], open: false })
   await page.getByRole("button", { name: "Show sidebar" }).click()
   await page.getByRole("row", { name: tag }).click({ button: "right" })
-  await page.getByRole("button", { name: "Delete tag" }).click()
+  await page.getByRole("menuitem", { name: "Delete tag" }).click()
   const dialog = page.getByRole("alertdialog")
   await expect(dialog).toBeVisible()
   // Measure once it has finished zooming in.
@@ -210,4 +210,72 @@ test("on a phone, a long unbroken tag name keeps the delete confirm's buttons in
     expect(button.x).toBeGreaterThanOrEqual(box.x)
     expect(button.x + button.width).toBeLessThanOrEqual(box.x + box.width)
   }
+})
+
+test("a keyboard moves a tag under another, and back to the top level, from its row's drag button", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.goto("/#/")
+  await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+  for (const tag of ["alpha", "beta"]) await tool(page, "create_diagram", { title: tag, tags: [tag], open: false })
+  const tree = page.getByRole("treegrid", { name: "Tags" })
+  await tree.getByRole("row", { name: "alpha", exact: true }).focus()
+  // Across the row: its icon button, then the drag button, which shows while it has focus.
+  await page.keyboard.press("ArrowRight")
+  await page.keyboard.press("ArrowRight")
+  const drag = tree.getByRole("button", { name: "Drag alpha" })
+  await expect(drag).toBeFocused()
+  expect((await drag.boundingBox())!.width).toBeGreaterThan(10)
+  await page.keyboard.press("Enter")
+  // React Aria focuses the first drop target, the row after alpha's.
+  await expect(page.getByRole("button", { name: /^Drop on beta/ })).toBeFocused()
+  await page.keyboard.press("Enter")
+  await expect(tree.getByRole("row", { name: "beta/alpha" })).toBeVisible()
+  const tags = async () =>
+    (await tool<{ diagrams: { title: string; tags: string[] }[] }>(page, "get_library")).diagrams.find((d) => d.title === "alpha")?.tags
+  await expect.poll(tags).toEqual(["beta/alpha"])
+  // Back to the top level: the drop zone goes away, so focus goes to the moved row.
+  await tree.getByRole("row", { name: "beta/alpha" }).focus()
+  await page.keyboard.press("ArrowRight")
+  await page.keyboard.press("ArrowRight")
+  await expect(tree.getByRole("button", { name: "Drag beta/alpha" })).toBeFocused()
+  await page.keyboard.press("Enter")
+  await expect(page.getByRole("button", { name: /^Drop on/ }).first()).toBeFocused()
+  // Tab goes from the tree's drop targets to the top-level zone.
+  await page.keyboard.press("Tab")
+  await expect(page.getByRole("button", { name: "Move to top level" })).toBeFocused()
+  await page.keyboard.press("Enter")
+  await expect.poll(tags).toEqual(["alpha"])
+  await expect(tree.getByRole("row", { name: "alpha", exact: true })).toBeFocused()
+})
+
+test("in the narrow window's drawer, Escape cancels a keyboard tag drag and leaves the drawer open", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.setViewportSize({ width: 700, height: 800 })
+  await page.goto("/#/")
+  await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+  for (const tag of ["alpha", "beta"]) await tool(page, "create_diagram", { title: tag, tags: [tag], open: false })
+  const drawer = page.getByRole("dialog", { name: "Navigation" })
+  const tree = page.getByRole("treegrid", { name: "Tags" })
+  const alpha = tree.getByRole("row", { name: "alpha", exact: true })
+  // With no drag, Escape still closes the drawer.
+  await page.getByRole("button", { name: "Show sidebar" }).click()
+  await alpha.focus()
+  await page.keyboard.press("Escape")
+  await expect(drawer).toBeHidden()
+  await page.getByRole("button", { name: "Show sidebar" }).click()
+  await alpha.focus()
+  await page.keyboard.press("ArrowRight")
+  await page.keyboard.press("ArrowRight")
+  const drag = tree.getByRole("button", { name: "Drag alpha" })
+  await expect(drag).toBeFocused()
+  await page.keyboard.press("Enter")
+  await expect(page.getByRole("button", { name: /^Drop on beta/ })).toBeFocused()
+  await page.keyboard.press("Escape")
+  await expect(drag).toBeFocused()
+  // Not visibility: a closing drawer stays visible while it slides out.
+  await expect(drawer).toHaveAttribute("data-state", "open")
+  const library = await tool<{ diagrams: { title: string; tags: string[] }[] }>(page, "get_library")
+  expect(library.diagrams.find((d) => d.title === "alpha")?.tags).toEqual(["alpha"])
 })

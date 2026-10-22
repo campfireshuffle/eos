@@ -1,6 +1,6 @@
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands"
-import { Annotation, EditorState, StateEffect, StateField } from "@codemirror/state"
-import { Decoration, EditorView, keymap, lineNumbers, drawSelection, type DecorationSet } from "@codemirror/view"
+import { Annotation, EditorSelection, EditorState, StateEffect, StateField } from "@codemirror/state"
+import { Decoration, EditorView, keymap, lineNumbers, drawSelection, highlightSpecialChars, type DecorationSet } from "@codemirror/view"
 import { useEffect, useId, useRef } from "react"
 
 import type { SourceBinding, TextChange } from "@eos/core"
@@ -44,6 +44,8 @@ const theme = EditorView.theme(
     ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: "var(--eos-selection) !important" },
     ".cm-cursor": { borderLeftColor: "var(--eos-body)" },
     ".cm-error-line": { backgroundColor: "color-mix(in srgb, var(--eos-red) 12%, transparent)" },
+    // The marker for a stray \r: CodeMirror's own colour is for a dark editor, which `dark: true` claims in both modes.
+    ".cm-specialChar": { color: "var(--eos-red)" },
   },
   { dark: true }
 )
@@ -68,7 +70,7 @@ export function CodeEditor({
   gutter = true,
   wrap = false,
 }: {
-  /** The text to show. Ignored when `binding` is given. */
+  /** The starting text; to replace it, remount with a new `key`. Ignored when `binding` is given. */
   value?: string
   /**
    * Links the editor to a diagram's source in Loro: keystrokes go in as individual
@@ -76,7 +78,7 @@ export function CodeEditor({
    * so concurrent edits merge instead of overwriting each other.
    */
   binding?: SourceBinding
-  /** Called with the full text after every change, local or not. */
+  /** Called with the full text after every change. */
   onChange?: (value: string) => void
   /** When given, undo/redo go to these (e.g. Loro); otherwise CodeMirror keeps its own history. */
   onUndo?: () => void
@@ -93,8 +95,6 @@ export function CodeEditor({
   const host = useRef<HTMLDivElement>(null)
   const hintId = useId()
   const view = useRef<EditorView | null>(null)
-  // Values sent to onChange that haven't come back as `value` yet, oldest first.
-  const reported = useRef<string[]>([])
   const callbacks = useRef({ onChange, onUndo, onRedo })
   callbacks.current = { onChange, onUndo, onRedo }
 
@@ -107,8 +107,19 @@ export function CodeEditor({
           gutter ? lineNumbers() : [],
           drawSelection(),
           EditorState.tabSize.of(2),
+          // "\n" is the only line break, so the editor counts a "\r" (in a diagram saved before sources were
+          // normalised) as a character, as Loro does, and their positions always match. A "\r" pasted or
+          // dropped in is a line break, as it is anywhere else.
+          EditorState.lineSeparator.of("\n"),
+          EditorView.clipboardInputFilter.of((text) => text.replace(/\r\n?/g, "\n")),
+          // Shows a "\r", and other invisible control characters, as a marker (␍), so what is typed next to one is where it looks.
+          highlightSpecialChars(),
           EditorState.readOnly.of(readOnly),
           EditorView.editable.of(!readOnly),
+          // Escape arms CodeMirror's Escape-then-Tab exit (see the hint below), whether or not it also collapses a
+          // selection; it returns false, so the default keymap still collapses one. In a dialog, onEscape below
+          // takes Escape first and arms the exit itself, and the selection stays.
+          keymap.of([{ key: "Escape", run: (v) => (v.setTabFocusMode(2000), false) }]),
           onUndo
             ? // Undo goes through Loro: the person's own stack, which skips agent edits.
               keymap.of([
@@ -137,16 +148,23 @@ export function CodeEditor({
               u.changes.iterChanges((from, to, _fromB, _toB, inserted) => changes.push({ from, to, insert: inserted.toString() }))
               binding.edit(changes)
             }
-            if (binding || !u.transactions.some((t) => t.annotation(external))) {
-              const doc = u.state.doc.toString()
-              if (!binding && reported.current.push(doc) > 50) reported.current.shift()
-              callbacks.current.onChange?.(doc)
-            }
+            callbacks.current.onChange?.(u.state.doc.toString())
           }),
         ],
       }),
     })
     view.current = v
+    // An editor without focus takes no input. Its selection can stay in it after focus leaves (WebKit, a click on
+    // Star or the preview), and a key, a paste, a cut or committed text from wherever focus went (Settings, a
+    // confirm) is sent to it, or to the focused control, as one of these events. They're cancelled at the document,
+    // whatever their target, so nothing changes and the selection stays, to be copied. A drop focuses the editor
+    // first; agent edits, undo and other tabs aren't DOM input.
+    const unfocused = (e: Event) => {
+      const at = getSelection()?.anchorNode
+      if (v.root.activeElement !== v.contentDOM && at && v.contentDOM.contains(at)) e.preventDefault()
+    }
+    const inputs = ["beforeinput", "paste", "cut"] as const
+    if (!readOnly) for (const type of inputs) document.addEventListener(type, unfocused, true)
     if (handleRef) {
       handleRef.current = {
         focusLine(line, column) {
@@ -158,12 +176,42 @@ export function CodeEditor({
       }
     }
     // Changes from elsewhere arrive as edits, in the coordinates of the text the editor shows.
-    const unbind = binding?.onChange((changes) => {
+    const unbind = binding?.onChange((changes, own) => {
       const apply = () => {
-        // Keep a caret at an insertion point after the inserted text, as CodeMirror's own undo does,
-        // so typing after undoing a deletion carries on after the restored text instead of before it.
+        // The caret stays with the text of its own line. A line someone else adds at the caret ("\n…") goes after
+        // it, unless the caret is at the start of its line's text, where the line is added above. What they add at
+        // the end of a line's text up to a line break of its own ("2\n…") extends that line, so it goes before the
+        // caret and the rest after. Anything else they insert there (a line above, text within the line) goes
+        // before it. Text the person's own undo, redo or restore puts back goes before the caret, as CodeMirror's
+        // undo does.
         const set = v.state.changes(changes)
-        v.dispatch({ changes: set, selection: v.state.selection.map(set, 1), annotations: external.of(true) })
+        /** Which side of what's inserted at the caret the caret goes to, and how far into it when it's split. */
+        const place = (at: number): { assoc: 1 | -1; into: number } => {
+          const inserted = changes
+            .filter((c) => c.from === at && c.to === at)
+            .map((c) => c.insert)
+            .join("")
+          const line = v.state.doc.lineAt(at)
+          if (own || !inserted.includes("\n") || at <= line.from + line.text.search(/\S/)) return { assoc: 1, into: 0 }
+          const br = inserted.indexOf("\n")
+          if (br === 0) return { assoc: -1, into: 0 }
+          return at === line.to && /\S/.test(line.text) ? { assoc: -1, into: br } : { assoc: 1, into: 0 }
+        }
+        // An external change never interrupts a composition. Setting the selection, even to where CodeMirror would
+        // map it, ends one and commits its letters as typed text, so it's set only when the rules above move the
+        // caret, and never while composing.
+        const plain = v.state.selection.map(set)
+        const selection = v.composing
+          ? plain
+          : EditorSelection.create(
+              v.state.selection.ranges.map((r) => {
+                const { assoc, into } = place(r.head)
+                const mapped = r.map(set, assoc)
+                return into && r.empty ? EditorSelection.cursor(mapped.head + into) : mapped
+              }),
+              v.state.selection.mainIndex
+            )
+        v.dispatch({ changes: set, ...(selection.eq(plain) ? {} : { selection }), annotations: external.of(true) })
         // Belt and braces: if the two ever disagree, show what's stored.
         const stored = binding.text()
         if (v.state.doc.toString() !== stored) {
@@ -187,32 +235,12 @@ export function CodeEditor({
     if (!readOnly) window.addEventListener("keydown", onEscape, true)
     return () => {
       window.removeEventListener("keydown", onEscape, true)
+      for (const type of inputs) document.removeEventListener(type, unfocused, true)
       unbind?.()
       v.destroy()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  // Without a binding, apply a new value as a minimal patch. A value this editor reported itself
-  // is coming back late, while typing may have moved on; patching it in would undo those keystrokes.
-  useEffect(() => {
-    const v = view.current
-    if (!v || binding || value === undefined) return
-    const own = reported.current.indexOf(value)
-    if (own >= 0) return void reported.current.splice(0, own + 1)
-    reported.current = []
-    const prev = v.state.doc.toString()
-    if (prev === value) return
-    let from = 0
-    let to = prev.length
-    let end = value.length
-    while (from < to && from < end && prev[from] === value[from]) from++
-    while (to > from && end > from && prev[to - 1] === value[end - 1]) {
-      to--
-      end--
-    }
-    v.dispatch({ changes: { from, to, insert: value.slice(from, end) }, annotations: external.of(true) })
-  }, [value, binding])
 
   useEffect(() => {
     view.current?.dispatch({ effects: setErrorLine.of(errorAt) })

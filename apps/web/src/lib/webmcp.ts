@@ -37,7 +37,7 @@ export function connectWebMcp(eos: Eos): () => void {
       setUi({ preview: version ? { id, version, at: meta?.at ?? Date.now(), label: meta?.label ?? "" } : null }),
     // Checked before asking: a confirm while another dialog is open would be answered no without the person seeing it.
     confirm: async (message, action, signal) =>
-      getUi().confirm ? "busy" : (await askConfirm(message, action, signal)) ? "confirmed" : "declined",
+      getUi().confirm?.open ? "busy" : (await askConfirm(message, action, signal)) ? "confirmed" : "declined",
     download: (name, data) => download(name, data),
     toPng: svgMarkupToPng,
     toSvg: themedSvg,

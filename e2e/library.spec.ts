@@ -1,6 +1,6 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test"
 
-import { tool, withAgentTools } from "./helpers"
+import { newDiagram, openEditor, tool, withAgentTools } from "./helpers"
 
 test("Esc cancels a confirm without dropping the selection", async ({ context }) => {
   await withAgentTools(context)
@@ -128,6 +128,9 @@ test.describe("selecting", () => {
     await page.keyboard.press("Escape")
 
     await page.evaluate(() => (location.hash = "/?q=crumble"))
+    // The tag view also shows 2 cards, so wait for the search's own: Apple pie gone, Pear crumble shown.
+    await expect(card(page, "Apple pie")).toBeHidden()
+    await expect(card(page, "Pear crumble")).toBeVisible()
     await expect(page.locator("[data-card-id]")).toHaveCount(2)
     await page.keyboard.press("ControlOrMeta+a")
     await expect(page.getByText("2 selected")).toBeVisible()
@@ -404,3 +407,43 @@ test("in a narrow content pane, the filter pill keeps clear of the controls and 
   await page.mouse.click(at.x, at.y)
   await expect(page).toHaveURL(/#\/$/)
 })
+
+// Firefox's word segmenter doesn't mark a run of Chinese, Japanese or Thai that is a single word as a word.
+test("Search finds a diagram by a single Chinese, Japanese or Thai word", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.goto("/#/")
+  await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+  for (const title of ["東京", "日本語", "ภาษาไทย"]) await tool(page, "create_diagram", { title, open: false })
+  const search = page.getByRole("textbox", { name: "Search diagrams" }).first()
+  for (const [query, title] of [
+    ["東京", "東京"],
+    ["日本語", "日本語"],
+    ["ไทย", "ภาษาไทย"],
+  ] as const) {
+    await search.fill(query)
+    await expect(page.locator("[data-card-id] .text-label")).toHaveText([title])
+  }
+})
+
+// Nothing a page starts as it goes away is sure to land, so the row is rebuilt on the next start.
+for (const how of ["reload", "close"] as const)
+  for (const wait of [0, 100, 250])
+    test(`a diagram's row and search catch up with typing after a ${how} ${wait}ms after the last keystroke`, async ({ context }) => {
+      await withAgentTools(context)
+      const library = await context.newPage()
+      const id = await newDiagram(library, "flowchart TD\n  A --> B\n")
+      const editor = await context.newPage()
+      await openEditor(editor, id)
+      await editor.locator(".cm-line").nth(1).click()
+      await editor.keyboard.press("End")
+      await editor.keyboard.type("\n  B --> Zebra42", { delay: 40 })
+      await editor.waitForTimeout(wait)
+      if (how === "reload") await editor.reload()
+      else await editor.close()
+      const later = await context.newPage()
+      await later.goto("/#/")
+      await later.waitForFunction(() => "__tools" in window && "get_library" in (window as unknown as { __tools: object }).__tools)
+      const found = async () => JSON.stringify(await tool(later, "get_library", { query: "Zebra42" })).includes(id)
+      await expect.poll(found).toBe(true)
+    })
