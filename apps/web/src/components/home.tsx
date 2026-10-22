@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react"
 
 import { findEmoji, type LibrarySort } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
+import { cn } from "@workspace/ui/lib/utils"
 import { Input } from "@workspace/ui/components/input"
 import { NativeSelect, NativeSelectOption } from "@workspace/ui/components/native-select"
 
@@ -67,6 +68,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   const scroller = useRef<HTMLDivElement>(null)
   useScrollRestoration(mobile ? null : scroller, rows !== undefined, [homeHref({ ...route, q: "" }), mobile])
   const emoji = route.tag ? findEmoji(tags ?? [], route.tag) : null
+  const empty = rows?.length === 0
   useEffect(() => clearSelection(), [route.tag, route.starred, route.deleted])
   // Cards a search or edit hides leave the selection, so the bar only acts on what's shown.
   useEffect(() => {
@@ -160,18 +162,22 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
         {/* The bottom padding lets the last row scroll clear of the selection bar floating over it (bar, offset and a gap). */}
         <Marquee
           scrollerRef={scroller}
-          className="eos-library-scroller flex flex-1 flex-col gap-5 p-4 pb-[calc(6rem+env(safe-area-inset-bottom))] md:min-h-0 md:overflow-y-auto md:p-6 md:pb-24"
+          className={cn(
+            "eos-library-scroller flex flex-1 flex-col p-4 pb-[calc(6rem+env(safe-area-inset-bottom))] md:min-h-0 md:overflow-y-auto md:p-6 md:pb-24",
+            empty && "items-center justify-center gap-3"
+          )}
         >
-          {rows && rows.length === 0 ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-3 text-body text-muted-foreground">
-              {/* An empty library just shows the button; filters and Deleted say why nothing is listed. */}
-              {query || route.tag || route.starred ? "No diagrams match." : route.deleted ? "Nothing deleted." : null}
-              {!route.deleted && (
-                <Button variant="outline" onClick={create}>
-                  <Plus /> New diagram
-                </Button>
-              )}
-            </div>
+          {/* Always there, so a search that empties the library is announced. An empty library just shows the
+              button; filters and Deleted say why nothing is listed. */}
+          <p role="status" className="text-body text-muted-foreground">
+            {empty && (query || route.tag || route.starred ? "No diagrams match." : route.deleted ? "Nothing deleted." : null)}
+          </p>
+          {empty ? (
+            !route.deleted && (
+              <Button variant="outline" onClick={create}>
+                <Plus /> New diagram
+              </Button>
+            )
           ) : (
             <div className="flex flex-col gap-7">
               {groupRows(rows ?? [], route.group, route.sort, route.tag).map((g) => (

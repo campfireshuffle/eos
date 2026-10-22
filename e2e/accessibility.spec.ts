@@ -167,6 +167,32 @@ test.describe("keyboard", () => {
     await expect(star).toBeFocused()
   })
 
+  // A link can't be aria-selected or aria-pressed, so a selected card says so in its name, and the count announces the change.
+  test("a selected card says so in the accessibility tree, and is still a link", async ({ page }) => {
+    await library(page)
+    const card = page.locator("[data-card-id]", { hasText: "Release flow" })
+    await expect(card).toMatchAriaSnapshot(`- link /^Release flow/`)
+    await card.focus()
+    await page.keyboard.press("Space")
+    await expect(card).toMatchAriaSnapshot(`- link /^Selected Release flow/`)
+    await page.keyboard.press("Space")
+    await expect(card).toMatchAriaSnapshot(`- link /^Release flow/`)
+  })
+
+  test("the selection count and an empty search are announced, from live regions there before they change", async ({ page }) => {
+    await library(page)
+    // Marks the live regions there now, so the ones speaking later can be told apart from ones added with their text.
+    await page.locator("[role=status]").evaluateAll((els) => els.forEach((el) => el.setAttribute("data-was-there", "")))
+    await page.locator("[data-card-id]").first().click({ button: "right" })
+    await expect(page.locator("[role=status][data-was-there]", { hasText: "1 selected" })).toBeAttached()
+    await audit(page)
+    await page.keyboard.press("Escape")
+
+    await page.getByRole("textbox", { name: "Search diagrams" }).first().fill("zzzqqq")
+    await expect(page.locator("[role=status][data-was-there]", { hasText: "No diagrams match." })).toBeVisible()
+    await audit(page)
+  })
+
   test("focus goes back where it was when settings, the tag menu and the icon picker close", async ({ page }) => {
     await library(page)
     const settings = page.getByRole("button", { name: "Settings" })

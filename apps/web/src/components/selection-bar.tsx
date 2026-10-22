@@ -18,7 +18,6 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
 
   return (
     <div
-      inert={!count}
       className={cn(
         "pointer-events-none absolute inset-x-0 bottom-6 z-20 flex justify-center transition-all duration-200 max-md:fixed max-md:bottom-[calc(1.5rem+env(safe-area-inset-bottom))]",
         count ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0"
@@ -34,65 +33,70 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
           count && "pointer-events-auto"
         )}
       >
-        <span className="pr-2 whitespace-nowrap tabular-nums">{count} selected</span>
-        <div className="mx-1 h-4 w-px bg-[var(--eos-line-hover)]" />
-        {deleted ? (
-          <>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="rounded-full"
-              onClick={async () => {
-                await eos.restoreDiagram(ids)
-                clearSelection()
-              }}
-            >
-              <RotateCcw /> <span className="max-sm:sr-only">Restore</span>
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="rounded-full text-destructive hover:text-destructive"
-              onClick={async () => {
-                const what = count === 1 ? "this diagram" : `${count} diagrams`
-                if (!(await askConfirm(`Permanently delete ${what}? This can’t be undone.`, "Delete forever"))) return
-                await eos.purge(ids)
-                clearSelection()
-              }}
-            >
-              <Trash2 /> <span className="max-sm:sr-only">Delete forever</span>
-            </Button>
-          </>
-        ) : (
-          <>
-            <Button variant="ghost" size="sm" className="rounded-full" onClick={() => void eos.setStarred(ids, true)}>
-              <Star /> <span className="max-sm:sr-only">Star</span>
-            </Button>
-            <TagMenu ids={ids} />
-            <Button
-              variant="ghost"
-              size="sm"
-              className="rounded-full text-destructive hover:text-destructive"
-              onClick={async () => {
-                if (!(await askConfirm(`Move ${count === 1 ? "this diagram" : `${count} diagrams`} to Deleted?`))) return
-                await eos.deleteDiagram(ids)
-                clearSelection()
-              }}
-            >
-              <Trash2 /> <span className="max-sm:sr-only">Delete</span>
-            </Button>
-          </>
-        )}
-        <div className="mx-1 h-4 w-px bg-[var(--eos-line-hover)]" />
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="rounded-full text-muted-foreground"
-          aria-label="Clear selection"
-          onClick={clearSelection}
-        >
-          <X />
-        </Button>
+        {/* Outside the inert part, so the count is announced however the selection changes, from none too. */}
+        <span role="status" className="pr-2 whitespace-nowrap tabular-nums">
+          {count} selected
+        </span>
+        <div inert={!count} className="contents">
+          <div className="mx-1 h-4 w-px bg-[var(--eos-line-hover)]" />
+          {deleted ? (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="rounded-full"
+                onClick={async () => {
+                  await eos.restoreDiagram(ids)
+                  clearSelection()
+                }}
+              >
+                <RotateCcw /> <span className="max-sm:sr-only">Restore</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="rounded-full text-destructive hover:text-destructive"
+                onClick={async () => {
+                  const what = count === 1 ? "this diagram" : `${count} diagrams`
+                  if (!(await askConfirm(`Permanently delete ${what}? This can’t be undone.`, "Delete forever"))) return
+                  await eos.purge(ids)
+                  clearSelection()
+                }}
+              >
+                <Trash2 /> <span className="max-sm:sr-only">Delete forever</span>
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" size="sm" className="rounded-full" onClick={() => void eos.setStarred(ids, true)}>
+                <Star /> <span className="max-sm:sr-only">Star</span>
+              </Button>
+              <TagMenu ids={ids} />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="rounded-full text-destructive hover:text-destructive"
+                onClick={async () => {
+                  if (!(await askConfirm(`Move ${count === 1 ? "this diagram" : `${count} diagrams`} to Deleted?`))) return
+                  await eos.deleteDiagram(ids)
+                  clearSelection()
+                }}
+              >
+                <Trash2 /> <span className="max-sm:sr-only">Delete</span>
+              </Button>
+            </>
+          )}
+          <div className="mx-1 h-4 w-px bg-[var(--eos-line-hover)]" />
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="rounded-full text-muted-foreground"
+            aria-label="Clear selection"
+            onClick={clearSelection}
+          >
+            <X />
+          </Button>
+        </div>
       </div>
     </div>
   )
