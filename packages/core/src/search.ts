@@ -1,4 +1,5 @@
-import { create, insertMultiple, search } from "@orama/orama"
+import MiniSearch, { type Query } from "minisearch"
+import { stemmer } from "stemmer"
 
 import type { DiagramIndexRow } from "./types"
 
@@ -23,55 +24,32 @@ const partsOf = (w: string) => (/['-]/.test(w) ? w.split(/['-]+/).filter((p) => 
 /**
  * Words in any script, lowercased, with accents (combining marks U+0300–036F) dropped so "resume"
  * finds "Résumé", and curly apostrophes made straight. Every letter is part of a word, so "Straße" or
- * "Привет" is one word, not fragments (Orama's own tokenizer splits on letters outside A-Z and a few
- * accented ones). With `parts`, a word's parts (see partsOf) follow it.
+ * "Привет" is one word, not fragments. With `parts`, a word's parts (see partsOf) follow it: the index
+ * has them, so "sign" finds "Sign-up flow"; a query's parts are searched apart from it (see searchIndex).
  */
 function wordsIn(raw: string, parts: boolean) {
   // Each distinct word once: a source repeats its words and arrows many times.
   const words = new Set(
     raw
       .toLowerCase()
-      .replace(/[\u2018\u2019]/g, "'")
+      .replace(/[‘’]/g, "'")
       .split(/[^\p{L}\p{M}\p{N}_'-]+/u)
   )
   const split = [...words].flatMap((w) => (UNSPACED.test(w) ? segment(w) : parts ? [w, ...partsOf(w)] : [w]))
-  const folded = split.map((w) =>
-    /[^\0-\x7f]/.test(w)
-      ? w
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .normalize("NFC")
-      : w
-  )
+  const folded = split.map((w) => (/[^\0-\x7f]/.test(w) ? w.normalize("NFD").replace(/[̀-ͯ]/g, "").normalize("NFC") : w))
   return [...new Set(folded.filter(Boolean))]
 }
-/**
- * Whether Orama's tokenizer adds a word's parts. The index has them, so "sign" finds "Sign-up flow"; a query's
- * parts are searched apart from it, without typos (see searchIndex), so a query is tokenized without them.
- */
-let withParts = true
-const tokenizer = { language: "english", normalizationCache: new Map<string, string>(), tokenize: (raw: string) => wordsIn(raw, withParts) }
 
-/** Drops the last letter of a doubled consonant: "runn" (from "running") is "run", "stopp" "stop"; "add" and "call" stay. */
-const undouble = (w: string) => (w.length > 3 && /([^aeioulsz])\1$/.test(w) ? w.slice(0, -1) : w)
 /**
- * An English word without its plural or verb ending ("payments" and "payment" are both "payment", "creating"
- * and "create" "creat"), for telling whether a diagram has a query word whole. Only those endings: a full
- * stemmer also takes "organization" to "organ" and "using" to "us", which then rank as the words themselves.
- * Only that comparison stems: the index and the query keep the words as typed, so a prefix typed so far
- * ("pay", "configurat") still finds the word.
+ * An English word's stem term: "~" and its Porter stem, so "cookies" and "cookie" are both "~cooki", "creating"
+ * and "create" "~creat". The "~" keeps stems apart from words, so "organ" doesn't match "organization" (stem
+ * "organ") as a whole word. Null for a word with anything but a-z in it.
  */
-function stem(w: string) {
-  if (w.length <= 3 || !/^[a-z]+$/.test(w)) return w
-  let s = w
-  // A plural ending first.
-  if (/ies$/.test(s) && s.length > 4) s = s.slice(0, -3) + "y"
-  else if (/(ss|x|z|ch|sh)es$/.test(s)) s = s.slice(0, -2)
-  else if (/[^isu]s$/.test(s)) s = s.slice(0, -1)
-  // Then a verb ending, so "strings" and "string" come out the same.
-  if (/ing$/.test(s) && s.length > 5) s = undouble(s.slice(0, -3))
-  else if (/ed$/.test(s) && s.length > 4) s = undouble(s.slice(0, -2))
-  return s.length > 4 && s.endsWith("e") ? s.slice(0, -1) : s
+const stemOf = (w: string) => (/^[a-z]+$/.test(w) ? "~" + stemmer(w) : null)
+/** A word as the index has it: the word itself, and its stem term beside it. */
+const indexTerms = (w: string) => {
+  const s = stemOf(w)
+  return s ? [w, s] : w
 }
 
 /** Searches some of the rows an index was built over (see searchIndex). */
@@ -84,66 +62,48 @@ export type Search = (rows: DiagramIndexRow[], query: string) => Promise<Diagram
  * Returns null, having stopped early, once `stale` says the index is no longer wanted.
  */
 export async function searchIndex(all: DiagramIndexRow[], stale: () => boolean = () => false): Promise<Search | null> {
-  const db = create({ schema: { id: "string", title: "string", source: "string" } as const, components: { tokenizer } })
-  /** Each diagram's words, as the index has them, stemmed. */
-  const wordsOf = new Map<string, Set<string>>()
+  const index = new MiniSearch<{ id: string; title: string; source: string }>({
+    fields: ["title", "source"],
+    tokenize: (text) => wordsIn(text, true),
+    processTerm: indexTerms,
+    // A query is split into words below, each its own subquery.
+    searchOptions: { tokenize: (text) => [text], processTerm: (term) => term },
+  })
   // Building takes a while (about 70ms for 1000 diagrams), so it's done a slice at a time, each
   // in a task of its own: keystrokes that come in meanwhile are handled between slices.
   for (let i = 0; i < all.length; i += BUILD_SLICE) {
     await new Promise((resolve) => setTimeout(resolve))
     if (stale()) return null
-    const docs = all.slice(i, i + BUILD_SLICE).map((r) => ({ id: r.id, title: r.title, source: r.sourceText ?? r.sourcePreview }))
-    await insertMultiple(db, docs)
-    for (const d of docs) wordsOf.set(d.id, new Set([...tokenizer.tokenize(d.title), ...tokenizer.tokenize(d.source)].map(stem)))
-  }
-  /** Orama's matches for `term`'s words, which are tokenized without their parts. */
-  const find = (term: string, tolerance: number) => {
-    // Orama's search is synchronous here (no hooks), so nothing else tokenizes while the flag is off.
-    withParts = false
-    try {
-      const result = search(db, { term, properties: ["title", "source"], boost: { title: TITLE_BOOST }, tolerance, limit: all.length })
-      return (result as { hits: { score: number; document: { id: string } }[] }).hits
-    } finally {
-      withParts = true
-    }
+    index.addAll(all.slice(i, i + BUILD_SLICE).map((r) => ({ id: r.id, title: r.title, source: r.sourceText ?? r.sourcePreview })))
   }
   return async (rows, query) => {
     const position = new Map(rows.map((r, i) => [r.id, i]))
-    // A typo is allowed per word: none in a word of a short-word script, one elsewhere once the query is over 3
-    // characters. Orama sets tolerance per search and adds up each word's score, so a query with both kinds of
-    // word is searched once per kind and the scores are added.
-    const tolerance = query.length > 3 ? 1 : 0
     const words = wordsIn(query, false)
-    const short = words.filter((w) => SHORT_WORDS.test(w))
-    const hits =
-      short.length === 0
-        ? find(query, tolerance)
-        : short.length === words.length
-          ? find(query, 0)
-          : [...find(words.filter((w) => !SHORT_WORDS.test(w)).join(" "), tolerance), ...find(short.join(" "), 0)]
-    // Each query word's stem, its parts and their stems.
-    const wanted = words.map((w) => ({ stem: stem(w), parts: partsOf(w), partStems: partsOf(w).map(stem) }))
-    // Whether a diagram has a query word whole (by stem), or else all of its parts: "follow-up" finds "Follow up".
-    const has = (id: string, w: (typeof wanted)[number]) => {
-      const own = wordsOf.get(id)!
-      return own.has(w.stem) || (w.parts.length > 0 && w.partStems.every((p) => own.has(p)))
-    }
-    // A query word's parts are searched without typos, and only diagrams with all of them count: "check-in" isn't
-    // "check" or "in" one typo away, nor "checkout" and "invoice" (prefixes).
-    const split = wanted.filter((w) => w.parts.length > 0)
-    if (split.length > 0)
-      hits.push(...find(split.flatMap((w) => w.parts).join(" "), 0).filter((h) => split.some((w) => has(h.document.id, w))))
-    const score = new Map<string, number>()
-    for (const h of hits) score.set(h.document.id, (score.get(h.document.id) ?? 0) + h.score)
-    // Orama has no penalty for a prefix or typo match: it scores one ("logic", "420") like the word itself
-    // ("login", "42"), and higher when it's rarer. Its `exact` option can't stand in, being a case-sensitive
-    // post-filter that needs every word in one field. So a diagram ranks first by how many of the query's words
-    // it has whole (see stem and has), then by score (titles boosted); equal ones keep the order the rows came in
-    // (the library's sort), not the index's.
-    const found = (id: string) => wanted.filter((w) => has(id, w)).length
-    const exact = new Map([...score.keys()].filter((id) => position.has(id)).map((id) => [id, found(id)]))
-    return [...exact.keys()]
-      .sort((a, b) => exact.get(b)! - exact.get(a)! || score.get(b)! - score.get(a)! || position.get(a)! - position.get(b)!)
-      .map((id) => rows[position.get(id)!]!)
+    // A typo is allowed per word: none in a word of a short-word script, one elsewhere once the query is over 3
+    // characters. MiniSearch scores a prefix or typo match below the word itself.
+    const typo = query.length > 3 ? 1 : 0
+    const queries: Query[] = words.flatMap((w) => {
+      const q: Query[] = [{ queries: [w], prefix: true, fuzzy: SHORT_WORDS.test(w) ? false : typo }]
+      // The word's stem, only whole: "cookie" finds "Cookies", "query" "queries".
+      const s = stemOf(w)
+      if (s) q.push({ queries: [s], prefix: false, fuzzy: false })
+      // A hyphenated word's parts, all of them whole, at half weight: "follow-up" finds "Follow up", and "check-in"
+      // isn't "check" or "in" one typo away, nor "checkout" and "invoice" (prefixes).
+      const parts = partsOf(w)
+      if (parts.length > 0)
+        q.push({ queries: parts, combineWith: "AND", prefix: false, fuzzy: false, boost: { title: TITLE_BOOST / 2, source: 0.5 } })
+      return q
+    })
+    const results = index.search({ combineWith: "OR", queries }, { boost: { title: TITLE_BOOST } })
+    // A diagram ranks first by how many of the query's words it has whole, as the word or its stem (MiniSearch
+    // reports the terms that matched), so a rare typo or prefix neighbour ("logic", "420") never outranks the word
+    // itself ("login", "42"). Then by score (titles boosted); equal ones keep the order the rows came in (the
+    // library's sort), not the index's.
+    const whole = (terms: string[]) => words.filter((w) => terms.includes(w) || terms.includes(stemOf(w) ?? "")).length
+    return results
+      .filter((r) => position.has(r.id))
+      .map((r) => ({ id: r.id as string, whole: whole(r.terms), score: r.score }))
+      .sort((a, b) => b.whole - a.whole || b.score - a.score || position.get(a.id)! - position.get(b.id)!)
+      .map((r) => rows[position.get(r.id)!]!)
   }
 }

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { SAMPLES } from "./samples"
 import { searchIndex } from "./search"
+import { library } from "./search-corpus"
 import type { DiagramIndexRow } from "./types"
 
 const row = (id: string, title: string, source = "flowchart TD\n  A --> B\n") =>
@@ -12,6 +13,21 @@ const row = (id: string, title: string, source = "flowchart TD\n  A --> B\n") =>
 async function titlesFound(titles: string[], query: string) {
   const rows = titles.map((t, i) => row(`d${i}`, t))
   return (await (await searchIndex(rows))!(rows, query)).map((r) => r.title)
+}
+
+/** 1000 diagrams with titles and contents of common words, the same on every call. */
+function seeded() {
+  let seed = 7
+  const random = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31
+  const vocabulary = (
+    "login checkout payment auth queue worker cache session order api gateway user report invoice sarah sign " +
+    "dashboard flow sprint service database"
+  ).split(" ")
+  const pick = () => vocabulary[Math.floor(random() * vocabulary.length)]!
+  return Array.from({ length: 1000 }, (_, i) => {
+    const lines = ["flowchart TD", ...Array.from({ length: 8 }, (_, j) => `  N${j}[${pick()} ${pick()}] --> N${j + 1}[${pick()}]`)]
+    return row(`d${i}`, `${pick()} ${pick()} ${i}`, lines.join("\n"))
+  })
 }
 
 describe("search", () => {
@@ -106,18 +122,8 @@ describe("search", () => {
   })
 
   it("ranks by expected positions in a library of 1000", async () => {
-    // A seeded library: 1000 diagrams with titles and contents of common words, plus the diagrams each query targets.
-    let seed = 7
-    const random = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31
-    const vocabulary = (
-      "login checkout payment auth queue worker cache session order api gateway user report invoice sarah sign " +
-      "dashboard flow sprint service database"
-    ).split(" ")
-    const pick = () => vocabulary[Math.floor(random() * vocabulary.length)]!
-    const rows = Array.from({ length: 1000 }, (_, i) => {
-      const lines = ["flowchart TD", ...Array.from({ length: 8 }, (_, j) => `  N${j}[${pick()} ${pick()}] --> N${j + 1}[${pick()}]`)]
-      return row(`d${i}`, `${pick()} ${pick()} ${i}`, lines.join("\n"))
-    })
+    // The seeded library, plus the diagrams each query targets.
+    const rows = seeded()
     rows.push(row("logic", "Logic flow"), row("login", "Login flow"), row("v3", "Auth v3"), row("v2", "Auth v2"))
     rows.push(...Array.from({ length: 100 }, (_, i) => row(`s${i + 1}`, `Sprint ${i + 1} retro`)))
     rows.push(row("payov", "Payments overview"), row("sarahs", "Sarah's onboarding"), row("signup", "Sign-up flow"))
@@ -151,8 +157,13 @@ describe("search", () => {
       ["sprint 42", "Sprint 42 retro #1, not 420", (r) => r[0] === "s42"],
       ["auth v2", "Auth v2 #1", (r) => r[0] === "v2"],
       ["login flow", "Login flow #1", (r) => r[0] === "login"],
-      // No other title has payment or payments, so this is #1.
-      ["payment", "Payments overview #1", (r) => r[0] === "payov"],
+      // Some seeded titles have payment whole ("payment payment 58"), so any of those may be #1.
+      ["payment", "#1 has payment or payments whole in its title", (r) => /\bpayments?\b/i.test(title(r[0]!))],
+      [
+        "payment",
+        "Payments overview above every title without payment or payments",
+        (r) => before(r, "payov", (id) => !/\bpayments?\b/i.test(title(id))),
+      ],
       // About 40 diagrams have "sarah" in their contents.
       ["sarah", "Sarah's onboarding #1", (r) => r[0] === "sarahs"],
       ["sign", "Sign-up flow #1", (r) => r[0] === "signup"],
@@ -201,7 +212,11 @@ describe("search", () => {
     const find = (await searchIndex(rows))!
     const misses: string[] = []
     for (const [i, word] of ["payments", "configuration", "happy", "sarah's", "sign-up", "migrations"].entries()) {
-      for (let n = 2; n <= word.length; n++) {
+      // From the first prefix no other title's word shares: "pa" is as much "path" (Happy path) as "payments".
+      const others = titles.filter((_, j) => j !== i).flatMap((t) => t.toLowerCase().split(/[^a-z]+/))
+      let n = 2
+      while (others.some((w) => w.startsWith(word.slice(0, n)))) n++
+      for (; n <= word.length; n++) {
         const query = word.slice(0, n)
         const first = (await find(rows, query))[0]?.title
         if (first !== titles[i]) misses.push(`${query} → ${first}`)
@@ -209,6 +224,83 @@ describe("search", () => {
     }
     expect(misses).toEqual([])
   })
+
+  for (const [corpus, make] of [
+    ["the seeded library", seeded],
+    ["a realistic library", () => library(1000)],
+  ] as const)
+    it(`ranks plurals, word endings and hyphenated words by expected positions in ${corpus} of 1000`, async () => {
+      const rows = make()
+      const add = (id: string, title: string, source = "flowchart TD\n  A[Start] --> B[End]") => rows.push(row(id, title, source))
+      // Plurals of acronyms and of words ending in -y, with 40 diagrams that have the singular in their contents.
+      add("cookies", "Cookies and sessions")
+      add("apis", "Partner APIs")
+      add("ids", "User IDs")
+      add("dbs", "Shard DBs")
+      add("prs", "Open PRs")
+      add("kpis", "Team KPIs")
+      for (let i = 0; i < 40; i++) add(`x${i}`, `Service ${i}`, "flowchart TD\n  A[api call] --> B[cookie id db pr kpi]")
+      // A hyphenated word in the contents, next to titles with one of its parts or a longer word.
+      add("auth", "Website auth", "flowchart LR\n  A[Home] --> B[Sign-in page] --> C[Account]")
+      for (const t of ["Sign contract", "E-signature", "Code signing", "Sign out"])
+        add(`sg ${t}`, t, `flowchart TD\n  A[Start] --> B[${t}] --> C[Stored in S3]`)
+      add("hotel", "Hotel stay", "flowchart TD\n  A[Booking] --> B[Guest check-in at front desk] --> C[Room]")
+      for (const t of ["Health checks", "CI checks", "Credit check", "Stock check"])
+        add(`ck ${t}`, t, `flowchart TD\n  A[Request comes in] --> B{${t}?}`)
+      // Other word endings, and words one letter apart.
+      add("ent", "Entities")
+      add("qry", "Database queries")
+      add("crt", "Creating an account")
+      add("pol", "Access policies")
+      add("mng", "Managing users")
+      add("stats", "Stats dashboard")
+      add("states", "States of an order")
+      add("heading", "Heading styles")
+      add("head", "Head office")
+      rows.reverse()
+      const find = (await searchIndex(rows))!
+      const title = (id: string) => rows.find((r) => r.id === id)!.title
+      /** Whether `id` is found, and above every other result `other` holds for. */
+      const above = (r: string[], id: string, other: (id: string) => boolean) => {
+        const next = r.findIndex((x) => x !== id && other(x))
+        return r.includes(id) && (next < 0 || r.indexOf(id) < next)
+      }
+      const first = (id: string) => (r: string[]) => r[0] === id
+      const matrix: [string, string, (r: string[]) => boolean][] = [
+        ["cookie", "Cookies and sessions #1", first("cookies")],
+        ["api", "Partner APIs above every title without api or apis", (r) => above(r, "apis", (x) => !/\bapis?\b/i.test(title(x)))],
+        ["id", "User IDs #1", first("ids")],
+        ["db", "Shard DBs #1", first("dbs")],
+        ["pr", "Open PRs #1", first("prs")],
+        ["kpi", "Team KPIs #1", first("kpis")],
+        [
+          "sign-in",
+          "Website auth above Code signing, Sign contract, Sign out and E-signature",
+          (r) => above(r, "auth", (x) => x.startsWith("sg ")),
+        ],
+        ["check-in", "Hotel stay above every check(s) title", (r) => above(r, "hotel", (x) => x.startsWith("ck "))],
+        ["entity", "Entities #1", first("ent")],
+        ["query", "Database queries #1", first("qry")],
+        ["create", "Creating an account #1", first("crt")],
+        ["policy", "Access policies #1", first("pol")],
+        ["manage", "Managing users #1", first("mng")],
+        ["stats", "Stats dashboard #1", first("stats")],
+        ["stats", "States of an order below Stats dashboard", (r) => !r.includes("states") || above(r, "stats", (x) => x === "states")],
+        [
+          "states",
+          "Stats dashboard below every title with states",
+          (r) => !r.includes("stats") || r.indexOf("stats") > r.findLastIndex((x) => /\bstates\b/i.test(title(x))),
+        ],
+        ["heading", "Heading styles #1", first("heading")],
+        ["head", "Head office #1", first("head")],
+      ]
+      const failing: string[] = []
+      for (const [query, expected, holds] of matrix) {
+        const r = (await find(rows, query)).map((x) => x.id)
+        if (!holds(r)) failing.push(`${query}: ${expected} (got ${r.slice(0, 3).map(title).join(" | ")})`)
+      }
+      expect(failing).toEqual([])
+    })
 
   it("finds a word with or without its accents", async () => {
     expect(await titlesFound(["A naïve plan", "Other"], "naive")).toEqual(["A naïve plan"])
