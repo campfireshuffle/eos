@@ -120,13 +120,13 @@ test("an agent's line appended where the person is typing doesn't take their car
   expect(await storedText(a, id)).toBe("graph TD\n  A --> B12\n  C --> D")
 })
 
-// The agent's source is diffed by lines, so its line goes in at the start of the person's line: after an indent the
-// caret is past, which keeps the caret before its line's text, or, at column 0, at the caret, so after it.
+// The agent's source is diffed by lines, so its line goes in at the start of the person's line: before the caret, which
+// stays with its line's text, after an indent or at column 0.
 for (const [indent, source, typed] of [
   ["indented", "graph TD\n  A --> B", "graph TD\n  NEW\n  ZA --> B"],
-  ["at column 0", "sequenceDiagram\nAlice->>Bob: hi", "sequenceDiagram\nZNEW\nAlice->>Bob: hi"],
+  ["at column 0", "sequenceDiagram\nAlice->>Bob: hi", "sequenceDiagram\nNEW\nZAlice->>Bob: hi"],
 ] as const) {
-  test(`an agent's line inserted above the person's ${indent} line, with the caret at its text's start`, async () => {
+  test(`an agent's line inserted above the person's ${indent} line leaves their caret before its text`, async () => {
     const id = await openInBoth(source)
     await cursorAtEndOf(a, 1)
     await a.keyboard.press("Home") // the start of the line's text
@@ -140,6 +140,41 @@ for (const [indent, source, typed] of [
     expect(await storedText(a, id)).toBe(typed)
   })
 }
+
+// A line someone else adds where the person's caret is at the start of a line (an empty one too) goes above it: the
+// caret, and what they type, stay on their line. Before ("^" is the caret) and after the line is added.
+const LINE_START: [string, string, string][] = [
+  ["an empty last line, a line appended", "graph TD\nA --> B\nC --> D\n^", "graph TD\nA --> B\nC --> D\nD --> E\n^"],
+  ["a blank line, a line added above", "graph TD\nA --> B\n^\nC --> D", "graph TD\nA --> B\nX --> Y\n^\nC --> D"],
+  ["column 0, a line added above", "graph TD\nA --> B\n^B --> C", "graph TD\nA --> B\nX --> Y\n^B --> C"],
+]
+for (const [name, marked, after] of LINE_START)
+  for (const via of ["an agent with baseVersion", "an agent", "another tab"] as const)
+    test(`${via}: the caret at the start of ${name} stays on its line`, async () => {
+      const before = marked.replace("^", "")
+      const next = after.replace("^", "")
+      const id = await openInBoth(before)
+      const { version } = await tool<{ version: string }>(a, "get_diagram", { id })
+      await a.bringToFront()
+      await a.locator(".cm-content").click()
+      await a.keyboard.press("ControlOrMeta+Home")
+      for (let i = 0; i < marked.indexOf("^"); i++) await a.keyboard.press("ArrowRight")
+      if (via === "another tab")
+        await b.evaluate(
+          ([at, insert]) => {
+            const content = document.querySelector(".cm-content") as unknown as {
+              cmTile: { root: { view: { dispatch(spec: unknown): void } } }
+            }
+            content.cmTile.root.view.dispatch({ changes: { from: at, insert }, userEvent: "input.paste" })
+          },
+          [marked.indexOf("^"), next.slice(marked.indexOf("^"), after.indexOf("^"))] as const
+        )
+      else await tool(a, "update_diagram", via === "an agent" ? { id, source: next } : { id, source: next, baseVersion: version })
+      await expectEditor(a, next)
+      await a.keyboard.type("Z")
+      await expectEditor(a, after.replace("^", "Z"))
+      expect(await storedText(a, id)).toBe(after.replace("^", "Z"))
+    })
 
 test("an agent's text inserted at the person's caret within a line goes after the caret", async () => {
   const id = await openInBoth("graph TD\n  A --> B")

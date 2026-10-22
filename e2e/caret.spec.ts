@@ -33,14 +33,16 @@ const HEAD = "graph TD\n".length
 /**
  * How far past the insertion's start the caret ends up. The person's own undo and redo put back the selection from
  * before the step: the deleted text selected again (collapsed to its end before typing), or the caret after what's
- * redone. Someone else's insertion at the caret goes after it, as CodeMirror maps the caret. An agent's source is
- * diffed by lines, so a line it adds above the caret's line, when the caret is past that line's start, goes in at the
- * line's start, before the caret.
+ * redone. Someone else's insertion at the caret goes after it, as CodeMirror maps the caret, unless the caret is at
+ * the start of a line, where it sticks to the line's text. An agent's source is diffed by lines, so a line it adds
+ * above the caret's line, when the caret is past that line's start, goes in at the line's start, before the caret, and
+ * one it adds below an empty line, not the last, goes in at the start of the next line, after it.
  */
-function expectedCaret(line: string, col: number, insert: string, by: (typeof SOURCES)[number]) {
+function expectedCaret(line: string, col: number, last: boolean, insert: string, by: (typeof SOURCES)[number]) {
   const before = line.slice(0, col)
-  if (by === "own undo" || by === "own redo") return insert.length
-  return by === "an agent" && before && (before + insert).endsWith("\n" + before) ? insert.length : 0
+  if (by === "an agent" && line === "" && !last && insert.startsWith("\n")) return 0
+  if (by === "own undo" || by === "own redo" || col === 0) return insert.length
+  return by === "an agent" && (before + insert).endsWith("\n" + before) ? insert.length : 0
 }
 
 async function caretAt(page: Page, pos: number) {
@@ -117,7 +119,7 @@ for (const [spot, [spotName, { line, col, last }]] of Object.entries(SPOTS).entr
         const before = doc(line, last)
         const p = HEAD + col
         const after = before.slice(0, p) + insert + before.slice(p)
-        const q = p + expectedCaret(line, col, insert, source)
+        const q = p + expectedCaret(line, col, !!last, insert, source)
         const expected = after.slice(0, q) + "Z" + after.slice(q)
         const a = await context.newPage()
         const id = await newDiagram(a, source === "own undo" ? after : before)

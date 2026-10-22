@@ -1,5 +1,5 @@
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands"
-import { Annotation, EditorState, StateEffect, StateField } from "@codemirror/state"
+import { Annotation, EditorSelection, EditorState, StateEffect, StateField } from "@codemirror/state"
 import { Decoration, EditorView, keymap, lineNumbers, drawSelection, highlightSpecialChars, type DecorationSet } from "@codemirror/view"
 import { useEffect, useId, useRef } from "react"
 
@@ -176,12 +176,23 @@ export function CodeEditor({
         },
       }
     }
-    // Changes from elsewhere arrive as edits, in the coordinates of the text the editor shows. CodeMirror maps the
-    // selection: what's inserted at the caret goes after it, and a composition carries on.
     // The person's own undo and redo put back the selection from before the step (see SourceBinding.select).
     const unselect = binding?.onSelect((anchor, head) => v.dispatch({ selection: { anchor, head }, scrollIntoView: true }))
+    // Changes from elsewhere arrive as edits, in the coordinates of the text the editor shows. CodeMirror maps the
+    // selection: what's inserted at a caret goes after it, but a caret at the start of a line sticks to the line's text
+    // (assoc 1), so what's inserted there goes before it. Setting the selection ends a composition, so it's set only
+    // when that moves a caret, never while composing.
     const unbind = binding?.onChange((changes) => {
-      const apply = () => v.dispatch({ changes, annotations: external.of(true) })
+      const apply = () => {
+        const set = v.state.changes(changes)
+        const { selection, doc } = v.state
+        const mapped = selection.map(set)
+        const sticky = EditorSelection.create(
+          selection.ranges.map((r) => r.map(set, r.empty && doc.lineAt(r.head).from === r.head ? 1 : -1)),
+          selection.mainIndex
+        )
+        v.dispatch({ changes: set, selection: v.composing || sticky.eq(mapped) ? undefined : sticky, annotations: external.of(true) })
+      }
       // A change can land while CodeMirror is mid-update, which it refuses; apply it right after.
       try {
         apply()
