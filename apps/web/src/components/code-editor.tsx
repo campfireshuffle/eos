@@ -203,15 +203,21 @@ export function CodeEditor({
           if (br === 0) return { assoc: -1, into: 0 }
           return at === line.to && /\S/.test(line.text) ? { assoc: -1, into: br } : { assoc: 1, into: 0 }
         }
-        const selection = EditorSelection.create(
-          v.state.selection.ranges.map((r) => {
-            const { assoc, into } = place(r.head)
-            const mapped = r.map(set, assoc)
-            return into && r.empty ? EditorSelection.cursor(mapped.head + into) : mapped
-          }),
-          v.state.selection.mainIndex
-        )
-        v.dispatch({ changes: set, selection, annotations: external.of(true) })
+        // An external change never interrupts a composition. Setting the selection, even to where CodeMirror would
+        // map it, ends one and commits its letters as typed text, so it's set only when the rules above move the
+        // caret, and never while composing.
+        const plain = v.state.selection.map(set)
+        const selection = v.composing
+          ? plain
+          : EditorSelection.create(
+              v.state.selection.ranges.map((r) => {
+                const { assoc, into } = place(r.head)
+                const mapped = r.map(set, assoc)
+                return into && r.empty ? EditorSelection.cursor(mapped.head + into) : mapped
+              }),
+              v.state.selection.mainIndex
+            )
+        v.dispatch({ changes: set, ...(selection.eq(plain) ? {} : { selection }), annotations: external.of(true) })
         // Belt and braces: if the two ever disagree, show what's stored.
         const stored = binding.text()
         if (v.state.doc.toString() !== stored) {
