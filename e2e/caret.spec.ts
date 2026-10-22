@@ -95,6 +95,8 @@ const EVERY_ENGINE = new Set([
   'merge: the person types at the end of a line while an agent changes it to "A --> B2" and adds a line below',
   "rotating a phone keeps the caret, the scroll and focus",
   "resizing a window across 768px keeps the caret, the scroll and focus",
+  "scrolled to the top after a rotation, the source stays there as its height changes",
+  "scrolled by its scrollbar after a rotation, the source stays where it was put",
 ])
 test.beforeEach(({ browserName }, info) => test.skip(browserName !== "chromium" && !EVERY_ENGINE.has(info.title)))
 test.beforeEach(async ({ context }) => withAgentTools(context))
@@ -324,6 +326,40 @@ for (const [title, start, other] of [
     await kept()
     await page.keyboard.type("C")
     await expect.poll(async () => (await storedText(page, id)).split("\n")[149]).toBe("  n149 --> n150ABC")
+  })
+}
+
+// The caret is kept in view while the rotated layout settles, but a scroll away from it, by the scrollbar or a script
+// rather than a wheel or a swipe, isn't undone when the source's size changes next.
+for (const [title, top, other] of [
+  ["scrolled to the top after a rotation, the source stays there as its height changes", 0, { width: 844, height: 360 }],
+  ["scrolled by its scrollbar after a rotation, the source stays where it was put", 600, { width: 820, height: 390 }],
+] as const) {
+  test(title, async ({ context }) => {
+    const page = await context.newPage()
+    await page.setViewportSize({ width: 390, height: 844 })
+    const id = await newDiagram(page, ["graph TD", ...Array.from({ length: 199 }, (_, i) => `  n${i + 1} --> n${i + 2}`)].join("\n"))
+    await openEditor(page, id)
+    await page.evaluate(() => {
+      const view = (document.querySelector(".cm-content") as unknown as { cmTile: { root: { view: EditorView } } }).cmTile.root.view
+      view.focus()
+      view.dispatch({ selection: { anchor: view.state.doc.line(150).to }, scrollIntoView: true })
+    })
+    await page.keyboard.type("A")
+    await page.setViewportSize({ width: 844, height: 390 })
+    await expect(page.locator(".cm-cursor-primary")).toBeInViewport()
+    // Once the layout has settled, as a person would scroll, but while the caret is still kept in view (for a second).
+    await page.waitForTimeout(250)
+    const scroller = page.locator(".cm-scroller")
+    // Scrolled, then a frame later (once its scroll event is out), the source changes size.
+    await scroller.evaluate(async (el, top) => {
+      el.scrollTop = top
+      await new Promise(requestAnimationFrame)
+    }, top)
+    await page.setViewportSize(other)
+    await page.waitForTimeout(300)
+    expect(await scroller.evaluate((el) => el.scrollTop)).toBe(top)
+    await expect(page.locator(".cm-content")).toBeFocused()
   })
 }
 

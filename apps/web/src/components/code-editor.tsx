@@ -57,7 +57,8 @@ export interface CodeEditorHandle {
   focusLine(line: number, column: number): void
   /**
    * While the editor has focus, scrolls its caret back into view as the layout reshapes it: now, and each time the
-   * editor's size changes after, until the person types, moves the caret, scrolls or leaves.
+   * editor's size changes in the next second, while the layout settles, unless the person types, moves the caret,
+   * scrolls away or leaves.
    */
   keepCaretInView(): void
 }
@@ -105,10 +106,11 @@ export function CodeEditor({
   callbacks.current = { onChange, onUndo, onRedo }
 
   useEffect(() => {
-    // Set by keepCaretInView: the caret is scrolled back into view each time the editor changes shape, until the
-    // person types, moves the caret, scrolls or leaves. A layout can take a few frames to settle (in Firefox, the
-    // source is briefly as tall as its text, which scrolls it to the top), so one scroll when asked isn't enough.
-    let keepCaret = false
+    // keepCaretInView's hold: until then, each time the editor changes shape the caret is scrolled back into view.
+    // A layout can take a few frames to settle (in Firefox, the source is briefly as tall as its text, which scrolls it
+    // to the top), so one scroll when asked isn't enough. Typing, moving the caret, leaving, or a scroll the hold didn't
+    // make ends it.
+    let keepCaretUntil = 0
     const v = new EditorView({
       parent: host.current!,
       state: EditorState.create({
@@ -153,14 +155,11 @@ export function CodeEditor({
             spellcheck: "false",
             autocapitalize: "off",
           }),
-          EditorView.domEventHandlers({
-            wheel: () => void (keepCaret = false),
-            touchstart: () => void (keepCaret = false),
-            mousedown: () => void (keepCaret = false),
-          }),
           EditorView.updateListener.of((u) => {
-            if (u.docChanged || u.selectionSet || (u.focusChanged && !u.view.hasFocus)) keepCaret = false
-            else if (keepCaret && u.geometryChanged) u.view.dispatch({ effects: EditorView.scrollIntoView(u.state.selection.main.head) })
+            if (u.docChanged || u.selectionSet || (u.focusChanged && !u.view.hasFocus)) keepCaretUntil = 0
+            else if (u.geometryChanged && performance.now() < keepCaretUntil) {
+              u.view.dispatch({ effects: EditorView.scrollIntoView(u.state.selection.main.head) })
+            }
             if (binding && u.docChanged && !u.transactions.some((t) => t.annotation(external))) {
               const changes: TextChange[] = []
               u.changes.iterChanges((from, to, _fromB, _toB, inserted) => changes.push({ from, to, insert: inserted.toString() }))
@@ -172,6 +171,20 @@ export function CodeEditor({
       }),
     })
     view.current = v
+    // A scroll the hold didn't make, one that leaves the caret out of view, ends it: the person's (a wheel, the
+    // scrollbar, a swipe) or a script's. The hold's own scrolls bring the caret into view, and so does the layout's in
+    // Firefox while the source is as tall as its text. A scroll of the hold's still to come is replaced by staying put.
+    // It's caught on the way down, before CodeMirror's handler draws the lines scrolled to, an update that would
+    // otherwise scroll the caret back.
+    const scrolled = (e: Event) => {
+      if (e.target !== v.scrollDOM || performance.now() >= keepCaretUntil) return
+      const caret = v.coordsAtPos(v.state.selection.main.head)
+      const box = v.scrollDOM.getBoundingClientRect()
+      if (caret && caret.bottom > box.top && caret.top < box.bottom) return
+      keepCaretUntil = 0
+      v.dispatch({ effects: v.scrollSnapshot() })
+    }
+    v.dom.addEventListener("scroll", scrolled, true)
     // An editor without focus takes no input. Its selection can stay in it after focus leaves (WebKit, a click on
     // Star or the preview), and a key, a paste, a cut or committed text from wherever focus went (Settings, a
     // confirm) is sent to it, or to the focused control, as one of these events. They're cancelled at the document,
@@ -198,7 +211,7 @@ export function CodeEditor({
         },
         keepCaretInView() {
           if (!v.hasFocus) return
-          keepCaret = true
+          keepCaretUntil = performance.now() + 1000
           v.dispatch({ effects: EditorView.scrollIntoView(v.state.selection.main.head) })
         },
       }
