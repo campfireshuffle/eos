@@ -204,6 +204,61 @@ for (const by of ["keyboard", "mouse"]) {
   })
 }
 
+test("unchecking a tag's last use in the Tags menu keeps focus on its row, and checking it again brings the tag back", async ({
+  context,
+}) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.goto("/#/")
+  await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+  const { id } = await tool<{ id: string }>(page, "create_diagram", { title: "Alpha", tags: ["x", "y"], open: false })
+  await tool(page, "create_diagram", { title: "Beta", tags: ["x"], open: false })
+  const hasY = async () =>
+    (await tool<{ diagrams: { id: string; tags: string[] }[] }>(page, "get_library")).diagrams.find((d) => d.id === id)?.tags.includes("y")
+  await page.locator(`[data-card-id="${id}"]`).focus()
+  await page.keyboard.press(" ")
+  await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Tags" }).focus()
+  await page.keyboard.press("Enter")
+  const y = page.getByRole("checkbox", { name: "y", exact: true })
+  await y.focus()
+  await page.keyboard.press(" ")
+  await expect.poll(hasY).toBe(false)
+  await expect(y).toHaveAttribute("aria-checked", "false")
+  await expect(y).toBeFocused()
+
+  await page.keyboard.press(" ")
+  await expect(y).toHaveAttribute("aria-checked", "true")
+  await expect.poll(hasY).toBe(true)
+
+  await page.keyboard.press("Tab")
+  expect(
+    await page.evaluate(() => {
+      const f = document.activeElement!
+      return !f.matches("[data-radix-focus-guard]") && (!!f.closest("[data-selection-menu]") || f.textContent === "Tags")
+    })
+  ).toBe(true)
+})
+
+test("unchecking the view's tag in the Tags menu when every card of it is selected leaves focus on the library", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.goto("/#/")
+  await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+  await tool(page, "create_diagram", { title: "A", tags: ["x"], open: false })
+  await page.evaluate(() => (location.hash = "/?tag=x"))
+  const cards = page.locator("[data-card-id]")
+  await expect(cards).toHaveCount(1)
+  await cards.first().focus()
+  await page.keyboard.press(" ")
+  await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Tags" }).focus()
+  await page.keyboard.press("Enter")
+  await page.getByRole("checkbox", { name: "x", exact: true }).focus()
+  await page.keyboard.press(" ")
+  await expect(cards).toHaveCount(0)
+  await expect(page.getByPlaceholder("Find or create a tag")).toBeHidden()
+  await expect(page.locator(".eos-library-scroller")).toBeFocused()
+})
+
 test("the Tags menu finds a tag typed as the sidebar shows it, with its #", async ({ context }) => {
   const page = await viewing(context, "work")
   await tool(page, "create_diagram", { title: "Untagged", open: false })

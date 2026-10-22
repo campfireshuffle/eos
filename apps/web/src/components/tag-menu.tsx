@@ -22,9 +22,17 @@ export function TagMenu({ ids }: { ids: string[] }) {
   const rows = useLibrary({})
   const [query, setQuery] = useState("")
   const [open, setOpen] = useState(false)
+  const [seen, setSeen] = useState<TagRecord[]>([])
 
   const tagsById = useMemo(() => new Map((rows ?? []).map((r) => [r.id, new Set(r.tags)])), [rows])
   const all = useMemo(() => flatten(tags ?? []), [tags])
+  // Rows keep their place while the menu is open, so removing a tag's last use leaves its row, and focus, where they were.
+  const shown = useMemo(() => {
+    const now = new Set(all.map((t) => t.path))
+    const out = [...all]
+    seen.forEach((t, i) => now.has(t.path) || out.splice(Math.min(i, out.length), 0, t))
+    return out
+  }, [all, seen])
   const stateOf = (path: string): State => {
     const n = ids.filter((id) => tagsById.get(id)?.has(path)).length
     return n === 0 ? "none" : n === ids.length ? "all" : "some"
@@ -32,7 +40,7 @@ export function TagMenu({ ids }: { ids: string[] }) {
 
   const newTag = normalizeTag(query)
   const q = newTag ?? ""
-  const matches = all.filter((t) => !q || t.path.includes(q))
+  const matches = shown.filter((t) => !q || t.path.includes(q))
   const canCreate = !!newTag && !all.some((t) => t.path === newTag)
 
   const toggle = (path: string) => {
@@ -50,7 +58,13 @@ export function TagMenu({ ids }: { ids: string[] }) {
   if (open && !ids.length) setOpen(false)
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        if (o) setSeen(all)
+        setOpen(o)
+      }}
+    >
       <PopoverTrigger asChild>
         <Button variant="ghost" size="sm" className="rounded-full">
           <Tags /> <span className="max-sm:sr-only">Tags</span>

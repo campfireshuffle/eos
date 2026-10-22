@@ -21,8 +21,8 @@ export function useSelected(id: string): boolean {
  * Replaces the selection. Same members as now is a no-op, so nothing re-renders.
  * Invariant: emptying the selection never drops focus to the page. The bar's actions go inert when nothing is
  * selected (and its Tags menu closes), so focus inside them moves off first, while the old selection is known.
- * `removing`: the selected cards are leaving the view. It's the default, as the only other emptying is home's
- * prune, of cards already gone.
+ * `removing`: the selected cards are leaving the view. It's the default for the implicit emptyings: home's prune
+ * (of cards already gone), `toggleSelected` (un-toggling the last card) and the marquee (selecting nothing).
  */
 export function setSelection(ids: Iterable<string>, { removing = true } = {}) {
   const next = new Set(ids)
@@ -55,9 +55,7 @@ export function getSelection() {
  */
 function focusOffSelection(removing: boolean) {
   const focus = document.activeElement
-  // On the page with the Tags menu still open: the focused tag went with the last diagram it was on.
-  const lost = focus === document.body && document.querySelector("[data-selection-menu]")
-  if (!focus?.closest("[role=toolbar][aria-label=Selection], [data-selection-menu]") && !lost) return
+  if (!focus?.closest("[role=toolbar][aria-label=Selection], [data-selection-menu]")) return
   const scroller = document.querySelector<HTMLElement>(".eos-library-scroller")
   const cards = [...document.querySelectorAll<HTMLElement>("[data-card-id]")]
   const isSelected = (card: HTMLElement) => selected.has(card.dataset.cardId!)
