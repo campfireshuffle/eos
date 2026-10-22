@@ -518,6 +518,26 @@ test("a past version longer than the pane can be reached with Tab, scrolled with
   expect(await storedText(page, id)).toBe(`${chain(80)} --> C`)
 })
 
+// The live source, hidden while a past version shows, keeps its selection; none of this may edit it.
+for (const [where, focus] of [
+  ["where the version menu left it", async () => {}],
+  ["on the banner", (page: Page) => page.getByRole("button", { name: "Back to latest" }).focus()],
+  ["on the preview", (page: Page) => page.getByLabel("Diagram preview").click()],
+] as const) {
+  test(`while a past version shows, with focus ${where}, nothing typed or deleted reaches the hidden source`, async ({ context }) => {
+    await withAgentTools(context)
+    const page = await context.newPage()
+    const id = await previewYesterday(page)
+    await focus(page)
+    await page.keyboard.type("xyz")
+    await page.evaluate(() => (document.execCommand("insertText", false, "Q"), document.execCommand("delete")))
+    // Last, since off a text field Playwright's WebKit takes Backspace as Back.
+    for (const key of ["Delete", "Backspace"]) await page.keyboard.press(key)
+    await page.waitForTimeout(300)
+    expect(await storedText(page, id)).toBe("flowchart LR\n  A --> B --> C")
+  })
+}
+
 test("while a past version shows, the title takes what's typed, though the hidden source had the caret", async ({ context }) => {
   await withAgentTools(context)
   const page = await context.newPage()

@@ -118,7 +118,8 @@ export function CodeEditor({
           EditorState.readOnly.of(readOnly),
           // Escape arms CodeMirror's Escape-then-Tab exit (see the hint below). In a dialog it's handled, so the key
           // stops here and the dialog stays open with the unsaved text; elsewhere the default keymap still collapses a selection.
-          keymap.of([{ key: "Escape", run: (v) => (v.setTabFocusMode(2000), !!v.dom.closest("dialog")) }]),
+          // Read-only, Tab doesn't indent and there's nothing unsaved, so Escape is left to the dialog.
+          readOnly ? [] : keymap.of([{ key: "Escape", run: (v) => (v.setTabFocusMode(2000), !!v.dom.closest("dialog")) }]),
           onUndo
             ? // Undo goes through Loro: the person's own stack, which skips agent edits.
               keymap.of([
@@ -136,7 +137,8 @@ export function CodeEditor({
           wrap ? EditorView.lineWrapping : [],
           EditorView.contentAttributes.of({
             "aria-label": label,
-            ...(readOnly ? {} : { "aria-describedby": hintId }),
+            // Read-only, a tap brings up no on-screen keyboard.
+            ...(readOnly ? { inputmode: "none" } : { "aria-describedby": hintId }),
             // Already focusable, as a contenteditable; this says so to checkers, which only count tabindex.
             tabindex: "0",
             spellcheck: "false",
@@ -158,11 +160,10 @@ export function CodeEditor({
     // Star or the preview), and a key, a paste, a cut or committed text from wherever focus went (Settings, a
     // confirm) is sent to it, or to the focused control, as one of these events. They're cancelled at the document,
     // whatever their target, so nothing changes and the selection stays, to be copied. A drop focuses the editor
-    // first; agent edits, undo and other tabs aren't DOM input. A hidden editor (while a past version shows) takes
-    // none anyway, and Firefox can leave the selection in it when an input is clicked, so it cancels nothing.
+    // first; agent edits, undo and other tabs aren't DOM input.
     const unfocused = (e: Event) => {
       const at = getSelection()?.anchorNode
-      if (v.root.activeElement !== v.contentDOM && at && v.contentDOM.contains(at) && v.contentDOM.checkVisibility()) e.preventDefault()
+      if (v.root.activeElement !== v.contentDOM && at && v.contentDOM.contains(at)) e.preventDefault()
     }
     const inputs = ["beforeinput", "paste", "cut"] as const
     if (!readOnly) for (const type of inputs) document.addEventListener(type, unfocused, true)

@@ -97,6 +97,12 @@ export function Editor({ id }: { id: string }) {
   // Previewing a past version shows its source read-only in both panes.
   const preview = useUi((s) => s.preview)
   const previewing = preview?.id === id ? preview : null
+  // The live source is hidden and inert while a past version shows, but a selection left in it is still edited by
+  // execCommand in Firefox, and blocks typing elsewhere (see CodeEditor), so it goes. Its caret is in its state.
+  const live = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (previewing && live.current?.contains(getSelection()?.anchorNode ?? null)) getSelection()?.removeAllRanges()
+  }, [previewing])
   // The past version's source, null until it has loaded, so its read-only editor starts with it.
   const [loaded, setLoaded] = useState<{ id: string; version: string; source: string } | null>(null)
   const previewSource = loaded?.id === id && loaded.version === previewing?.version ? loaded.source : null
@@ -234,9 +240,10 @@ export function Editor({ id }: { id: string }) {
             {previewing && previewSource !== null && (
               <CodeEditor key={`preview:${previewing.version}`} value={previewSource} readOnly errorAt={errorLine} handleRef={pastRef} />
             )}
-            {/* Hidden, not unmounted, while a past version shows, so its caret and scroll are there to come back to. */}
+            {/* Hidden, not unmounted, while a past version shows, so its caret and scroll are there to come back to;
+                inert, so the selection it keeps takes no editing. */}
             {binding ? (
-              <div hidden={!!previewing} className="flex min-h-0 flex-1 flex-col">
+              <div ref={live} hidden={!!previewing} inert={!!previewing} className="flex min-h-0 flex-1 flex-col">
                 <CodeEditor
                   key={key}
                   binding={binding}
