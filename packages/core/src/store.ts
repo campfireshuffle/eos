@@ -1192,9 +1192,18 @@ function diffText(a: string, b: string): TextChange[] {
       return [{ from: at, to: at, insert: i0 < A.length ? lines + "\n" : "\n" + lines }]
     }
     if (j0 === j1) return [i1 < A.length ? { from: sa[i0]!, to: sa[i1]!, insert: "" } : { from: sa[i0]! - 1, to: a.length, insert: "" }]
-    // The changed lines' text, without the line break after the last.
+    // The changed lines' text, without the line break after the last. An edit within a line whose insertion runs
+    // on past the line's end is two: the line's part, and the lines after it, which go in after what it replaced.
     const at = sa[i0]!
-    return charDiff(a.slice(at, sa[i1]! - 1), b.slice(sb[j0]!, sb[j1]! - 1)).map((e) => ({ ...e, from: at + e.from, to: at + e.to }))
+    return charDiff(a.slice(at, sa[i1]! - 1), b.slice(sb[j0]!, sb[j1]! - 1)).flatMap((e): TextChange[] => {
+      const br = e.insert.indexOf("\n")
+      const [from, to] = [at + e.from, at + e.to]
+      if (br <= 0 || a.slice(from, to).includes("\n")) return [{ from, to, insert: e.insert }]
+      return [
+        { from, to, insert: e.insert.slice(0, br) },
+        { from: to, to, insert: e.insert.slice(br) },
+      ]
+    })
   })
 }
 
@@ -1208,17 +1217,26 @@ function mergeFromBase(d: Editable, base: string, source: string): Delta<string>
   const old = d.doc.forkAt(frontiersOf(d, base))
   const now = d.doc.fork()
   try {
-    // The highest peer the doc doesn't have (Loro reserves the maximum), so the edits are new ops to
-    // it, and of two insertions at one spot Loro puts the lower peer's first: the agent's go after
-    // the person's, whose typing stays next to what it followed.
+    // Invariant: of two insertions at one spot Loro puts the lower peer's first. So each edit is made as a peer the
+    // doc doesn't have: whole lines the agent adds before a line as the lowest, so they go before what the person
+    // typed at that line's start, which stays on its own line; everything else as the highest (Loro reserves the
+    // maximum), so it goes after, next to what the person's typing followed. A line break ending an empty line is the
+    // latter, and a final line break the agent drops is kept, so a last line the person typed stays its own.
     const peers = d.doc.oplogVersion()
-    let peer = 2n ** 64n - 2n
-    while (peers.get(peer) !== undefined) peer--
-    old.setPeerId(peer)
+    let low = 0n
+    while (peers.get(low) !== undefined) low++
+    let high = 2n ** 64n - 2n
+    while (peers.get(high) !== undefined) high--
     const from = old.oplogVersion()
     const text = old.getText("source")
-    applyEdits(text, diffText(text.toString(), source))
-    old.commit()
+    const was = text.toString()
+    for (const e of diffText(was, was.endsWith("\n") && !source.endsWith("\n") ? source + "\n" : source).reverse()) {
+      const atLine = e.from === 0 || was[e.from - 1] === "\n"
+      const endsEmptyLine = e.insert.startsWith("\n") && (was[e.from] ?? "\n") === "\n"
+      old.setPeerId(atLine && e.insert.endsWith("\n") && !endsEmptyLine ? low : high)
+      applyEdits(text, [e])
+      old.commit()
+    }
     const before = now.frontiers()
     now.import(old.export({ mode: "update", from }))
     const diff = now.diff(before, now.frontiers(), false).find(([id]) => id === d.text.id)?.[1]
