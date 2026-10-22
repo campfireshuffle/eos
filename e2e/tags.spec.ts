@@ -315,6 +315,25 @@ test("the Tags menu finds a tag typed as the sidebar shows it, with its #", asyn
   await expect(page.getByText("No tags yet.")).toBeHidden()
 })
 
+test("with more tags than the Tags menu has room for, its rows keep their height", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.goto("/#/")
+  await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+  const tags = Array.from({ length: 12 }, (_, i) => `tag-${i}`)
+  const { id } = await tool<{ id: string }>(page, "create_diagram", { title: "Alpha", tags, open: false })
+  await page.locator(`[data-card-id="${id}"]`).click({ button: "right" })
+  await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Tags" }).click()
+  // Matches every tag, and isn't one, so the Create row shows below them.
+  await page.getByPlaceholder("Find or create a tag").fill("tag")
+  const menu = page.locator("[data-selection-menu]")
+  const rows = menu.getByRole("checkbox").or(menu.getByRole("button", { name: /^Create/ }))
+  await expect(rows).toHaveCount(13)
+  // At least WCAG's 24px target size.
+  for (const height of await rows.evaluateAll((all) => all.map((r) => r.getBoundingClientRect().height)))
+    expect(height).toBeGreaterThanOrEqual(24)
+})
+
 test("on a phone, a long unbroken tag name keeps the delete confirm's buttons inside it", async ({ context }) => {
   await withAgentTools(context)
   const page = await context.newPage()

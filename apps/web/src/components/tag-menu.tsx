@@ -101,7 +101,7 @@ export function TagMenu({ ids }: { ids: string[] }) {
           }}
           className="mb-1"
         />
-        <div className="flex max-h-64 min-h-0 flex-col overflow-y-auto">
+        <div className="flex max-h-64 min-h-0 flex-col overflow-y-auto *:shrink-0">
           {matches.map((t) => {
             const state = stateOf(t.path)
             return (
