@@ -257,9 +257,29 @@ describe("search", () => {
       add("states", "States of an order")
       add("heading", "Heading styles")
       add("head", "Head office")
+      // Words next to longer or shorter words with the same Porter stem, which aren't the word.
+      add("organ", "Organ donor matching")
+      add("organization", "Organization chart")
+      add("orgbank", "Organ bank")
+      add("experience", "Experience map")
+      add("experiment", "Experiment results")
+      add("generation", "Report generation")
+      add("generic", "Generic gateway")
+      add("import", "Import job")
+      add("author", "Author list")
+      add("universe", "Universe map")
+      add("us", "US region failover")
+      add("using", "Using queues")
+      add("statuses", "Order statuses")
+      add("virus", "Virus scan")
+      add("campus", "Campus map")
       rows.reverse()
       const find = (await searchIndex(rows))!
       const title = (id: string) => rows.find((r) => r.id === id)!.title
+      const text = (id: string) => `${title(id)} ${rows.find((r) => r.id === id)!.sourceText}`
+      /** Whether `id`, if found, is below every diagram with `word` whole in its title or contents. */
+      const notWhole = (word: RegExp, id: string) => (r: string[]) =>
+        !r.includes(id) || r.indexOf(id) > r.findLastIndex((x) => x !== id && word.test(text(x)))
       /** Whether `id` is found, and above every other result `other` holds for. */
       const above = (r: string[], id: string, other: (id: string) => boolean) => {
         const next = r.findIndex((x) => x !== id && other(x))
@@ -293,6 +313,28 @@ describe("search", () => {
         ],
         ["heading", "Heading styles #1", first("heading")],
         ["head", "Head office #1", first("head")],
+        ["organ", "Organ bank or Organ donor matching #1", (r) => ["orgbank", "organ"].includes(r[0]!)],
+        ["organ", "Organization chart below every diagram with organ whole", notWhole(/\borgans?\b/i, "organization")],
+        ["organization", "Organ bank below every diagram with organization whole", notWhole(/\borganizations?\b/i, "orgbank")],
+        ["experience", "Experience map #1", first("experience")],
+        ["experience", "Experiment results not counted as experience", notWhole(/\bexperiences?\b/i, "experiment")],
+        [
+          "general",
+          "Report generation and Generic gateway not counted as general",
+          (r) => !r.includes("generation") && !r.includes("generic"),
+        ],
+        ["important", "Import job not counted as important", notWhole(/\bimportant\b/i, "import")],
+        ["authorization", "Author list not counted as authorization", notWhole(/\bauthorizations?\b/i, "author")],
+        ["university", "Universe map not counted as university", notWhole(/\buniversit(y|ies)\b/i, "universe")],
+        ["us", "US region failover #1", first("us")],
+        ["us", "Using queues not counted as us", notWhole(/\bus\b/i, "using")],
+        [
+          "status",
+          "Order statuses above every diagram without status or statuses",
+          (r) => above(r, "statuses", (x) => !/\bstatus(es)?\b/i.test(text(x))),
+        ],
+        ["virus", "Virus scan #1", first("virus")],
+        ["campus", "Campus map #1", first("campus")],
       ]
       const failing: string[] = []
       for (const [query, expected, holds] of matrix) {
@@ -301,6 +343,25 @@ describe("search", () => {
       }
       expect(failing).toEqual([])
     })
+
+  it("weighs an English word like a word in another script, a number or a code", async () => {
+    const wrong: string[] = []
+    for (const query of ["login 用户", "login привет", "login 사용자", "login 42", "v2 login", "k8s login", "login naïve"]) {
+      const other = query.split(" ").find((w) => w !== "login")!
+      // 5 diagrams with the other word, 50 with login, one with both.
+      const rows = [
+        ...Array.from({ length: 5 }, (_, i) => row(`o${i}`, `${other} page`)),
+        ...Array.from({ length: 50 }, (_, i) => row(`e${i}`, "login page")),
+        ...Array.from({ length: 200 }, (_, i) => row(`z${i}`, "filler words here")),
+        row("both", `${other} login together`),
+      ]
+      const found = (await (await searchIndex(rows))!(rows, query)).map((r) => r.id)
+      // The one with both first, then the rarer word's.
+      if (found[0] !== "both" || !found.slice(1, 6).every((id) => id.startsWith("o")))
+        wrong.push(`${query} → ${found.slice(0, 6).join(" ")}`)
+    }
+    expect(wrong).toEqual([])
+  })
 
   it("finds a word with or without its accents", async () => {
     expect(await titlesFound(["A naïve plan", "Other"], "naive")).toEqual(["A naïve plan"])

@@ -1,5 +1,5 @@
 import MiniSearch, { type Query } from "minisearch"
-import { stemmer } from "stemmer"
+import pluralize from "pluralize"
 
 import type { DiagramIndexRow } from "./types"
 
@@ -40,16 +40,33 @@ function wordsIn(raw: string, parts: boolean) {
   return [...new Set(folded.filter(Boolean))]
 }
 
+/** Drops the last letter of a doubled consonant: "runn" (from "running") is "run", "shipp" "ship"; "add" and "call" stay. */
+const undouble = (w: string) => (w.length > 3 && /([^aeioulsz])\1$/.test(w) ? w.slice(0, -1) : w)
 /**
- * An English word's stem term: "~" and its Porter stem, so "cookies" and "cookie" are both "~cooki", "creating"
- * and "create" "~creat". The "~" keeps stems apart from words, so "organ" doesn't match "organization" (stem
- * "organ") as a whole word. Null for a word with anything but a-z in it.
+ * The forms of an English word that count as the word whole, each as a term of its own: "~" and the word's
+ * singular, from pluralize ("statuses" and "status" are both "~status", "policies" "~policy"), and for a word
+ * ending in -ing or -ed the forms it may come from ("creating" is "~creat", "~create"; "running" "~runn",
+ * "~runne", "~run"). Only those endings: "experiment" isn't "experience", nor "organization" "organ". The "~"
+ * puts these terms in a namespace of their own, searched only exactly (see searchIndex): a word's
+ * prefix ("organ", "creat") never matches one, and one never matches a word. None for a word with anything
+ * but a-z in it ("k8s", "v2").
  */
-const stemOf = (w: string) => (/^[a-z]+$/.test(w) ? "~" + stemmer(w) : null)
-/** A word as the index has it: the word itself, and its stem term beside it. */
-const indexTerms = (w: string) => {
-  const s = stemOf(w)
-  return s ? [w, s] : w
+function formsOf(w: string) {
+  if (!/^[a-z]+$/.test(w)) return []
+  // Not a pronoun's or verb's other person, which pluralize also gives: "us" isn't "me", nor "are" "is".
+  const singular = pluralize.singular(w)
+  const one = singular[0] === w[0] ? singular : w
+  const forms = new Set([one])
+  // pluralize takes some -ies plurals to -y ("cookies" to "cooky"), so a plural's form without its s counts too.
+  if (one !== w && w.endsWith("s")) forms.add(w.slice(0, -1))
+  // A stem of 3 letters or more with a vowel, so "string" isn't "str" nor "thing" "th".
+  const verb = /^(.{3,})(?:ing|ed)$/.exec(one)
+  if (verb && /[aeiouy]/.test(verb[1]!))
+    forms
+      .add(verb[1]!)
+      .add(verb[1] + "e")
+      .add(undouble(verb[1]!))
+  return [...forms].map((f) => "~" + f)
 }
 
 /** Searches some of the rows an index was built over (see searchIndex). */
@@ -62,6 +79,9 @@ export type Search = (rows: DiagramIndexRow[], query: string) => Promise<Diagram
  * Returns null, having stopped early, once `stale` says the index is no longer wanted.
  */
 export async function searchIndex(all: DiagramIndexRow[], stale: () => boolean = () => false): Promise<Search | null> {
+  // Each word as the index has it: itself and its forms. Kept per word, since a library repeats its words a lot.
+  const terms = new Map<string, string[]>()
+  const indexTerms = (w: string) => terms.get(w) ?? terms.set(w, [w, ...formsOf(w)]).get(w)!
   const index = new MiniSearch<{ id: string; title: string; source: string }>({
     fields: ["title", "source"],
     tokenize: (text) => wordsIn(text, true),
@@ -82,28 +102,36 @@ export async function searchIndex(all: DiagramIndexRow[], stale: () => boolean =
     // A typo is allowed per word: none in a word of a short-word script, one elsewhere once the query is over 3
     // characters. MiniSearch scores a prefix or typo match below the word itself.
     const typo = query.length > 3 ? 1 : 0
-    const queries: Query[] = words.flatMap((w) => {
-      const q: Query[] = [{ queries: [w], prefix: true, fuzzy: SHORT_WORDS.test(w) ? false : typo }]
-      // The word's stem, only whole: "cookie" finds "Cookies", "query" "queries".
-      const s = stemOf(w)
-      if (s) q.push({ queries: [s], prefix: false, fuzzy: false })
+    const found = new Map<string, { score: number; words: number; whole: number }>()
+    // Each word is searched on its own, so it counts once however many terms it's searched as.
+    for (const w of words) {
+      const forms = formsOf(w)
+      const queries: Query[] = [{ queries: [w], prefix: true, fuzzy: SHORT_WORDS.test(w) ? false : typo }]
+      // The word's forms, only whole: "cookie" finds "Cookies", "query" "queries".
+      if (forms.length > 0) queries.push({ queries: forms, prefix: false, fuzzy: false })
       // A hyphenated word's parts, all of them whole, at half weight: "follow-up" finds "Follow up", and "check-in"
       // isn't "check" or "in" one typo away, nor "checkout" and "invoice" (prefixes).
       const parts = partsOf(w)
       if (parts.length > 0)
-        q.push({ queries: parts, combineWith: "AND", prefix: false, fuzzy: false, boost: { title: TITLE_BOOST / 2, source: 0.5 } })
-      return q
-    })
-    const results = index.search({ combineWith: "OR", queries }, { boost: { title: TITLE_BOOST } })
-    // A diagram ranks first by how many of the query's words it has whole, as the word or its stem (MiniSearch
-    // reports the terms that matched), so a rare typo or prefix neighbour ("logic", "420") never outranks the word
-    // itself ("login", "42"). Then by score (titles boosted); equal ones keep the order the rows came in (the
+        queries.push({ queries: parts, combineWith: "AND", prefix: false, fuzzy: false, boost: { title: TITLE_BOOST / 2, source: 0.5 } })
+      for (const r of index.search({ combineWith: "OR", queries }, { boost: { title: TITLE_BOOST } })) {
+        if (!position.has(r.id)) continue
+        const f = found.get(r.id) ?? { score: 0, words: 0, whole: 0 }
+        // MiniSearch sums the terms' scores and multiplies by how many matched; this is their mean, so an English
+        // word, searched as itself and its forms, weighs what "用户", "k8s" or "42" does, searched only as itself.
+        f.score += r.score / r.queryTerms.length ** 2
+        f.words++
+        // Whole: as the word itself or one of its forms (MiniSearch reports the terms that matched).
+        if (r.terms.includes(w) || forms.some((t) => r.terms.includes(t))) f.whole++
+        found.set(r.id, f)
+      }
+    }
+    // A diagram ranks first by how many of the query's words it has whole, so a rare typo or prefix neighbour
+    // ("logic", "420") never outranks the word itself ("login", "42"). Then by score times how many of the words it
+    // has at all (as MiniSearch does per term), titles boosted; equal ones keep the order the rows came in (the
     // library's sort), not the index's.
-    const whole = (terms: string[]) => words.filter((w) => terms.includes(w) || terms.includes(stemOf(w) ?? "")).length
-    return results
-      .filter((r) => position.has(r.id))
-      .map((r) => ({ id: r.id as string, whole: whole(r.terms), score: r.score }))
-      .sort((a, b) => b.whole - a.whole || b.score - a.score || position.get(a.id)! - position.get(b.id)!)
-      .map((r) => rows[position.get(r.id)!]!)
+    return [...found]
+      .sort(([a, x], [b, y]) => y.whole - x.whole || y.score * y.words - x.score * x.words || position.get(a)! - position.get(b)!)
+      .map(([id]) => rows[position.get(id)!]!)
   }
 }
