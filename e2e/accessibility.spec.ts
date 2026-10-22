@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, test, type Locator, type Page } from "@playwright/test"
 
-import { focusNext, openEditor, tool, withAgentTools } from "./helpers"
+import { focusNext, newDiagram, openEditor, tool, withAgentTools } from "./helpers"
 
 const FLOWCHART = "flowchart TD\n  A[Start] --> B{Ready?}\n  B -->|Yes| C[Ship]\n  B -->|No| A"
 
@@ -302,4 +302,63 @@ test("a chrome:// address in Settings › MCP says Copied once it's copied", asy
   await dialog.getByRole("button", { name: "MCP", exact: true }).click()
   await dialog.getByRole("button", { name: /^chrome:\/\/flags\/#enable-webmcp-testing/ }).click()
   await expect(dialog.getByRole("button", { name: "Copied" })).toBeVisible()
+})
+
+test.describe("short viewports", () => {
+  test.beforeEach(async ({ context }) => {
+    await withAgentTools(context)
+  })
+
+  /** A diagram with 31 history entries: agent edits three minutes apart don't merge into one. */
+  async function longHistory(page: Page) {
+    const start = Date.now() - 2 * 86_400_000
+    await page.clock.setSystemTime(start)
+    const id = await newDiagram(page, "flowchart TD\n  A --> B")
+    for (let i = 1; i <= 30; i++) {
+      await page.clock.setSystemTime(start + i * 3 * 60_000)
+      await tool(page, "update_diagram", { id, source: `flowchart TD\n  A --> B${i}` })
+    }
+    await page.clock.setSystemTime(Date.now())
+    await expect
+      .poll(async () => (await tool<{ history: unknown[] }>(page, "get_diagram", { id, history: true })).history.length)
+      .toBeGreaterThan(17)
+    return id
+  }
+
+  // A landscape phone, and 1366×768 at 200% zoom (WCAG's reflow size).
+  for (const viewport of [
+    { width: 844, height: 390 },
+    { width: 683, height: 330 },
+  ]) {
+    test(`at ${viewport.width}×${viewport.height} every version in Version history can be reached and picked`, async ({ page }) => {
+      const id = await longHistory(page)
+      await page.setViewportSize(viewport)
+      await openEditor(page, id)
+      await page.getByRole("button", { name: "Version history" }).click()
+      const popover = page.locator("[data-slot=popover-content]")
+      await expect(popover.getByText("· Current")).toBeVisible()
+      const box = (await popover.boundingBox())!
+      expect(box.y).toBeGreaterThanOrEqual(0)
+      expect(box.y + box.height).toBeLessThanOrEqual(viewport.height)
+      const last = popover.locator("button").last()
+      await last.evaluate((el) => (el.parentElement!.scrollTop = el.parentElement!.scrollHeight))
+      const end = (await last.boundingBox())!
+      expect(end.y).toBeGreaterThanOrEqual(0)
+      expect(end.y + end.height).toBeLessThanOrEqual(viewport.height)
+      await last.click({ timeout: 5000 })
+      await expect(page.getByText("Viewing the version from")).toBeVisible()
+    })
+  }
+
+  test("on a desktop the Version history list keeps its height", async ({ page }) => {
+    const id = await longHistory(page)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await openEditor(page, id)
+    await page.getByRole("button", { name: "Version history" }).click()
+    const popover = page.locator("[data-slot=popover-content]")
+    await expect(popover.getByText("· Current")).toBeVisible()
+    const list = popover.locator("button").first().locator("..")
+    // Its layout height: the box is scaled while the popover zooms in.
+    expect(await list.evaluate((el) => (el as HTMLElement).offsetHeight)).toBe(384)
+  })
 })

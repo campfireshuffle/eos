@@ -35,9 +35,9 @@ export function HistoryMenu({ id }: { id: string }) {
         </TooltipTrigger>
         <TooltipContent>Version history</TooltipContent>
       </Tooltip>
-      <PopoverContent align="end" className="w-80 gap-0 p-1.5">
+      <PopoverContent align="end" className="max-h-(--radix-popover-content-available-height) w-80 gap-0 p-1.5">
         <span className="px-2 pt-1 pb-2 text-caption font-medium text-muted-foreground">Version history</span>
-        <div className="flex max-h-96 flex-col overflow-y-auto">
+        <div className="flex max-h-96 min-h-0 flex-1 flex-col overflow-y-auto">
           {entries.map((e, i) => {
             const latest = i === 0
             const active = latest ? !preview : preview?.version === e.version
