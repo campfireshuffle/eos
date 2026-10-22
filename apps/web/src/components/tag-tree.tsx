@@ -294,9 +294,7 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
 }
 
 function sortTags(tags: TagRecord[]): TagRecord[] {
-  return [...tags]
-    .sort((a, b) => compareTags(nameOf(a.path), nameOf(b.path)))
-    .map((t) => ({ ...t, children: sortTags(t.children) }))
+  return [...tags].sort((a, b) => compareTags(nameOf(a.path), nameOf(b.path))).map((t) => ({ ...t, children: sortTags(t.children) }))
 }
 
 function collect(tags: TagRecord[], keep: (t: TagRecord) => boolean): TagPath[] {
