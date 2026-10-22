@@ -24,6 +24,32 @@ test("a title still being typed is saved when the person or an agent leaves the 
   await expect.poll(() => storedTitle(page, id)).toBe("Second rename")
 })
 
+// Leaving the page neither blurs the title nor unmounts it.
+for (const how of ["reloaded", "hidden"] as const)
+  for (const wait of [0, 1000])
+    test(`a title still being typed is saved when the page is ${how} ${wait} ms later`, async ({ context }) => {
+      await withAgentTools(context)
+      const page = await context.newPage()
+      const id = await newDiagram(page, "flowchart LR\n  A --> B")
+      const versions = async (p: Page) => (await tool<{ history: unknown[] }>(p, "get_diagram", { id, history: true })).history.length
+      const before = await versions(page)
+      await openEditor(page, id)
+      await page.getByRole("textbox", { name: "Diagram title" }).fill("Quarterly plan")
+      await page.waitForTimeout(wait)
+      if (how === "reloaded") await page.reload()
+      // As switching to another tab does, with the title field still focused.
+      else
+        await page.evaluate(() => {
+          Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true })
+          document.dispatchEvent(new Event("visibilitychange"))
+        })
+      const other = await context.newPage()
+      await other.goto("/#/")
+      await other.waitForFunction(() => "__tools" in window && "get_diagram" in (window as unknown as { __tools: object }).__tools)
+      await expect.poll(() => storedTitle(other, id)).toBe("Quarterly plan")
+      expect(await versions(other)).toBe(before + 1)
+    })
+
 test("the Enter that confirms an IME candidate doesn't leave the title", async ({ context }) => {
   await withAgentTools(context)
   const page = await context.newPage()

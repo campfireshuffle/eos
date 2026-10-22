@@ -319,12 +319,28 @@ function TitleInput({ value, onCommit }: { value: string; onCommit: (v: string) 
   }
   // Leaving the diagram (going back, a swipe, an agent opening another page) unmounts this
   // without a blur, so a title still being typed is committed then. StrictMode's extra
-  // unmount in dev comes before anything is typed, so it commits nothing.
+  // unmount in dev comes before anything is typed, so it commits nothing. Leaving the page
+  // (a reload, closing the tab) does neither, so it's also committed on beforeunload, the
+  // one event early enough for a reload's write to land, and on pagehide; and when the page
+  // is hidden, as switching tabs does, since a hidden tab may be discarded. A commit clears
+  // what's typed, so a later one commits nothing again.
   const commitRef = useRef(commit)
   useEffect(() => {
     commitRef.current = commit
   })
-  useEffect(() => () => commitRef.current(), [])
+  useEffect(() => {
+    const onLeave = () => commitRef.current()
+    const onHidden = () => document.visibilityState === "hidden" && commitRef.current()
+    addEventListener("beforeunload", onLeave)
+    addEventListener("pagehide", onLeave)
+    document.addEventListener("visibilitychange", onHidden)
+    return () => {
+      removeEventListener("beforeunload", onLeave)
+      removeEventListener("pagehide", onLeave)
+      document.removeEventListener("visibilitychange", onHidden)
+      commitRef.current()
+    }
+  }, [])
   return (
     <input
       aria-label="Diagram title"
