@@ -44,7 +44,7 @@ import type {
 const USER: Actor = { kind: "user" }
 /** Origin of keystrokes from a bound editor. Starts with "user", so undo treats them as the person's. */
 const EDITOR_ORIGIN = "user:editor"
-/** Keystrokes closer together than this are one undo step, and one burst of typing for ⌘Z. */
+/** Keystrokes closer together than this are one undo step. */
 const MERGE_MS = 800
 /** How long the library index waits for typing to pause. */
 const INDEX_MS = 300
@@ -69,11 +69,6 @@ interface OpenDiagram extends DiagramDoc {
   undo: UndoManager
   /** An agent's own undo stack: only agent edits. */
   agentUndo: UndoManager
-  /**
-   * Which burst of typing each step on `undo` belongs to (see openDiagram). While an
-   * undo or redo runs, `stepping` is the burst of the steps it moves, which they keep.
-   */
-  burst: { count: number; lastEdit: number; stepping: Value | undefined }
   /** The person's selection (see SourceBinding.select), and who's told where an undo or redo puts it back. */
   selection: { cursors: Cursor[]; listeners: Set<(anchor: number, head: number) => void> }
   persisted: Persisted
@@ -396,20 +391,9 @@ export class Eos {
     const d = await this.openDiagram(id)
     const by: Actor = actor ?? (scope === "agent" ? { kind: "agent", tool: dir, changes: [dir] } : USER)
     const stack = scope === "agent" ? d.agentUndo : d.undo
-    const top = () => (dir === "undo" ? stack.topUndoValue() : stack.topRedoValue())
-    const burst = top()
-    let done = false
-    d.burst.stepping = burst
-    try {
-      do {
-        // Label each commit the undo manager makes, so the other stack ignores it and history credits the right actor.
-        d.doc.setNextCommitOptions({ origin: actorOrigin(by), message: JSON.stringify(by) })
-        if (!stack[dir]()) break
-        done = true
-      } while (scope === "user" && burst !== undefined && top() === burst)
-    } finally {
-      d.burst.stepping = undefined
-    }
+    // Label the commit the undo manager makes, so the other stack ignores it and history credits the right actor.
+    d.doc.setNextCommitOptions({ origin: actorOrigin(by), message: JSON.stringify(by) })
+    const done = stack[dir]()
     if (done) await this.afterChange(id, d)
     return done
   }
@@ -707,9 +691,6 @@ export class Eos {
         }
         // Commit origins are "user" or "user:editor" (keystrokes), "agent:<tool>", "import" or
         // "system", each prefixed "details:" for title and tag changes (see actorOrigin, commit).
-        // Each step is tagged with the burst of typing it belongs to (a new burst after a pause).
-        // Edits from other tabs split Loro's steps mid-burst, so ⌘Z undoes every step of a burst.
-        const burst: OpenDiagram["burst"] = { count: 0, lastEdit: 0, stepping: undefined }
         // Each step also keeps the selection from just before it (see SourceBinding.select), which onPop puts back once
         // the step's change is shown. That waits a microtask, as the step's reverse is pushed after onPop with the
         // selection from before it: the one undo or redo is about to move.
@@ -718,14 +699,7 @@ export class Eos {
           mergeInterval: MERGE_MS,
           maxUndoSteps: 200,
           excludeOriginPrefixes: ["agent", "import", "system", DETAILS],
-          onPush: () => {
-            // A step moving between the undo and redo stacks keeps its burst.
-            if (burst.stepping !== undefined) return { value: burst.stepping, cursors: selection.cursors }
-            const now = Date.now()
-            if (now - burst.lastEdit > MERGE_MS) burst.count++
-            burst.lastEdit = now
-            return { value: burst.count, cursors: selection.cursors }
-          },
+          onPush: () => ({ value: null, cursors: selection.cursors }),
           onPop: (_, { cursors: [anchor, head] }) => {
             const at = (c: Cursor | undefined) => c && doc.getCursorPos(c)?.offset
             const [a, h] = [at(anchor), at(head)]
@@ -745,7 +719,6 @@ export class Eos {
           meta: doc.getMap("meta"),
           undo,
           agentUndo,
-          burst,
           selection,
           persisted,
           // Only deletes close a diagram, so a pending index refresh and any queued writes are

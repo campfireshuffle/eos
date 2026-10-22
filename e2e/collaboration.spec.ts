@@ -30,13 +30,21 @@ test("two tabs typing at the same time keep every keystroke", async () => {
   expect(await storedText(a, id)).toBe(merged)
 })
 
-test("undo in one tab removes only that tab's burst of typing", async () => {
+// Loro's undo manager ends a step when the other tab's keystrokes come in, so a burst typed alongside them takes
+// several ⌘Z, each removing only this tab's typing, from the end.
+test("undo in one tab removes only that tab's typing", async () => {
   await openInBoth("one\ntwo")
   await cursorAtEndOf(a, 0)
   await cursorAtEndOf(b, 1)
   await Promise.all([a.keyboard.type(" aaaaaa", { delay: 5 }), b.keyboard.type(" bbbbbb", { delay: 5 })])
   await expectEditor(b, "one aaaaaa\ntwo bbbbbb")
-  await b.keyboard.press("ControlOrMeta+z")
+  for (let i = 0; i < 7 && (await editorText(b)) !== "one aaaaaa\ntwo"; i++) {
+    const before = (await editorText(b)).split("\n")[1]!
+    await b.keyboard.press("ControlOrMeta+z")
+    await expect.poll(async () => (await editorText(b)).split("\n")[1]).not.toBe(before)
+    const now = await editorText(b)
+    expect(now.startsWith("one aaaaaa\ntwo") && before.startsWith(now.split("\n")[1]!), now).toBe(true)
+  }
   await expectEditor(b, "one aaaaaa\ntwo")
   await expectEditor(a, "one aaaaaa\ntwo")
 })

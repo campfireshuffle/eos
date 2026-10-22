@@ -59,7 +59,7 @@ describe("Eos store", () => {
 
   describe("undo after a restore", () => {
     const agent: Actor = { kind: "agent", tool: "update_diagram", changes: ["source"] }
-    const pause = () => new Promise((r) => setTimeout(r, 900)) // so the next edit starts a new burst
+    const pause = () => new Promise((r) => setTimeout(r, 900)) // so the next edit starts a new undo step
 
     it("lets the person undo past their own restore", async () => {
       const eos = await fresh()
@@ -1086,27 +1086,35 @@ describe("editor binding", () => {
     expect(await one.getSource(id)).toBe(a.state.text)
   })
 
-  it("undoes a whole burst of typing even when another tab's keystrokes landed mid-burst", async () => {
+  it("undoes only the person's typing, a step per stretch between another tab's keystrokes", async () => {
     const name = `burst-${n++}`
     const one = await Eos.create({ dbName: name, seed: false })
     const id = await one.createDiagram({ source: "one\nthree" })
     const two = await Eos.create({ dbName: name, seed: false })
     const a = await editor(one, id)
     const b = await editor(two, id)
-    for (const ch of "aaaa") {
-      a.type(3, ch)
-      await settle()
-      b.type(b.state.text.length, "b")
-      await settle()
-    }
-    expect(a.state.text).toBe("oneaaaa\nthreebbbb")
-    expect(await one.undo(id)).toBe(true)
+    a.type(3, "a")
+    a.type(4, "a")
     await settle()
-    expect(a.state.text).toBe("one\nthreebbbb")
+    b.type(b.state.text.length, "b")
+    await settle()
+    a.type(5, "a")
+    await settle()
+    expect(a.state.text).toBe("oneaaa\nthreeb")
+    // Loro's undo manager ends a step when another tab's change comes in, so this burst takes two.
+    expect(await one.undo(id)).toBe(true)
+    expect(a.state.text).toBe("oneaa\nthreeb")
+    expect(await one.undo(id)).toBe(true)
+    expect(a.state.text).toBe("one\nthreeb")
+    expect(await one.undo(id)).toBe(false)
+    expect(await one.redo(id)).toBe(true)
+    expect(await one.redo(id)).toBe(true)
+    await settle()
+    expect(a.state.text).toBe("oneaaa\nthreeb")
     expect(b.state.text).toBe(a.state.text)
   })
 
-  it("starts a fresh burst after an undo that found its text already gone", async () => {
+  it("undoes nothing when another tab already deleted what the person typed", async () => {
     const name = `gone-${n++}`
     const one = await Eos.create({ dbName: name, seed: false })
     const id = await one.createDiagram({ source: "one\ntwo" })
@@ -1118,15 +1126,9 @@ describe("editor binding", () => {
     b.binding.edit([{ from: 3, to: 4, insert: "" }]) // the other tab deletes the "x"
     await settle()
     expect(await one.undo(id)).toBe(false)
-    await new Promise((r) => setTimeout(r, 900)) // a pause, so the next keystroke starts a new burst
     a.type(0, "z")
-    await settle()
-    b.type(b.binding.text().length, "b") // splits the burst into two steps
-    await settle()
-    a.type(1, "w")
-    await settle()
     expect(await one.undo(id)).toBe(true)
-    expect(await one.getSource(id)).toBe("one\ntwob")
+    expect(await one.getSource(id)).toBe("one\ntwo")
   })
 
   it("tells a binding when its diagram is closed, and stops editing it", async () => {
