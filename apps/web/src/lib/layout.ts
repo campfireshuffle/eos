@@ -36,16 +36,23 @@ export function setSidebarOpen(open: boolean) {
   const panel = sidebarPanel.current
   if (!panel || panel.isCollapsed() !== open) return
   // Animate only this toggle (see app.css); dragging the divider stays instant.
-  const group = document.querySelector<HTMLElement>("[data-slot=resizable-panel-group]")
+  const shell = document.querySelector<HTMLElement>(".eos-shell")
+  const group = shell?.querySelector("[data-slot=resizable-panel-group]")
   group?.setAttribute("data-animating", "")
-  clearTimeout(animationEnd)
-  animationEnd = setTimeout(() => group?.removeAttribute("data-animating"), SIDEBAR_ANIMATION_MS + 50)
+  const toggle = ++toggles
   // Flip the state first: the shell's padding, gutter and corner animate off it in the same motion.
   // (onResize alone would only report "collapsed" once the panel reaches zero, a second stage.)
   setUi({ sidebarCollapsed: !open })
   if (open) panel.expand()
   else panel.collapse()
+  // A frame later React has rendered the new sizes and their transitions have started. Transitions
+  // only: an infinite animation inside (the editor's caret blink) never finishes. Only the latest
+  // toggle ends the animation, so a second one mid-motion isn't cut short by the first.
+  requestAnimationFrame(async () => {
+    const transitions = shell?.getAnimations({ subtree: true }).filter((a) => a instanceof CSSTransition) ?? []
+    await Promise.allSettled(transitions.map((a) => a.finished))
+    if (toggle === toggles) group?.removeAttribute("data-animating")
+  })
 }
 
-export const SIDEBAR_ANIMATION_MS = 220
-let animationEnd: ReturnType<typeof setTimeout> | undefined
+let toggles = 0
