@@ -213,7 +213,7 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
 
 - **Retrying an update_diagram with the same baseVersion applies the edit twice.**
   - **What:** an agent calls `update_diagram {source, baseVersion: v}`, then repeats the call unchanged, for example after a lost response, or after cancelling the call (execute doesn't stop on abort). The second call merges the diff from `v` again, on top of the first result. With base `graph TD\n  A --> B` and an added `  B --> C`, sending it twice gives `B --> C` twice.
-  - **Where:** `packages/core/src/store.ts`, `editDiagram` (the `fromBase` branch).
+  - **Where:** `packages/core/src/store.ts`, `editDiagram` (the `mergeFromBase` call).
   - **Why low:** the second call returns the merged `source`, which shows the duplicate, and agent undo reverts it. It only happens when an agent reuses a base it has already applied.
   - **Fix:** skip the merge when `edit.source === sourceOf(d)`: the text already is the agent's text, so the call is a no-op. Add a webmcp test that sends the same call twice and expects one copy.
 
@@ -381,6 +381,66 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `apps/web/src/components/settings-dialog.tsx`.
   - **Why low:** it needs an agent theming during an open Settings. The agent's change can be reapplied.
   - **Fix:** bump the editor key when `customCss` or `diagramCss` changes from outside, and only when it differs from the editor's text.
+
+- **After Back to latest, the error highlight can sit on the wrong line.**
+  - **What:** while a past version shows, the hidden live editor is given the past version's `errorAt`, and the error line is only sent again when it changes. After Back to latest, the live editor can highlight the past version's error line, not its own.
+  - **Where:** `apps/web/src/components/editor.tsx`, the live `CodeEditor`'s `errorAt` (both editors get `errorLine`).
+  - **Why low:** it only appears after viewing a past version whose error is on a different line. The footer's "Line N" is right, and the next edit corrects the highlight.
+  - **Fix:** give the live editor the latest version's own error line, kept separately from the previewed one.
+
+- **On phones, Back to latest and Restore may raise the keyboard over the preview.**
+  - **What:** since A1, both focus the live source synchronously in the tap. It's contenteditable with no `inputmode`, so iOS probably raises the keyboard. Not verified on a device.
+  - **Where:** `apps/web/src/components/editor.tsx` (Back to latest and Restore, `CodeEditorHandle.focus()`).
+  - **Why low:** it isn't verified on a device, and the keyboard can be dismissed.
+  - **Fix:** focus the source only on keyboard activation (`e.detail === 0`), or not at all on `(pointer: coarse)`.
+
+- **With nothing selected, an invisible "Selection" toolbar reads "0 selected".**
+  - **What:** since A1, the count's `role=status` sits outside the bar's inert part, so the accessibility tree exposes a hidden toolbar holding only "0 selected".
+  - **Where:** `apps/web/src/components/selection-bar.tsx`.
+  - **Why low:** it's announced only when the selection changes, and reads correctly. The hidden toolbar is noise for anyone browsing by landmarks or roles.
+  - **Fix:** render the status text empty at 0. Or move the status out of the toolbar and make the whole toolbar `inert` at 0.
+
+- **Tapping the current view in the phone drawer leaves the drawer open.**
+  - **What:** the drawer closes only when the location changes, so choosing the view that's already showing does nothing visible.
+  - **Where:** `apps/web/src/App.tsx` (the mobile drawer).
+  - **Why low:** the drawer can still be closed, and the user is already where they asked to go.
+  - **Fix:** close the drawer on any nav link activation. Or close it on the Navigation API's `navigate` event, which fires for same-URL navigations too.
+
+- **In-app Back/Forward across pages drops focus to the page.**
+  - **What:** Back or Forward between the library and a diagram swaps the page header, so the focused Back/Forward button is removed and focus falls to BODY.
+  - **Where:** `apps/web/src/components/history-nav.tsx`, `page.tsx`.
+  - **Why low:** it's on a less-used control. Browser Back (the common route) is unaffected, and the next Tab starts from the top.
+  - **Fix:** render the history nav once outside the swapped header, or refocus the same control by a stable key after the page swaps.
+
+- **get_view never says a past version is showing.**
+  - **What:** `get_view` leaves out `ui.preview`, so an agent can't tell that the person is looking at a past version rather than the latest.
+  - **Where:** `apps/web/src/lib/webmcp.ts`, `getView`.
+  - **Why low:** agent-only. Edits still go to the latest version correctly.
+  - **Fix:** add `preview: { version, at } | null` to the view, and document it in the tool description.
+
+- **The hidden live editor's `inert` is redundant, and its comment credits the wrong thing.**
+  - **What:** `hidden`, plus clearing the leftover selection, already keeps input out. Removing `inert` passes 60/60 runs, but the comment says `inert` is what stops the edits.
+  - **Where:** `apps/web/src/components/editor.tsx` (the comments at about lines 100 and 244, and the `inert={!!previewing}` on the live wrapper).
+  - **Why low:** harmless, it's only belt and braces.
+  - **Fix:** fix the comment to credit `hidden` and clearing the selection. Keep or drop `inert`, but say which does the work.
+
+- **Library multi-select is still hand-rolled.**
+  - **What:** selection, Space, ⌘A, Escape and the marquee are custom, where React Aria's `GridList` could own keyboard selection.
+  - **Where:** `apps/web/src/lib/selection.ts`, `components/diagram-card.tsx`, `components/marquee.tsx`.
+  - **Why low:** it works. A1's GridList attempt was dropped for performance and because it broke the cards' link behaviour.
+  - **Fix:** revisit when GridList supports link items without the per-item cost, or virtualize the grid first.
+
+- **No e2e test for downloading a backup or importing a valid one.**
+  - **What:** these flows are only covered by core unit tests and hand checks. (The trash's Restore and Delete forever now have e2e tests in `e2e/library.spec.ts`, from A2's focus fix.)
+  - **Where:** `e2e/settings.spec.ts`.
+  - **Why low:** core covers the logic, and A2's audit checked them by hand on three engines.
+  - **Fix:** add a download-and-reimport round trip.
+
+- **An agent that deletes the line after the one the person pressed Enter on glues the person's new line to the next.**
+  - **What:** base `graph LR\n  A --> B\n  C --> E\n  A --> A\n`, the person adds `\n  P --> X` at the end of `A --> B`, and the agent deletes `C --> E`. The result is `"graph LR\n  A --> B\n\n  P --> X  A --> A\n"`. The last-line variant gives `"graph TD\n  B --> C  P --> X\n"`.
+  - **Where:** `packages/core/src/store.ts`, `mergeFromBase` (a whole-line deletion next to the person's insert).
+  - **Why low:** the agent's deletion overlaps the person's edit, so nothing is lost and the text is in history. It's the same class as upstream #7 and "A heavy agent rewrite can drop what the person typed…".
+  - **Fix:** none planned. Track it with the line-end tie issue (see A2's VERDICT).
 
 ## Refactors to consider (from the round 11 cleanup review)
 
