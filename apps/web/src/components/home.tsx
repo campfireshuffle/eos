@@ -8,7 +8,7 @@ import { NativeSelect, NativeSelectOption } from "@workspace/ui/components/nativ
 
 import { useEos, useLibrary, useTags } from "@/lib/eos"
 import { groupRows } from "@/lib/grouping"
-import { useHistoryEntry } from "@/lib/history"
+import { entryKey, useHistoryEntry } from "@/lib/history"
 import { diagramHref, homeHref, navigate, parseRoute, type LibraryGroup, type Route } from "@/lib/router"
 import { useIsMobile } from "@/lib/layout"
 import { useScrollRestoration } from "@/lib/scroll-restore"
@@ -34,7 +34,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   const write = () => {
     const q = typed.current
     // Only into the entry the typing started in: once that's been left, its URL is the one to show.
-    if ((history.state as { eosKey?: string } | null)?.eosKey !== synced.current.entry || q === synced.current.q) return false
+    if (entryKey() !== synced.current.entry || q === synced.current.q) return false
     synced.current.q = q
     // Typing replaces the current history entry rather than adding one per keystroke.
     const now = parseRoute(location.hash)
