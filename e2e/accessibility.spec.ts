@@ -86,9 +86,9 @@ for (const colorScheme of ["light", "dark"] as const) {
     test("tag menu and icon picker", async ({ page }) => {
       await library(page)
       await page.getByRole("row", { name: /personal/ }).click({ button: "right" })
-      await expect(page.getByRole("button", { name: "Change icon", exact: true })).toBeVisible()
-      await audit(page)
-      await page.getByRole("button", { name: "Change icon", exact: true }).click()
+      await expect(page.getByRole("menuitem", { name: "Change icon" })).toBeVisible()
+      await audit(page, { menuOpen: true })
+      await page.getByRole("menuitem", { name: "Change icon" }).click()
       await expect(page.getByPlaceholder("Search emoji")).toBeFocused()
       await audit(page)
     })
@@ -179,13 +179,13 @@ test.describe("keyboard", () => {
     const row = page.getByRole("row", { name: /personal/ })
     const box = (await row.boundingBox())!
     await row.dispatchEvent("contextmenu", { clientX: box.x + 10, clientY: box.y + 10 })
-    await page.getByRole("button", { name: "Change icon", exact: true }).click()
+    await page.getByRole("menuitem", { name: "Change icon" }).click()
     await expect(page.getByPlaceholder("Search emoji")).toBeFocused()
     await page.keyboard.press("Escape")
     await expect(row).toBeFocused()
 
     await row.dispatchEvent("contextmenu", { clientX: box.x + 10, clientY: box.y + 10 })
-    await page.getByRole("button", { name: "Delete tag" }).click()
+    await page.getByRole("menuitem", { name: "Delete tag" }).click()
     await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click()
     await expect(row).toBeFocused()
   })
@@ -193,7 +193,7 @@ test.describe("keyboard", () => {
   test("the tag menu opens from the keyboard too", async ({ page }) => {
     await library(page)
     const row = page.getByRole("row", { name: /personal/ })
-    const changeIcon = page.getByRole("button", { name: "Change icon", exact: true })
+    const changeIcon = page.getByRole("menuitem", { name: "Change icon" })
     for (const key of ["Shift+F10", "ContextMenu"]) {
       await row.focus()
       await page.keyboard.press(key)

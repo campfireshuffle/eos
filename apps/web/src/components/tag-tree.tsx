@@ -14,6 +14,7 @@ import {
 } from "react-aria-components"
 
 import { findEmoji, tagMatches, type TagPath, type TagRecord } from "@eos/core"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@workspace/ui/components/dropdown-menu"
 import { Popover, PopoverAnchor, PopoverContent } from "@workspace/ui/components/popover"
 import { cn } from "@workspace/ui/lib/utils"
 
@@ -34,8 +35,12 @@ const parentOf = (path: TagPath) => (path.includes("/") ? path.slice(0, path.las
 const DROP_HIGHLIGHT =
   "bg-[color-mix(in_srgb,var(--eos-champagne)_14%,transparent)] text-foreground shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--eos-champagne)_55%,transparent)]"
 
-/** `from` gets focus back when the popover closes. */
-type Anchored = { tag: TagPath; x: number; y: number; from: HTMLElement }
+/**
+ * Where the tag menu or the icon picker opens, and for which tag; `from` gets focus back when it closes.
+ * It stays once closed (`open: false`), so the popup keeps its place and content while it animates out.
+ */
+type Anchored = { tag: TagPath; x: number; y: number; from: HTMLElement; open: boolean }
+const closed = <T extends Anchored>(a: T | null) => a && { ...a, open: false }
 
 /**
  * The tag tree, built on React Aria's Tree. Rows drag with a mouse or touch; with a keyboard or
@@ -53,7 +58,10 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
   // The tags being dragged right now, to refuse drops into themselves and to show the top-level zone.
   const [dragging, setDragging] = useState<TagPath[]>([])
   const [picker, setPicker] = useState<Anchored | null>(null)
-  const [menu, setMenu] = useState<Anchored | null>(null)
+  // A choice that opens something (the icon picker, a confirm) runs once the menu has gone and focus is back
+  // on `from`, so what it opens returns focus there too.
+  const [menu, setMenu] = useState<(Anchored & { onClosed?: () => void }) | null>(null)
+  const afterClose = (onClosed: () => void) => setMenu((m) => m && { ...m, onClosed })
   const treeRef = useRef<HTMLDivElement>(null)
   // A tag dropped on "Move to top level": the zone that had focus is gone, so focus goes to the
   // moved row once it renders, unless focus has gone somewhere else by then.
@@ -115,7 +123,7 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
         if (!row?.dataset.key) return
         e.preventDefault()
         const r = row.getBoundingClientRect()
-        setMenu({ tag: row.dataset.key, x: r.left, y: r.bottom, from: row })
+        setMenu({ tag: row.dataset.key, x: r.left, y: r.bottom, from: row, open: true })
       }}
     >
       <Tree
@@ -141,7 +149,7 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
               ref={tag.path === refocus ? focusMoved : undefined}
               onContextMenu={(e) => {
                 e.preventDefault()
-                setMenu({ tag: tag.path, x: e.clientX, y: e.clientY, from: e.currentTarget })
+                setMenu({ tag: tag.path, x: e.clientX, y: e.clientY, from: e.currentTarget, open: true })
               }}
               className={({ isDropTarget, isDragging, isFocusVisible, isHovered }) =>
                 cn(
@@ -164,7 +172,7 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
                       onPress={(e) => {
                         const button = e.target as HTMLElement
                         const r = button.getBoundingClientRect()
-                        setPicker({ tag: tag.path, x: r.left, y: r.bottom, from: button })
+                        setPicker({ tag: tag.path, x: r.left, y: r.bottom, from: button, open: true })
                       }}
                       className="-mx-0.5 flex h-6 w-5 shrink-0 items-center justify-center rounded outline-none hover:bg-accent data-[focus-visible]:ring-1 data-[focus-visible]:ring-ring"
                     >
@@ -220,114 +228,67 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
         </DropZone>
       )}
 
-      <AnchoredPopover at={menu} onClose={() => setMenu(null)} className="w-48 p-1">
-        {menu && (
-          <TagMenu
-            tag={menu.tag}
-            onChangeIcon={() => {
-              setPicker(menu)
-              setMenu(null)
-            }}
-            onMoveToTop={
-              menu.tag.includes("/")
-                ? () => {
-                    void moveTo(menu.tag, null)
-                    setMenu(null)
-                  }
-                : undefined
+      <DropdownMenu open={!!menu?.open} onOpenChange={(open) => !open && setMenu(closed)}>
+        {/* Radix places the menu against its trigger, so the trigger sits at the click or under the row. */}
+        <DropdownMenuTrigger asChild>
+          <span aria-hidden className="pointer-events-none fixed size-px" style={{ left: menu?.x, top: menu?.y }} />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          className="w-48"
+          onCloseAutoFocus={(e) => {
+            e.preventDefault()
+            menu?.from.focus()
+            menu?.onClosed?.()
+          }}
+        >
+          <DropdownMenuItem onSelect={() => afterClose(() => setPicker({ ...menu!, open: true }))}>
+            <Smile className="text-muted-foreground" /> Change icon
+          </DropdownMenuItem>
+          {menu?.tag.includes("/") && (
+            <DropdownMenuItem onSelect={() => void moveTo(menu.tag, null)}>
+              <ArrowUpToLine className="text-muted-foreground" /> Move to top level
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem
+            variant="destructive"
+            onSelect={() =>
+              afterClose(async () => {
+                const tag = menu!.tag
+                if (await askConfirm(`Remove “${tag}” from every diagram? Nested tags are removed too.`))
+                  void eos.deleteTag(tag).then(() => followTag(tag, null))
+              })
             }
-            onDelete={async () => {
-              const tag = menu.tag
-              // Back on the row first, so the confirm returns focus there rather than to this menu's vanished button.
-              menu.from.focus()
-              setMenu(null)
-              if (await askConfirm(`Remove “${tag}” from every diagram? Nested tags are removed too.`))
-                void eos.deleteTag(tag).then(() => followTag(tag, null))
-            }}
-          />
-        )}
-      </AnchoredPopover>
+          >
+            <Trash2 /> Delete tag
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
-      <AnchoredPopover at={picker} onClose={() => setPicker(null)} className="w-[272px] p-3">
-        {picker && (
-          <EmojiGrid
-            current={findEmoji(tags, picker.tag)}
-            onChoose={(emoji) => {
-              void eos.setTagEmoji(picker.tag, emoji)
-              setPicker(null)
-            }}
-          />
-        )}
-      </AnchoredPopover>
-    </div>
-  )
-}
-
-/** A popover pinned to a screen point. It keeps its last point and content while animating out. */
-function AnchoredPopover({
-  at,
-  onClose,
-  className,
-  children,
-}: {
-  at: Anchored | null
-  onClose: () => void
-  className?: string
-  children: ReactNode
-}) {
-  const last = useRef(at)
-  const lastChildren = useRef(children)
-  if (at) {
-    last.current = at
-    lastChildren.current = children
-  }
-  const shown = at ?? last.current
-  return (
-    <Popover open={!!at} onOpenChange={(open) => !open && onClose()}>
-      <PopoverAnchor asChild>
-        <span className="pointer-events-none fixed size-px" style={{ left: shown?.x ?? 0, top: shown?.y ?? 0 }} />
-      </PopoverAnchor>
-      {/* Never taller than the space around the anchor (e.g. a phone in landscape); scroll inside instead. */}
-      <PopoverContent
-        align="start"
-        onCloseAutoFocus={(e) => {
-          // Leave focus alone if it has already moved on, e.g. from this menu into the icon picker.
-          if (document.activeElement !== document.body) return
-          e.preventDefault()
-          shown?.from.focus()
-        }}
-        className={cn("max-h-[var(--radix-popover-content-available-height)] overflow-y-auto", className)}
-      >
-        {at ? children : lastChildren.current}
-      </PopoverContent>
-    </Popover>
-  )
-}
-
-function TagMenu({
-  onChangeIcon,
-  onMoveToTop,
-  onDelete,
-}: {
-  tag: TagPath
-  onChangeIcon: () => void
-  onMoveToTop?: () => void
-  onDelete: () => void
-}) {
-  const item = "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-body hover:bg-accent [&_svg]:size-4"
-  return (
-    <div className="flex flex-col">
-      <button type="button" className={item} onClick={onChangeIcon}>
-        <Smile className="text-muted-foreground" /> Change icon
-      </button>
-      {onMoveToTop && (
-        <button type="button" className={item} onClick={onMoveToTop}>
-          <ArrowUpToLine className="text-muted-foreground" /> Move to top level
-        </button>
-      )}
-      <button type="button" className={cn(item, "text-destructive")} onClick={onDelete}>
-        <Trash2 /> Delete tag
-      </button>
+      <Popover open={!!picker?.open} onOpenChange={(open) => !open && setPicker(closed)}>
+        <PopoverAnchor asChild>
+          <span className="pointer-events-none fixed size-px" style={{ left: picker?.x, top: picker?.y }} />
+        </PopoverAnchor>
+        {/* Never taller than the space around the anchor (e.g. a phone in landscape); scroll inside instead. */}
+        <PopoverContent
+          align="start"
+          onCloseAutoFocus={(e) => {
+            // The picker isn't modal: leave focus alone if it has already moved on.
+            e.preventDefault()
+            if (document.activeElement === document.body) picker?.from.focus()
+          }}
+          className="max-h-[var(--radix-popover-content-available-height)] w-[272px] overflow-y-auto p-3"
+        >
+          {picker && (
+            <EmojiGrid
+              current={findEmoji(tags, picker.tag)}
+              onChoose={(emoji) => {
+                void eos.setTagEmoji(picker.tag, emoji)
+                setPicker(closed)
+              }}
+            />
+          )}
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }

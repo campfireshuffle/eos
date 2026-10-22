@@ -17,7 +17,7 @@ async function viewing(context: BrowserContext, tag: string) {
 test("moving the tag being viewed keeps showing its diagrams", async ({ context }) => {
   const page = await viewing(context, "projects/work")
   await page.getByRole("row", { name: "projects/work" }).click({ button: "right" })
-  await page.getByRole("button", { name: "Move to top level" }).click()
+  await page.getByRole("menuitem", { name: "Move to top level" }).click()
   await expect(page).toHaveURL(/#\/\?tag=work$/)
   await expect(page.locator("[data-card-id]")).toHaveCount(2)
 })
@@ -25,7 +25,7 @@ test("moving the tag being viewed keeps showing its diagrams", async ({ context 
 test("deleting a tag above the one being viewed goes back to the whole library", async ({ context }) => {
   const page = await viewing(context, "work/notes")
   await page.getByRole("row", { name: "work", exact: true }).click({ button: "right" })
-  await page.getByRole("button", { name: "Delete tag" }).click()
+  await page.getByRole("menuitem", { name: "Delete tag" }).click()
   await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click()
   await expect(page).toHaveURL(/#\/$/)
   await expect(page.getByText("No diagrams match.")).toBeHidden()
@@ -199,7 +199,7 @@ test("on a phone, a long unbroken tag name keeps the delete confirm's buttons in
   await tool(page, "create_diagram", { title: "Cluster", tags: [tag], open: false })
   await page.getByRole("button", { name: "Show sidebar" }).click()
   await page.getByRole("row", { name: tag }).click({ button: "right" })
-  await page.getByRole("button", { name: "Delete tag" }).click()
+  await page.getByRole("menuitem", { name: "Delete tag" }).click()
   const dialog = page.getByRole("alertdialog")
   await expect(dialog).toBeVisible()
   // Measure once it has finished zooming in.
