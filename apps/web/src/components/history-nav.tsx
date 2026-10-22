@@ -4,7 +4,10 @@ import { Button } from "@workspace/ui/components/button"
 
 import { useHistoryNav } from "@/lib/history"
 
-/** Back/forward inside Eos. Hidden until there is somewhere to go. */
+/**
+ * Back/forward inside Eos. Hidden until there is somewhere to go. A button with nowhere to go is
+ * aria-disabled, not disabled, so pressing it to the end of history keeps its focus.
+ */
 export function HistoryNav() {
   const { canGoBack, canGoForward } = useHistoryNav()
   if (!canGoBack && !canGoForward) return null
@@ -14,9 +17,9 @@ export function HistoryNav() {
         variant="ghost"
         size="icon-sm"
         aria-label="Back"
-        disabled={!canGoBack}
-        onClick={() => history.back()}
-        className="text-muted-foreground"
+        aria-disabled={!canGoBack}
+        onClick={() => canGoBack && navigation.back()}
+        className="text-muted-foreground aria-disabled:pointer-events-none aria-disabled:opacity-50"
       >
         <ArrowLeft />
       </Button>
@@ -24,9 +27,9 @@ export function HistoryNav() {
         variant="ghost"
         size="icon-sm"
         aria-label="Forward"
-        disabled={!canGoForward}
-        onClick={() => history.forward()}
-        className="text-muted-foreground"
+        aria-disabled={!canGoForward}
+        onClick={() => canGoForward && navigation.forward()}
+        className="text-muted-foreground aria-disabled:pointer-events-none aria-disabled:opacity-50"
       >
         <ArrowRight />
       </Button>
