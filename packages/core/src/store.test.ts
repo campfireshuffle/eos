@@ -167,11 +167,13 @@ describe("Eos store", () => {
       // Of two insertions at one spot, the person's goes first.
       ["ab", "abX", "abY", "abXY"],
       ["a😀", "a😀X", "a😀Y", "a😀XY"],
-      ["graph TD\n\n  C --> D", "graph TD\nob\n  C --> D", "graph TD\n  X --> Y\n\n  C --> D", "graph TD\nob  X --> Y\n\n  C --> D"],
-      ["graph TD\n  A --> B", "graph TD\nob  A --> B", "graph TD\n  X --> Y\n  A --> B", "graph TD\nob  X --> Y\n  A --> B"],
+      // A line the agent adds above a line goes before what the person typed at that line's start.
+      ["graph TD\n\n  C --> D", "graph TD\nob\n  C --> D", "graph TD\n  X --> Y\n\n  C --> D", "graph TD\n  X --> Y\nob\n  C --> D"],
+      ["graph TD\n  A --> B", "graph TD\nob  A --> B", "graph TD\n  X --> Y\n  A --> B", "graph TD\n  X --> Y\nob  A --> B"],
       // A line added after a line keeps off what the person typed at that line's end.
       ["graph TD\n  A --> B", "graph TD\n  A --> Bob", "graph TD\n  A --> B\n  B --> C", "graph TD\n  A --> Bob\n  B --> C"],
-      // What the person typed at a line's end stays after the old end: after what the agent added there, or what it replaced it with.
+      // What the person typed at a line's end stays on that line, after the old end: before what the agent added
+      // there, or after what it replaced the end with, and before the lines the agent added after it.
       [
         "graph TD\n  A --> B\n  C --> D",
         "graph TD\n  A --> Bob\n  C --> D",
@@ -182,7 +184,7 @@ describe("Eos store", () => {
         "graph TD\n  A --> B\n  C --> D",
         "graph TD\n  A --> Bob\n  C --> D",
         "graph TD\n  A --> Z\n  Y --> Z\n  C --> D",
-        "graph TD\n  A --> Z\n  Y --> Zob\n  C --> D",
+        "graph TD\n  A --> Zob\n  Y --> Z\n  C --> D",
       ],
     ] as const
     for (const [base, person, edit, merged] of cases) {
@@ -290,8 +292,8 @@ describe("Eos store", () => {
       // The agent removes a line the person's last line begins like.
       ["flowchart TD\n  A --> B\n^  A", "flowchart TD\n  A", "flowchart TD\n^  A"],
       [hi.replace(/Hi$/, "H^i"), "sequenceDiagram\n  Alice->>Bob: Hi", "sequenceDiagram\n  Alice->>Bob: H^i"],
-      // The agent adds lines above the first line (at the spot the person typed at, so after their typing), or a line after a line it keeps.
-      ["^flowchart TD\n  A --> B\n", front + "flowchart TD\n  A --> B\n", "^" + front + "flowchart TD\n  A --> B\n"],
+      // The agent adds lines above the first line (before what the person typed at its start), or a line after a line it keeps.
+      ["^flowchart TD\n  A --> B\n", front + "flowchart TD\n  A --> B\n", front + "^flowchart TD\n  A --> B\n"],
       ["graph TD\nB^", "graph TD\nB\nA --> B", "graph TD\nB^\nA --> B"],
       ["graph TD\n^B", "graph TD\nB\nA --> B", "graph TD\n^B\nA --> B"],
     ] as const
@@ -316,12 +318,12 @@ describe("Eos store", () => {
         "sequenceDiagram\n  participant B as Bob\n  B-->>A: Hi\n",
         "sequenceDiagram\n  participant B as Robert\n  B-->>A: Hi\n",
       ],
-      // The person's replacement and the agent's lines go in at one spot, the person's first.
+      // The person's replacement and the agent's lines go in at one spot: the agent's lines first, so the person's stays on its line.
       [
         "flowchart TD\n  A --> B\n",
         ["flowchart", "graph"],
         "---\ntitle: Checkout\n---\nflowchart TD\n  A --> B\n",
-        "graph---\ntitle: Checkout\n---\n TD\n  A --> B\n",
+        "---\ntitle: Checkout\n---\ngraph TD\n  A --> B\n",
       ],
       ["graph TD\n  A --> B2\n  A --> B", [/-->(?= B$)/, "-.->"], "graph TD\n  A --> B", "graph TD\n  A -.-> B"],
     ] as const
@@ -459,11 +461,13 @@ describe("Eos store", () => {
                     const merged = await merge(text, keys, agent)
                     const bad: string[] = []
                     // Every character the person typed is there once, and every one they deleted (a line break) is gone:
-                    // the merge has the agent's characters and theirs, less any line break both deleted.
+                    // the merge has the agent's characters and theirs, less any line break both deleted, plus the final
+                    // line break the agent dropped, which a merge keeps.
                     const inserted = keys.map((key) => key.insert).join("")
                     const deleted = keys.filter((key) => key.to > key.from).length
+                    const keptBreak = text.endsWith("\n") && !agent.endsWith("\n") ? 1 : 0
                     for (const [c, n] of tally(inserted, tally(agent, tally(merged), -1), -1))
-                      if (c === "\n" ? n > 0 || n < -deleted : n !== 0) bad.push(`${n > 0 ? "extra" : "lost"} ${JSON.stringify(c)}`)
+                      if (c === "\n" ? n > keptBreak || n < -deleted : n !== 0) bad.push(`${n > 0 ? "extra" : "lost"} ${JSON.stringify(c)}`)
                     for (const run of [P, P2, "ob"])
                       if (count(merged, run) !== count(inserted, run)) bad.push(`person's ${JSON.stringify(run)}`)
                     // Every line the agent kept is there whole, unless the person typed inside it; every one it added is,
@@ -509,19 +513,19 @@ describe("Eos store", () => {
     const c = two.indexOf("  C")
     // The text at the base, the person's keystrokes since, the edit made from the base, and the merge.
     const cases: [string, TextChange[], string, string][] = [
-      // The person types a new last line after the final line break. Where the agent adds one there too, the
-      // person's goes first; where it drops that line break, what the person typed is left on the line above.
-      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start + "  B --> D", start + "  B --> C  B --> D"],
-      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start + "  B --> D\n", start + "  B --> C  B --> D\n"],
-      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start.trimEnd(), start.trimEnd() + "  B --> C"],
+      // The person types a new last line after the final line break. A line the agent adds there goes before it, and a
+      // final line break the agent drops is kept: each is a line of its own.
+      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start + "  B --> D", start + "  B --> D\n  B --> C"],
+      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start + "  B --> D\n", start + "  B --> D\n  B --> C"],
+      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start.trimEnd(), start + "  B --> C"],
       [
         start,
         [{ from: start.length, to: start.length, insert: "  B --> C" }],
         "flowchart TD\n  A[Start] --> B[Finish]",
-        "flowchart TD\n  A[Start] --> B[Finish]  B --> C",
+        "flowchart TD\n  A[Start] --> B[Finish]\n  B --> C",
       ],
-      [start, [{ from: start.length, to: start.length, insert: "  B --> C\n" }], start + "  B --> D", start + "  B --> C\n  B --> D"],
-      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start + "\n  B --> D", start + "  B --> C\n  B --> D"],
+      [start, [{ from: start.length, to: start.length, insert: "  B --> C\n" }], start + "  B --> D", start + "  B --> D\n  B --> C\n"],
+      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start + "\n  B --> D", start + "  B --> C\n  B --> D\n"],
       [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start + "\n", start + "  B --> C\n"],
       // The agent removes the last line, below a line the person added: by Enter at its start (so the line break the
       // agent removes is the one before the person's line), or at the end of the line above.
@@ -560,13 +564,13 @@ describe("Eos store", () => {
       // Part of a line at a line's start goes after what the person typed there, at the very start too.
       ["graph TD\nA --> B\n", [{ from: 0, to: 0, insert: "ob" }], "Xgraph TD\nA --> B\n", "obXgraph TD\nA --> B\n"],
       ["graph TD\nA --> B\n", [{ from: 9, to: 9, insert: "ob" }], "graph TD\nXA --> B\n", "graph TD\nobXA --> B\n"],
-      // What the person typed on the last lines the agent removes stays.
-      [two + "\n", [{ from: two.length, to: two.length, insert: " x" }], "graph TD\n  A --> B", "graph TD\n  A --> B x"],
+      // What the person typed on the last lines the agent removes stays, off the agent's lines.
+      [two + "\n", [{ from: two.length, to: two.length, insert: " x" }], "graph TD\n  A --> B", "graph TD\n  A --> B\n x"],
       [
         "graph TD\n  A --> B\n  C --> D\n  E --> F\n",
         [{ from: 18 + 10, to: 18 + 10, insert: " x" }],
         "graph TD\n  A --> B",
-        "graph TD\n  A --> B x",
+        "graph TD\n  A --> B\n x",
       ],
       // A line the person added below the last line stays its own line, whatever they did to the line the agent removes.
       [
@@ -604,6 +608,52 @@ describe("Eos store", () => {
       const version = (await eos.getDiagram(id))!.version
       const editor = await eos.bindSource(id)
       for (const keystroke of keystrokes) editor.edit([keystroke])
+      await eos.editDiagram(id, { source: edit }, undefined, { base: version })
+      expect.soft(await eos.getSource(id), JSON.stringify(edit)).toBe(merged)
+    }
+  })
+
+  it("merges an edit from an older version keeping a line the agent adds off the line the person is typing", async () => {
+    const eos = await fresh()
+    const start = "flowchart TD\n  A[Start] --> B[End]\n"
+    const two = "graph TD\n  A --> B\n  C --> D\n"
+    const c = two.indexOf("  C")
+    // The text at the base, the person's keystroke since, the edit made from the base, and the merge.
+    const cases: [string, TextChange, string, string][] = [
+      // The default diagram: the person types a new last line while the agent appends one, with or without a final
+      // line break, or drops the final line break.
+      [start, { from: start.length, to: start.length, insert: "  B --> C" }, start + "  B --> D\n", start + "  B --> D\n  B --> C"],
+      [start, { from: start.length, to: start.length, insert: "  B --> C" }, start + "  B --> D", start + "  B --> D\n  B --> C"],
+      [
+        start,
+        { from: start.length, to: start.length, insert: "  B --> C" },
+        "flowchart TD\n  A[Start] --> B[Finish]",
+        "flowchart TD\n  A[Start] --> B[Finish]\n  B --> C",
+      ],
+      // The person comments out or indents a line, or types on a blank line, while the agent adds a line above it.
+      [
+        two,
+        { from: c, to: c, insert: "%% " },
+        "graph TD\n  A --> B\n  X --> Y\n  C --> D\n",
+        "graph TD\n  A --> B\n  X --> Y\n%%   C --> D\n",
+      ],
+      [
+        two,
+        { from: c, to: c, insert: "  " },
+        "graph TD\n  A --> B\n  X --> Y\n  C --> D\n",
+        "graph TD\n  A --> B\n  X --> Y\n    C --> D\n",
+      ],
+      [
+        "graph TD\n  A --> B\n\n  C --> D\n",
+        { from: c, to: c, insert: "  P --> Q" },
+        "graph TD\n  A --> B\n  X --> Y\n\n  C --> D\n",
+        "graph TD\n  A --> B\n  X --> Y\n  P --> Q\n  C --> D\n",
+      ],
+    ]
+    for (const [base, keystroke, edit, merged] of cases) {
+      const id = await eos.createDiagram({ source: base })
+      const version = (await eos.getDiagram(id))!.version
+      ;(await eos.bindSource(id)).edit([keystroke])
       await eos.editDiagram(id, { source: edit }, undefined, { base: version })
       expect.soft(await eos.getSource(id), JSON.stringify(edit)).toBe(merged)
     }

@@ -188,6 +188,22 @@ test("an agent's text inserted at the person's caret within a line goes after th
   expect(await storedText(a, id)).toBe("graph TD\n  AZX --> B")
 })
 
+test("an agent's line appended to a new diagram while the person types a new last line stays a line of its own", async () => {
+  await a.goto("/#/")
+  await a.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+  const { id } = await tool<{ id: string }>(a, "create_diagram", { title: "New", open: false })
+  await openEditor(a, id)
+  const read = await tool<{ diagram: { source: string }; version: string }>(a, "get_diagram", { id })
+  expect(read.diagram.source).toBe("flowchart TD\n  A[Start] --> B[End]\n")
+  await a.locator(".cm-line").last().click()
+  await a.keyboard.type("  B --> C")
+  await tool(a, "update_diagram", { id, source: read.diagram.source + "  B --> D[Done]\n", baseVersion: read.version })
+  await a.keyboard.type("[Next]")
+  const merged = "flowchart TD\n  A[Start] --> B[End]\n  B --> D[Done]\n  B --> C[Next]"
+  await expectEditor(a, merged)
+  expect(await tool(a, "get_diagram", { id })).toMatchObject({ diagram: { source: merged }, valid: true })
+})
+
 test("an agent's edit merges with typing done after the version it read", async () => {
   const id = await openInBoth("flowchart TD\n  A --> B")
   // The agent works through tab b; the person types in tab a.
