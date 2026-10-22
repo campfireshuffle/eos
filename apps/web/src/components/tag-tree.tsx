@@ -1,5 +1,5 @@
 import { ArrowUpToLine, ChevronRight, GripVertical, Smile, Trash2 } from "lucide-react"
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useMemo, useRef, useState, type ReactNode } from "react"
 import {
   Button as AriaButton,
   Collection,
@@ -58,26 +58,13 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
   // A tag dropped on "Move to top level": the zone that had focus is gone, so focus goes to the
   // moved row once it renders, unless focus has gone somewhere else by then.
   const [refocus, setRefocus] = useState<TagPath | null>(null)
-  useEffect(() => {
-    if (!refocus) return
-    // The tree renders a new row a frame or so after its tags change.
-    let frame = 0
-    let tries = 30
-    const attempt = () => {
-      const row = treeRef.current?.querySelector<HTMLElement>(`[role=row][data-key="${CSS.escape(refocus)}"]`)
-      if (!row) {
-        if (tries-- > 0) frame = requestAnimationFrame(attempt)
-        else setRefocus(null)
-        return
-      }
-      const active = document.activeElement
-      // React Aria hands focus to the tree itself when the dragged row is gone.
-      if (!active || active === document.body || active === treeRef.current) row.focus()
-      setRefocus(null)
-    }
-    attempt()
-    return () => cancelAnimationFrame(frame)
-  }, [refocus])
+  const focusMoved = (row: HTMLElement | null) => {
+    if (!row) return
+    const active = document.activeElement
+    // React Aria hands focus to the tree itself when the dragged row is gone.
+    if (!active || active === document.body || active === treeRef.current) row.focus()
+    setRefocus(null)
+  }
 
   const moveTo = (from: TagPath, parent: TagPath | null) => {
     const to = parent ? `${parent}/${nameOf(from)}` : nameOf(from)
@@ -135,8 +122,9 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
         ref={treeRef}
         aria-label="Tags"
         items={sorted}
-        // Rows are cached per item; redraw them when the active tag changes so the highlight follows the URL.
-        dependencies={[selected]}
+        // Rows are cached per item; redraw them when the active tag changes so the highlight follows the URL,
+        // and when a moved row is waiting for focus, so it gets the ref that focuses it.
+        dependencies={[selected, refocus]}
         expandedKeys={expandedKeys}
         onExpandedChange={(keys: Set<Key>) => setCollapsed(new Set(withChildren.filter((p) => !keys.has(p))))}
         onAction={(key) => navigate(homeHref({ tag: String(key), sort: sort as never, group: group as never }))}
@@ -150,6 +138,7 @@ export function TagTree({ tags, selected, sort, group }: { tags: TagRecord[]; se
             <TreeItem
               id={tag.path}
               textValue={tag.path}
+              ref={tag.path === refocus ? focusMoved : undefined}
               onContextMenu={(e) => {
                 e.preventDefault()
                 setMenu({ tag: tag.path, x: e.clientX, y: e.clientY, from: e.currentTarget })
