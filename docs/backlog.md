@@ -587,11 +587,11 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
     - It is related to "On phones, focus moved off the selection bar can land on a card hidden under the sticky header". Fix the two together.
   - **Fix:** require the card to sit fully inside the scroller (with the sticky header's bottom as the top edge on phones), and prefer one near the middle. Or choose the target after React re-renders, from the cards that remain.
 
-- **On Firefox, an agent's delete while the Tags menu is open can drop focus to the page.**
-  - **What:** with the Tags menu open, an agent deletes the selected diagrams and the person answers the confirm. Focus ends on BODY in 2 of 5 Firefox runs (never on Chromium or WebKit).
-  - **Where:** `apps/web/src/lib/selection.ts` (`focusOffSelection`), `apps/web/src/components/tag-menu.tsx`. Repro: A4 `library/agentdel.probe.ts`.
-  - **Why low:** it's a timing edge on one engine that needs an agent's delete during an open menu. Nothing is lost. Found by A4's library audit.
-  - **Fix:** rerun the repro now that A4 batch A keeps the menu's rows mounted. If it still reproduces, log the order of the confirm close, the prune and the popover close on Firefox, and move focus after the popover's close.
+- **An agent's confirm answered while focus is in the Tags menu drops focus to the page.**
+  - **What:** with focus in the selection bar's Tags menu, an agent's tool opens a confirm (delete, for example). Answering it leaves focus on BODY in 3 of 3 engines (A5). The first Escape only closes the menu. A4 saw it in 2 of 5 Firefox runs for an agent's delete.
+  - **Where:** `apps/web/src/components/tag-menu.tsx`, `apps/web/src/lib/selection.ts`, and the confirm in `packages/ui` Dialog. Repros: A4 and A5 `library/agentdel.probe.ts`.
+  - **Why low:** it needs an agent's confirm while the person has the menu open. Nothing is lost, and one Tab gets back. Found by A4's and A5's library audits.
+  - **Fix:** close the Tags popover before a confirm opens, so the dialog returns focus to the bar or a card. Or, when the confirm closes and its opener is gone, fall back to the selection bar or `setSelection`'s focus target.
 
 - **accessibility.spec's "2 selected" step can fail on Firefox under parallel load.**
   - **What:** after `goto("/#/")`, the test right-clicks card 0 and clicks card 1 before the whole library has rendered. The second click can land on a card that is then re-rendered, so "2 selected" never shows.
@@ -599,11 +599,94 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** test only. Found by A4's settings audit.
   - **Fix:** wait for the full card count (`await expect(cards).toHaveCount(n)`) after `goto("/#/")`, before selecting.
 
-- **WebKit: Tab in the selection bar's Tags menu skips the tag rows.**
-  - **What:** in WebKit, Tab from the menu's search field skips the tag rows (buttons) and can land on an invisible Radix focus guard; Safari doesn't Tab to buttons unless "Press Tab to highlight each item" is on. Arrow keys and ⌥Tab still reach the rows.
-  - **Where:** `apps/web/src/components/tag-menu.tsx`, e2e `tags.spec.ts` (the created-tag test skips its Tab step on WebKit).
-  - **Why low:** it's the platform's default for buttons, and nothing is lost.
-  - **Fix:** make the rows a roving-tabindex list (arrow keys between rows, one Tab stop), or use checkboxes, which Safari does Tab to.
+- **The selection bar's Tags menu has no arrow keys, and in WebKit plain Tab skips its rows.**
+  - **What:** the rows are plain `role="checkbox"` buttons in a Radix Popover.
+    - Arrow keys do nothing in any engine. An earlier version of this entry said they reach the rows; they don't.
+    - Chromium and Firefox Tab through the rows.
+    - In WebKit, plain Tab goes from the search to a Radix focus guard, then to BODY, because Safari doesn't Tab to buttons unless "Press Tab to highlight each item" is on.
+    - ⌥Tab reaches every row, Space toggles it, and typing a tag plus Enter in the search toggles it.
+  - **Where:** `apps/web/src/components/tag-menu.tsx`, and e2e `tags.spec.ts` (the created-tag test skips its Tab step on WebKit). Repro: A5 `arch/t/arrows.spec.ts`.
+  - **Why low:**
+    - Every row is keyboard-reachable in every engine. On WebKit that's with ⌥Tab, as for every button in Eos, including the Tags button itself.
+    - One Tab stop per checkbox plus Space is the APG checkbox pattern.
+    - Nothing is lost.
+    - Found by A4 and A5's arch audits. The A5 gatekeeper verified ⌥Tab, Space and search+Enter on WebKit.
+  - **Fix:** if it's rebuilt, use React Aria Components' `Autocomplete` with a `Menu` or `ListBox` (`selectionMode="multiple"`, already a dependency). That gives arrows, one Tab stop and virtual focus from the search.
+    - Selection there is a key Set with no tri-state, so the "some" state (`aria-checked="mixed"`) must be rendered by hand.
+    - A4's ghost rows and focus rules must be re-proven.
+    - The rebuild also fixes "The selection bar's Tags popover is a nameless dialog" and "The Tags menu's Create button drops focus to the page". It doesn't fix the ghost-row entries below, which are state logic.
+
+- **A ghost row in the Tags menu outlives a rename or delete made elsewhere.**
+  - **What:** since A4, a tag the open Tags menu unchecked (its last use) keeps a ghost row. If another tab or an agent renames or deletes that tag while the menu is open, the ghost keeps the old name, and checking it re-creates the old tag. A nested tag's ghost can also move to the end of the list when its parent goes with it.
+  - **Where:** `apps/web/src/components/tag-menu.tsx` (`unchecked`, `shown`). Repros: A5 `library/tabs.probe.ts`, `library/ghost.probe.ts`, `webmcp/s/tm1.mjs`.
+  - **Why low:** it needs a concurrent rename or delete during an open menu. The re-created tag is visible and can be removed. Found independently by A5's library and webmcp audits.
+  - **Fix:** keep a ghost only while the tag's record is gone because this menu removed its last use. Drop it when the record changes for any other reason (a rename or delete elsewhere). Store the neighbour's path, not an index, to keep its place.
+
+- **The Tags menu shows a ghost row and "Create" for the same name.**
+  - **What:** after unchecking a tag's last use, typing that name in the search shows both its ghost row and "Create “name”", which do the same thing.
+  - **Where:** `apps/web/src/components/tag-menu.tsx`, `canCreate` (checks `all`, not `shown`).
+  - **Why low:** both work and give the same result. Found by A5's arch audit.
+  - **Fix:** `canCreate = !!newTag && !shown.some((t) => t.path === newTag)`.
+
+- **The Tags menu's Create button drops focus to the page.**
+  - **What:** activating "Create “name”" by click, or by Tab + Enter, clears the query, so the button unmounts and focus falls to BODY. Enter in the search is fine.
+  - **Where:** `apps/web/src/components/tag-menu.tsx`, `create`.
+  - **Why low:** it predates A4, and Enter in the search (the usual path) keeps focus. Found by A5's library audit.
+  - **Fix:** focus the search input after `create()` (a ref on `Input`).
+
+- **An agent's rename of the focused Tags-menu row drops focus to the page.**
+  - **What:** with focus on a Tags-menu row, an agent's `update_tag` rename re-keys the row (`key={t.path}`), and focus falls to BODY.
+  - **Where:** `apps/web/src/components/tag-menu.tsx`. Repro: A5 `webmcp/s/tm2.mjs`.
+  - **Why low:** it needs an agent rename during an open menu. Found by A5's webmcp audit.
+  - **Fix:** when the focused row's path disappears and a renamed record takes its place, focus the row at the same index (the same approach as the moved-row refocus in tag-tree).
+
+- **The selection bar's Tags popover is a nameless dialog.**
+  - **What:** the Tags `PopoverContent` has `role="dialog"` and no accessible name, which fails axe's `aria-dialog-name` (serious). Its search input is named only by its placeholder.
+  - **Where:** `apps/web/src/components/tag-menu.tsx`. Repro: A5 `arch/t/menuname.spec.ts`.
+  - **Why low:** the trigger says "Tags", and each row names itself. This is the same class as "The version history popover is a nameless dialog". Found by A5's arch audit.
+  - **Fix:** `aria-label="Tags for the selected diagrams"` on `PopoverContent`, and `aria-label="Find or create a tag"` on the input.
+
+- **A restore in one tab, then ⌘Z in another, duplicates the restored line.**
+  - **What:** `restoreVersion` clears the undo stacks only in its own tab. Another tab's next ⌘Z undoes an edit from before the restore against the restored text, and that can duplicate a line.
+  - **Where:** `packages/core/src/store.ts`, `restoreVersion` (about line 418), and `listenToOtherTabs`. Repro: A5 `core/xrestore.test.ts`.
+  - **Why low:** it needs two tabs on one diagram, a restore in one and an undo in the other. It's visible, undoable, and kept in history. Found by A5's core audit.
+  - **Fix:** broadcast a "restored" message, so other tabs clear that diagram's undo stacks.
+
+- **Malformed version ids get through `frontiersOf`.**
+  - **What:** ids like `"peer:"` or `"peer:0x1"` parse, so `restoreVersion` and `previewVersion` can act on a bogus frontier, and a restore can empty the diagram.
+  - **Where:** `packages/core/src/store.ts`, `frontiersOf` (about line 1092). Repro: A5 `core/ver.test.ts`.
+  - **Why low:** only an agent passes raw ids, and the emptied text stays in history. Found by A5's core audit.
+  - **Fix:** require each part to match `/^\d+:\d+$/` before parsing, and return not_found otherwise.
+
+- **Comment text on the highlighted error line fails contrast.**
+  - **What:** inside `.cm-error-line`, Mermaid comment tokens are 4.19:1 (light) and 3.91:1 (dark), below 4.5:1. axe's `color-contrast` flags them.
+  - **Where:** `apps/web/src/components/code-editor.tsx` (`.cm-error-line`'s 12% red tint) and the comment token colour.
+  - **Why low:** it only affects comment text on the one error line. Found by A5's editor audit.
+  - **Fix:** lighten the tint, or darken the comment colour inside `.cm-error-line`.
+
+- **set_view with page "diagram" ignores zoom.**
+  - **What:** `set_view({ page: "diagram", diagramId, zoom })` opens the diagram, but the zoom is applied before the preview mounts, so it's lost, and the result reports the old zoom.
+  - **Where:** `packages/webmcp/src/index.ts`, `set_view` (about line 465). Repro: A5 webmcp.
+  - **Why low:** agent-only, and a second `set_view({ zoom })` works. Found by A5's webmcp audit.
+  - **Fix:** apply the zoom after navigation settles (or keep it as pending UI state the preview reads on mount), and report the zoom actually applied.
+
+- **update_tag reports ok for nothing, and stores any text as the emoji.**
+  - **What:** `update_tag` on a nonexistent path, or with an empty `moveTo`, returns ok without changing anything. `emoji` accepts any string, not one grapheme.
+  - **Where:** `packages/webmcp/src/index.ts`, `update_tag` (about lines 403–415).
+  - **Why low:** agent-only, and nothing is damaged. Found by A5's webmcp audit.
+  - **Fix:** return not_found for an unknown path and invalid_input for an empty `moveTo`. Validate the emoji as a single grapheme (`Intl.Segmenter`).
+
+- **After Delete all, or emptying the trash, "Welcome to Eos" comes back on the next reload.**
+  - **What:** startup seeds the samples whenever the `diagrams` store is empty, so a library deliberately emptied gets the sample back.
+  - **Where:** `packages/core/src/store.ts` (about line 152, the `db.count("diagrams") === 0` seed). Related: "Two first-visit tabs each seed "Welcome to Eos"…".
+  - **Why low:** it's a sample, not lost data, and it can be deleted again. Found by A5's settings audit.
+  - **Fix:** record a "seeded" marker in the workspace doc (or a meta row), and seed only when it's absent. Fix it together with the Web Lock seeding entry.
+
+- **A missing /assets/ file is answered with index.html and cached for a year.**
+  - **What:** the SPA fallback serves index.html (200, text/html) for a missing `/assets/*`, and `_headers` marks it `immutable, max-age=31536000`.
+  - **Where:** `apps/web/public/_headers`, and the Workers/Pages asset config.
+  - **Why low:** hashed asset URLs that are missing are already dead, and the chunk-failure UI still shows. Found by A5's settings audit.
+  - **Fix:** return 404 for missing `/assets/*` (for example `assets.run_worker_first` for `/assets/*`, or `not_found_handling` scoped away from assets).
 
 ## Refactors to consider (from the round 11 cleanup review)
 

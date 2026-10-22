@@ -59,7 +59,7 @@ flowchart LR
   Log -- "compaction" --> Snap
   DiagramDoc --> Index
   Index --> Home
-  Settings -- "theme CSS overrides" --> Theme["Theme stylesheet<br/>:root + .pele-root"]
+  Settings -- "theme CSS overrides" --> Theme["Theme stylesheet<br/>:root, .dark (+ .pele-thumb)"]
   Theme --> Preview
   Actions --> Settings
 
@@ -121,7 +121,7 @@ Reasons for keeping this in a separate doc:
 ```ts
 // Roots of the workspace doc
 //   starred:  LoroMap<DiagramId, true>    a key per starred diagram; delete the key to unstar
-//   tagEmoji: LoroMap<TagPath, string>    a single grapheme per tag that has one; missing → render "#"
+//   tagEmoji: LoroMap<TagPath, string>    the icon text per tag that has one (not validated to a single grapheme); missing → render "#"
 ```
 
 - **Tag tree:** only tags in use. Take every tag prefix in the index rows of diagrams that aren't deleted, split on `/`, nest, and sort alphabetically, attaching each tag's emoji from `tagEmoji`. A tag disappears when its last diagram drops it, the way it does in Bear; its emoji stays in `tagEmoji` and comes back if the tag is used again.
@@ -179,7 +179,7 @@ interface StoredRow {
 }
 ```
 
-Reads (`listDiagrams`, `counts`, `getDiagram`, the starred filter) add `starred: 0 | 1` to each row from `workspace.starred` (§1a), giving a `DiagramIndexRow`. Rows never store it; a `starred` field left in a row by an older version is ignored.
+Reads (`listDiagrams`, `counts`, `getDiagram`, the starred filter) add `starred` to each row from `workspace.starred` (§1a), giving a `DiagramIndexRow`. Rows never store it; a `starred` field left in a row by an older version is ignored.
 
 ### Write path
 
@@ -197,7 +197,7 @@ Reads (`listDiagrams`, `counts`, `getDiagram`, the starred filter) add `starred:
 
 Compact a diagram once its log has more than 200 entries, checked after each write (`persistDoc` in `docs.ts`). The same step saves a doc after a failed write, after an import and after Delete all (the workspace). Given an index row, it also writes that row, which is how a new diagram and an imported diagram that isn't open are saved.
 
-To compact, in one `readwrite` transaction over `snapshots` + `updates` (+ `diagrams`, only when a row is given):
+To compact, in one `readwrite` transaction over `snapshots` + `updates` (+ `diagrams` and `pendingRows`, only when a row is given; it writes the row and clears that diagram's pending mark):
 
 ```ts
 // both read inside the transaction; one at a time, since a batch that brings in new changes empties an open doc's undo stacks
