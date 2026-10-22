@@ -35,7 +35,8 @@ export function HistoryMenu({ id }: { id: string }) {
         </TooltipTrigger>
         <TooltipContent>Version history</TooltipContent>
       </Tooltip>
-      <PopoverContent align="end" className="max-h-(--radix-popover-content-available-height) w-80 gap-0 p-1.5">
+      {/* Kept clear of the window's edges, so on a short window it ends inside it, not a fraction of a pixel over. */}
+      <PopoverContent align="end" collisionPadding={8} className="max-h-(--radix-popover-content-available-height) w-80 gap-0 p-1.5">
         <span className="px-2 pt-1 pb-2 text-caption font-medium text-muted-foreground">Version history</span>
         <div className="flex max-h-96 min-h-0 flex-1 flex-col overflow-y-auto">
           {entries.map((e, i) => {

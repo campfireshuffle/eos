@@ -337,6 +337,8 @@ test.describe("short viewports", () => {
       await page.getByRole("button", { name: "Version history" }).click()
       const popover = page.locator("[data-slot=popover-content]")
       await expect(popover.getByText("· Current")).toBeVisible()
+      // Measured once it has zoomed in: mid-animation its box is scaled.
+      await popover.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)))
       const box = (await popover.boundingBox())!
       expect(box.y).toBeGreaterThanOrEqual(0)
       expect(box.y + box.height).toBeLessThanOrEqual(viewport.height)
