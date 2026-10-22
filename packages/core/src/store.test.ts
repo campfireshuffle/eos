@@ -3,7 +3,6 @@ import "fake-indexeddb/auto"
 import { LoroDoc, type LoroMap } from "loro-crdt"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { fromBase64, toBase64 } from "./base64"
 import { openEosDB, type Database } from "./db"
 import { compact, lastChangeAt, loadDoc, newDiagramDoc, setTags } from "./docs"
 import { decodeShare, encodeShare } from "./share"
@@ -683,7 +682,7 @@ describe("Eos store", () => {
     await expect(later.getSource(id)).rejects.toThrow("not found")
     // Nor is its star kept, to come back with it from a backup.
     const workspace = new LoroDoc()
-    workspace.import(fromBase64(JSON.parse(await later.exportBackup()).workspace))
+    workspace.import(Uint8Array.fromBase64(JSON.parse(await later.exportBackup()).workspace))
     expect(workspace.getMap("starred").get(id)).toBeUndefined()
   })
 
@@ -902,10 +901,10 @@ describe("durability", () => {
     const id = await eos.createDiagram({ source: "base" })
     // A backup of the same diagram, edited elsewhere. Exporting opens the diagram here.
     const backup = JSON.parse(await eos.exportBackup()) as { diagrams: { snapshot: string }[] }
-    const elsewhere = LoroDoc.fromSnapshot(fromBase64(backup.diagrams[0]!.snapshot))
+    const elsewhere = LoroDoc.fromSnapshot(Uint8Array.fromBase64(backup.diagrams[0]!.snapshot))
     elsewhere.getText("source").insert(4, " + edit from elsewhere")
     elsewhere.commit()
-    backup.diagrams[0]!.snapshot = toBase64(elsewhere.export({ mode: "snapshot" }))
+    backup.diagrams[0]!.snapshot = elsewhere.export({ mode: "snapshot" }).toBase64()
     await eos.importBackup(JSON.stringify(backup), "merge")
     await settle()
     const later = await Eos.create({ dbName: name, seed: false })
@@ -919,10 +918,10 @@ describe("durability", () => {
     const other = await Eos.create({ dbName: name, seed: false })
     expect(await other.getSource(id)).toBe("base") // open there too
     const backup = JSON.parse(await eos.exportBackup()) as { diagrams: { snapshot: string }[] }
-    const elsewhere = LoroDoc.fromSnapshot(fromBase64(backup.diagrams[0]!.snapshot))
+    const elsewhere = LoroDoc.fromSnapshot(Uint8Array.fromBase64(backup.diagrams[0]!.snapshot))
     elsewhere.getText("source").insert(4, "!")
     elsewhere.commit()
-    backup.diagrams[0]!.snapshot = toBase64(elsewhere.export({ mode: "snapshot" }))
+    backup.diagrams[0]!.snapshot = elsewhere.export({ mode: "snapshot" }).toBase64()
     await eos.importBackup(JSON.stringify(backup), "merge")
     await settle()
     expect(await other.getSource(id)).toBe("base!")
@@ -1672,7 +1671,7 @@ describe("backup import", () => {
   it("rejects snapshots Loro can't read before replacing anything", async () => {
     const eos = await fresh()
     await eos.createDiagram({ title: "Keep me" })
-    const junk = toBase64(new TextEncoder().encode("not a loro snapshot"))
+    const junk = new TextEncoder().encode("not a loro snapshot").toBase64()
     await expect(eos.importBackup(JSON.stringify({ v: 1, diagrams: [{ id: "x", snapshot: junk }] }), "replace")).rejects.toThrow(/damaged/)
     await expect(eos.importBackup(JSON.stringify({ v: 1, workspace: junk, diagrams: [] }), "replace")).rejects.toThrow(/damaged/)
     expect((await eos.listDiagrams()).map((d) => d.title)).toEqual(["Keep me"])
@@ -1761,7 +1760,7 @@ describe("backup import", () => {
     const workspace = new LoroDoc()
     workspace.getMap("tagEmoji").set("work", { a: 1 })
     workspace.commit()
-    const backup = { v: 1, workspace: toBase64(workspace.export({ mode: "snapshot" })), diagrams: [] }
+    const backup = { v: 1, workspace: workspace.export({ mode: "snapshot" }).toBase64(), diagrams: [] }
     await eos.importBackup(JSON.stringify(backup), "merge")
     expect((await eos.listTags()).map((t) => t.emoji)).toEqual([null])
   })
@@ -1775,7 +1774,7 @@ describe("backup import", () => {
     workspace.starred.set("no-such-diagram", true)
     workspace.doc.commit()
     await eos.importBackup(await eos.exportBackup(), "replace")
-    const saved = LoroDoc.fromSnapshot(fromBase64(JSON.parse(await eos.exportBackup()).workspace))
+    const saved = LoroDoc.fromSnapshot(Uint8Array.fromBase64(JSON.parse(await eos.exportBackup()).workspace))
     expect(saved.getMap("starred").toJSON()).toEqual({ [id]: true })
   })
 
@@ -1809,9 +1808,9 @@ describe("backup import", () => {
     const id = await a.createDiagram({ title: "Tampered", source: "a" })
     const backup = JSON.parse(await a.exportBackup())
     const doc = new LoroDoc()
-    doc.import(fromBase64(backup.diagrams[0].snapshot))
+    doc.import(Uint8Array.fromBase64(backup.diagrams[0].snapshot))
     tamper(doc)
-    backup.diagrams[0].snapshot = toBase64(doc.export({ mode: "snapshot" }))
+    backup.diagrams[0].snapshot = doc.export({ mode: "snapshot" }).toBase64()
     return { id, backup: JSON.stringify(backup) }
   }
 
@@ -1836,27 +1835,6 @@ describe("backup import", () => {
     const eos = await fresh()
     await eos.importBackup(backup, "merge")
     expect((await eos.history(id)).map((e) => e.actor)).toEqual([{ kind: "user" }])
-  })
-})
-
-describe("base64", () => {
-  // What Eos wrote before switching to the shared helper; old links and backups must still decode.
-  const legacyUrl = (bytes: Uint8Array) =>
-    btoa(String.fromCharCode(...bytes))
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=+$/, "")
-
-  it("matches the old encoding byte for byte", () => {
-    const bytes = Uint8Array.from({ length: 300 }, (_, i) => (i * 37) % 256)
-    expect(toBase64(bytes, "base64url")).toBe(legacyUrl(bytes))
-    expect(toBase64(bytes)).toBe(btoa(String.fromCharCode(...bytes)))
-    expect(fromBase64(legacyUrl(bytes), "base64url")).toEqual(bytes)
-  })
-
-  it("round-trips snapshots larger than one chunk", () => {
-    const bytes = Uint8Array.from({ length: 200_000 }, (_, i) => i % 251)
-    expect(fromBase64(toBase64(bytes))).toEqual(bytes)
   })
 })
 
@@ -1926,11 +1904,20 @@ describe("share links", () => {
     expect(await decodeShare("garbage")).toBeNull()
   })
 
+  it("decodes a link written before native base64 (btoa, URL-safe, unpadded)", async () => {
+    const bytes = Uint8Array.fromBase64(await encodeShare({ title: "T", source: "pie" }), { alphabet: "base64url" })
+    const legacy = btoa(String.fromCharCode(...bytes))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "")
+    expect(await decodeShare(legacy)).toMatchObject({ title: "T", source: "pie" })
+  })
+
   it("refuses a link that inflates past the size cap or carries a huge title", async () => {
     const deflate = async (json: object) => {
       const bytes = new TextEncoder().encode(JSON.stringify(json))
       const out = new Blob([bytes]).stream().pipeThrough(new CompressionStream("deflate-raw"))
-      return toBase64(new Uint8Array(await new Response(out).arrayBuffer()), "base64url")
+      return (await new Response(out).bytes()).toBase64({ alphabet: "base64url", omitPadding: true })
     }
     const bomb = await deflate({ v: 1, title: "T", source: "a".repeat(5_000_000) })
     expect(bomb.length).toBeLessThan(32_000)

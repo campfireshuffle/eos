@@ -127,8 +127,7 @@ function Thumbnail({ id, source, updatedAt }: { id: string; source: string | und
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    // On desktop the library scrolls inside its pane, which a rootMargin doesn't reach past; scrollMargin
-    // does (in browsers without it, cards render as they scroll into view).
+    // On desktop the library scrolls inside its pane, which a rootMargin doesn't reach past; scrollMargin does.
     const io = new IntersectionObserver((entries) => setVisible(entries.at(-1)!.isIntersecting), {
       rootMargin: "50% 0px",
       scrollMargin: "50% 0px",

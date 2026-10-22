@@ -175,6 +175,11 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** cosmetic. Escape then Tab still leaves the editor, and Settings stays open. Round 16 corrected the comment that claimed it collapses.
   - **Fix:** call `simplifySelection(v)` (from `@codemirror/commands`) in `onEscape` before arming the exit. Add an e2e: select text in the Diagram theme CSS editor, press Escape, and expect the selection to be empty and the dialog open.
 
+- **Firefox's `Intl.Segmenter` marks a run of Han, Kana or Thai that is one word as not word-like (browser bug).**
+  - **What:** `segment` keeps every piece holding a letter or digit instead of filtering on `isWordLike`, or Firefox would index `東京` as no words. `search.test.ts` covers it.
+  - **Where:** `packages/core/src/search.ts`, `segment`.
+  - **Fix:** once Firefox fixes it, filter on `isWordLike`.
+
 - **A word inside a dictionary compound can't be found, and which words can differs by browser.**
   - **What:** Chromium and WebKit segment `東京タワーの夜景` as `東京タワー|の|夜景`, so "タワー" finds nothing ("東京" does, as a prefix). Firefox splits it as `東京|タワー|の|夜景`. The same title gives different results by browser.
   - **Where:** `packages/core/src/search.ts`, `segment`.

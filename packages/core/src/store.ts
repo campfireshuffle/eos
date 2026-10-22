@@ -1,7 +1,6 @@
 import { type Delta, type Frontiers, LoroDoc, type LoroMap, type LoroText, UndoManager, type Value } from "loro-crdt"
 import * as z from "zod/mini"
 
-import { fromBase64, toBase64 } from "./base64"
 import { openEosDB, WORKSPACE_ID, type Database, type OpenHooks, type StoredRow } from "./db"
 import {
   actorOrigin,
@@ -557,13 +556,13 @@ export class Eos {
       // A diagram that isn't open is loaded just for this and freed, rather than kept open.
       const open = await this.ifOpen(row.id)
       const doc = open?.doc ?? (await loadDoc(this.db, row.id))
-      diagrams.push({ id: row.id, deletedAt: row.deletedAt, snapshot: toBase64(doc.export({ mode: "snapshot" })) })
+      diagrams.push({ id: row.id, deletedAt: row.deletedAt, snapshot: doc.export({ mode: "snapshot" }).toBase64() })
       if (!open) doc.free()
     }
     return JSON.stringify({
       v: 1,
       settings: { theme: this.settingsCache.theme },
-      workspace: toBase64(this.workspace.doc.export({ mode: "snapshot" })),
+      workspace: this.workspace.doc.export({ mode: "snapshot" }).toBase64(),
       diagrams,
     })
   }
@@ -1057,7 +1056,7 @@ export function readBackup(data: string) {
   const { settings, workspace, diagrams } = parsed.data
   /** The bytes, loaded into a throwaway doc first so bytes Loro can't read throw here. */
   const decode = (base64: string) => {
-    const bytes = fromBase64(base64)
+    const bytes = Uint8Array.fromBase64(base64)
     new LoroDoc().import(bytes)
     return bytes
   }
