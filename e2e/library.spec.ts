@@ -573,6 +573,67 @@ test("Search finds a diagram by a single Chinese, Japanese or Thai word", async 
   }
 })
 
+test("search results are one list, best match first, and Group applies again once the search is cleared", async ({ context }) => {
+  test.setTimeout(90_000)
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.goto("/#/")
+  await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+  // An exact title from 20 days ago, among 250 diagrams made today: under Group: Date it would sit in a later section.
+  const now = Date.now()
+  await page.clock.setSystemTime(now - 20 * 86_400_000)
+  await tool(page, "create_diagram", {
+    title: "Login flow",
+    source: "flowchart TD\n  U[User] --> L{Valid password?}\n  L -->|yes| H[Home]",
+    open: false,
+  })
+  await page.clock.setSystemTime(now)
+  await page.evaluate(async () => {
+    const create = (window as unknown as { __tools: Record<string, { execute(x: unknown): Promise<unknown> }> }).__tools.create_diagram
+    const nouns =
+      "warehouse inventory shipping returns refunds onboarding payroll hiring roadmap sprint retro incident outage database migration schema".split(
+        " "
+      )
+    for (let i = 0; i < 250; i++) {
+      const [a, b] = [nouns[i % nouns.length], nouns[(i * 7 + 3) % nouns.length]]
+      const lines = [
+        "flowchart TD",
+        ...Array.from({ length: 6 }, (_, j) => `  ${nouns[(i + j) % nouns.length]} --> ${nouns[(i + j * 5 + 1) % nouns.length]}`),
+      ]
+      await create.execute({ title: `${a} ${b} ${i}`, source: lines.join("\n"), open: false })
+    }
+  })
+  const headings = page.locator(".eos-library-scroller h2")
+  await expect(headings.first()).toBeVisible()
+  expect(await headings.count()).toBeGreaterThan(1)
+
+  const search = page.getByRole("textbox", { name: "Search diagrams" }).first()
+  // The first character switches to one list only once its results are in: no frame shows every card ungrouped.
+  const cards = await page.locator("[data-card-id]").count()
+  await page.evaluate(() => {
+    const frames: [number, number][] = []
+    Object.assign(window, { __frames: frames })
+    const record = () => {
+      frames.push([document.querySelectorAll(".eos-library-scroller h2").length, document.querySelectorAll("[data-card-id]").length])
+      if (frames.length < 600) requestAnimationFrame(record)
+    }
+    requestAnimationFrame(record)
+  })
+  await search.pressSequentially("L")
+  await expect(page.locator("[data-card-id] .text-label").first()).toHaveText("Login flow")
+  const frames = await page.evaluate(() => (window as unknown as { __frames: [number, number][] }).__frames)
+  expect(frames.filter(([h, c]) => h === 0 && c === cards)).toEqual([])
+
+  await search.fill("Login flow")
+  await expect(page.locator("[data-card-id] .text-label").first()).toHaveText("Login flow")
+  await expect(headings).toHaveCount(0)
+
+  await search.fill("")
+  await expect(headings.first()).toBeVisible()
+  expect(await headings.count()).toBeGreaterThan(1)
+  await expect(page.getByRole("combobox", { name: "Group by" })).toHaveValue("date")
+})
+
 // Nothing a page starts as it goes away is sure to land, so the row is rebuilt on the next start.
 for (const how of ["reload", "close"] as const)
   for (const wait of [0, 100, 250])

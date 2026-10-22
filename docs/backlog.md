@@ -185,6 +185,7 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `packages/core/src/search.ts`, `segment` and `BUILD_SLICE`.
   - **Why low:** it only matters with hundreds of long CJK diagrams. The build is sliced, so typing still gets turns.
   - **Fix:** cache `segment(run)` per index build, in a Map created in `searchIndex` and passed to a per-index tokenizer. With 8 repeated labels this gave 480 → 205 ms. Don't use a module-level Map: it would grow for the session.
+  - **Also:** Since A7, `searchIndex` tokenizes every diagram twice: once inside Orama and once for `wordsOf`. That makes the build 50–90% slower in every script. **Fix:** a per-build `Map<string, string[]>` memo in the tokenizer, shared by both uses. It also covers this entry's `segment` cache.
 
 - **Accent folding is too broad for Cyrillic and too narrow elsewhere.**
   - **What:**
@@ -222,12 +223,6 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `apps/web/src/components/home.tsx` (the Search input), `packages/core/src/search.ts`.
   - **Why low:** it's a brief flash during composition, and the final result is correct.
   - **Fix:** don't search while `e.nativeEvent.isComposing`, keeping the last results until `compositionend`.
-
-- **Search doesn't treat curly and straight apostrophes, or hyphens and spaces, as the same.**
-  - **What:** "don't" doesn't find a title typed as "don’t" (iOS smart punctuation), and "follow-up" doesn't find "Follow up". The query "don’t" also matches unrelated titles through the token "t". This predates round 16, since Orama's default splitter also kept `'` and `-`.
-  - **Where:** `packages/core/src/search.ts`, the tokenizer.
-  - **Why low:** the other words of the title still find it, and these are near misses rather than wrong results.
-  - **Fix:** fold `’` and `‘` to `'` before tokenizing, and index a hyphenated or apostrophised word's parts as well as the whole word.
 
 - **Sort: Title ignores Thai and Indic vowel signs and sorts numbers as text.**
   - **What:** a row's `titleKey` strips every `\p{M}`, which drops Thai and Indic vowel signs, and `localeCompare` on it compares digits as text, so "Item 10" comes before "Item 2". The tag tree's collator is numeric.
@@ -771,6 +766,66 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `apps/web/src/App.tsx` (Shell), `apps/web/src/lib/scroll-restore.ts`.
   - **Why low:** it needs a resize across the breakpoint while scrolled; nothing is lost.
   - **Fix:** carry the scroll offset across the scroller change (restore it to the new scroller after the layout switch).
+
+- **On phones, an open drawer comes back after a rotation to landscape and back.**
+  - **What:** `mobileNavOpen` is reset only when the URL changes. If the drawer is open and the phone is rotated past 768px (the desktop layout), then rotated back, the drawer reopens. It also happens after resizing a window phone → desktop → phone. Found by A8's library, webmcp and settings audits.
+  - **Where:** `apps/web/src/App.tsx` (Shell, `mobileNavOpen`).
+  - **Why low:** it's the drawer the person last opened, and it closes as usual.
+  - **Fix:** set `mobileNavOpen` to false when `useIsMobile()` turns false.
+
+- **Crossing 768px drops focus from the library's Search box.**
+  - **What:** phones and desktop each render their own Search input, so focus in one falls to BODY when the layout switches. The query is kept.
+  - **Where:** `apps/web/src/components/home.tsx` and `App.tsx` (the two Search inputs).
+  - **Why low:** it needs a resize or rotation mid-search; one tap or click puts focus back.
+  - **Fix:** render one Search input and move it with CSS, or refocus the other input on the switch if it had focus.
+
+- **Desktop Hide sidebar and Show sidebar drop focus to the page.**
+  - **What:** activating either button by keyboard removes the button that has focus, so focus lands on BODY.
+  - **Where:** `apps/web/src/App.tsx` (sidebar collapse controls).
+  - **Why low:** the same class as the other "drops focus to the page" entries. The next Tab reaches the page.
+  - **Fix:** after the toggle, focus the counterpart button (Show after Hide, and the reverse).
+
+- **Closing Settings after crossing 768px drops focus to the page.**
+  - **What:** the dialog returns focus to its opener, but the opener belonged to the other layout and is gone.
+  - **Where:** `packages/ui` Dialog (return focus) and the Settings openers in `App.tsx`.
+  - **Why low:** it needs a resize while Settings is open.
+  - **Fix:** if the opener is no longer connected, return focus to the current layout's Settings button.
+
+- **After Save, switching color mode keeps the saved App CSS in the editor.**
+  - **What:** before Save, the App CSS editor pre-fills the active mode's values. After Save it shows the saved override, so switching Light/Dark leaves the other mode's values on screen. These are the values the override applies.
+  - **Where:** `apps/web/src/components/settings-dialog.tsx` (app pre-fill effect on `theme.mode`).
+  - **Why low:** nothing is lost, and what's shown is what applies; it can just surprise.
+  - **Fix:** say under the editor that saved CSS applies to both modes, or store the override per mode.
+
+- **Exporting a very tall diagram as PNG fails with only "PNG export failed".**
+  - **What:** the export draws at 2×, which passes the browser's canvas size limit for very tall diagrams.
+  - **Where:** the PNG export in `apps/web` (export helper) and webmcp `export_diagram`.
+  - **Why low:** only very tall diagrams; SVG export works.
+  - **Fix:** scale down to fit the canvas limit, or say why it failed and suggest SVG.
+
+- **Firefox: resizing a window across 768px and back can leave the source scrolled away from the caret.**
+  - **What:** desktop → phone width, type, desktop again: in Firefox the source can end up at scrollTop 0 with the caret off-screen. `e2e/caret.spec.ts` "resizing a window across 768px keeps the caret, the scroll and focus" fails every time in Firefox when run alone (A8's gatekeeper ran it once; the editor audit ran it 5 of 5), at the second `kept()`. The phone-rotation variant passes.
+  - **Where:** `apps/web/src/components/code-editor.tsx` (`keepCaretInView`), `App.tsx` (layout switch).
+  - **Why low:** not a regression (the page used to remount and lose everything), and a desktop resize across 768px mid-edit is rare. **But the e2e suite is red in Firefox**, so fix it soon.
+  - **Fix:** run `keepCaretInView` again once the layout has settled (next frame, or the panel group's layout callback).
+
+- **The Version history popover can overrun a short window by up to 1px, and its accessibility test is flaky.**
+  - **What:** at rest the popover reaches 0.5–1px past the bottom edge. A7's short-viewport test sometimes passes mid-animation. Found by the A8 editor and arch audits.
+  - **Where:** `apps/web/src/components/editor.tsx` (the history popover), `e2e/accessibility.spec.ts`.
+  - **Why low:** every version can still be picked; the overrun is sub-pixel.
+  - **Fix:** `collisionPadding={8}` on the popover, and wait for the open animation to end in the test.
+
+- **Small landscape phones show only 1–2 lines of source.**
+  - **What:** the stacked editor split (42/58) leaves the Source pane about 30px tall on an iPhone SE in landscape (667×320).
+  - **Where:** `apps/web/src/components/editor.tsx` (the phone split via `setLayout`).
+  - **Why low:** the splitter can be dragged; portrait works; it predates A7.
+  - **Fix:** below about 400px tall, give the source a minimum size (e.g. 50%), or put the panes side by side in landscape.
+
+- **A short search prefix-matches the diagram type keyword.**
+  - **What:** "flow" matches `flowchart` and "seq" matches `sequenceDiagram`, so nearly every diagram is a hit.
+  - **Where:** `packages/core/src/search.ts` (Orama always matches prefixes).
+  - **Why low:** since the A8 ranking batch, whole-word matches rank first and these trail at the bottom; only the hit count is inflated.
+  - **Fix:** index the header keyword in a separate, unboosted field, or leave it out of `source`.
 
 ## Refactors to consider (from the round 11 cleanup review)
 

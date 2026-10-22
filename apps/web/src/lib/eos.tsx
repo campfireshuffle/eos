@@ -38,8 +38,9 @@ function useLive<T>(topics: Parameters<Eos["subscribe"]>[0][], load: (eos: Eos) 
   return value
 }
 
-export function useLibrary(filter: LibraryFilter): DiagramIndexRow[] | undefined {
-  return useLive(["library"], (eos) => eos.listDiagrams(filter), [JSON.stringify(filter)])
+/** The library's rows, with the filter they were loaded with: after the filter changes, the rows shown are still the old filter's until the new ones load. */
+export function useLibrary(filter: LibraryFilter): { rows: DiagramIndexRow[]; filter: LibraryFilter } | undefined {
+  return useLive(["library"], async (eos) => ({ rows: await eos.listDiagrams(filter), filter }), [JSON.stringify(filter)])
 }
 
 export function useTags(): TagRecord[] | undefined {

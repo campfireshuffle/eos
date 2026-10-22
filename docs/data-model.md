@@ -213,7 +213,7 @@ Full history is kept forever. We do not use `{ mode: "shallow-snapshot" }`, beca
 
 ### Library queries (filters + sort)
 
-The sidebar has no "Recent" item; sorting replaces it. Clicking **Starred** or a tag in the sidebar shows that one filter as a removable chip (`★ Starred ×`, `#work/backend ×`); choosing another replaces it. A link or an agent's `set_view` can combine Starred with one tag. Search, Group and **Sort by** (Modified / Created / Title) apply on top. The core query below accepts several tags, combined with AND, and `get_library` uses that; the library page uses at most one.
+The sidebar has no "Recent" item; sorting replaces it. Clicking **Starred** or a tag in the sidebar shows that one filter as a removable chip (`★ Starred ×`, `#work/backend ×`); choosing another replaces it. A link or an agent's `set_view` can combine Starred with one tag. Search, Group and **Sort by** (Modified / Created / Title) apply on top, except that while searching the results are one list, best match first, with Sort only breaking ties; Group applies again once the search is cleared. The core query below accepts several tags, combined with AND, and `get_library` uses that; the library page uses at most one.
 
 ```ts
 type LibrarySort = "modified" | "created" | "title"

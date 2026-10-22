@@ -61,7 +61,17 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   useEffect(() => () => clearTimeout(throttle.current), [])
   // Leaving the box, e.g. to open a result, saves typing still due so back returns to it.
   const flush = () => void write()
-  const rows = useLibrary({ query, starred: route.starred, deleted: route.deleted, tags: route.tag ? [route.tag] : [], sort: route.sort })
+  const library = useLibrary({
+    query,
+    starred: route.starred,
+    deleted: route.deleted,
+    tags: route.tag ? [route.tag] : [],
+    sort: route.sort,
+  })
+  const rows = library?.rows
+  // Search results are one list, best match first: grouped, the best match could sit under a later date or tag.
+  // Decided by the search the shown rows were loaded with, so the view changes with the results, not a keystroke before.
+  const searched = !!library?.filter.query?.trim()
   const tags = useTags()
   // Back/forward returns to where you were. Phones scroll the page; desktop scrolls this pane.
   const mobile = useIsMobile()
@@ -180,7 +190,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
             )
           ) : (
             <div className="flex flex-col gap-7">
-              {groupRows(rows ?? [], route.group, route.sort, route.tag).map((g) => (
+              {groupRows(rows ?? [], searched ? "none" : route.group, route.sort, route.tag).map((g) => (
                 <section key={g.key} className="flex flex-col gap-3">
                   {g.label && (
                     <h2 className="flex items-baseline gap-2 text-caption font-medium text-muted-foreground">
@@ -190,7 +200,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
                   )}
                   <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
                     {g.rows.map((row) => (
-                      <DiagramCard key={`${g.key}:${row.id}`} row={row} />
+                      <DiagramCard key={row.id} row={row} />
                     ))}
                   </div>
                 </section>

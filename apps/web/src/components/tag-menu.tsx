@@ -19,7 +19,7 @@ type State = "all" | "some" | "none"
 export function TagMenu({ ids }: { ids: string[] }) {
   const eos = useEos()
   const tags = useTags()
-  const rows = useLibrary({})
+  const rows = useLibrary({})?.rows
   const [query, setQuery] = useState("")
   const [open, setOpen] = useState(false)
   // Tags this menu unchecked since it opened, with their row's place, so removing a tag's last use leaves its row,
