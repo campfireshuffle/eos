@@ -19,6 +19,7 @@ function adoptAnnouncer() {
  * A native modal <dialog>, shown with showModal() while `open`. The browser makes the rest of the page inert, closes it on Escape,
  * and returns focus to what had it when it opened; `onClose` hears every close. A closed dialog never keeps focus.
  * With `closeOnBackdrop`, a click that starts and ends on the backdrop closes it.
+ * Firefox and WebKit make the dialog itself a Tab stop (#19), so it shows a ring when the keyboard focuses it.
  */
 function Dialog({
   open,
@@ -52,7 +53,7 @@ function Dialog({
       ref={setDialog}
       data-slot="dialog"
       className={cn(
-        "bg-popover text-body text-popover-foreground outline-none backdrop:bg-black/10 supports-backdrop-filter:backdrop:backdrop-blur-xs",
+        "bg-popover text-body text-popover-foreground outline-none backdrop:bg-black/10 focus-visible:ring-3 focus-visible:ring-ring/50 supports-backdrop-filter:backdrop:backdrop-blur-xs",
         className
       )}
       onClose={(e) => {

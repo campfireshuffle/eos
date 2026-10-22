@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test, type Locator, type Page } from "@playwright/test"
 
 import { newDiagram, openEditor, tool, withAgentTools } from "./helpers"
 
@@ -166,3 +166,50 @@ for (const delay of [0, 50]) {
     await expect(page.locator(".cm-content")).toBeFocused()
   })
 }
+
+/** Whether `dialog` has focus and matches :focus-visible, whether it has an outline, and its box-shadow. */
+const dialogFocus = (dialog: Locator) =>
+  dialog.evaluate((d) => {
+    const cs = getComputedStyle(d)
+    const outline = cs.outlineStyle !== "none" && parseFloat(cs.outlineWidth) > 0
+    return { focused: document.activeElement === d, visible: d.matches(":focus-visible"), outline, shadow: cs.boxShadow }
+  })
+
+/** The focused dialog shows an indicator: an outline, or a box-shadow other than its resting one (its 1px border ring). */
+async function expectFocusRing(dialog: Locator, resting: string) {
+  const f = await dialogFocus(dialog)
+  expect(f).toMatchObject({ focused: true, visible: true })
+  expect(f.outline || f.shadow !== resting, JSON.stringify(f)).toBe(true)
+}
+
+const shiftTab = (page: Page, browserName: string) => page.keyboard.press(browserName === "webkit" ? "Alt+Shift+Tab" : "Shift+Tab")
+
+// Firefox and WebKit make a modal <dialog> itself a Tab stop (issue #19); Chromium leaves it. Where it's a stop, it shows a ring.
+test("Shift+Tab from Settings' first control shows a ring on the dialog it lands on", async ({ browserName, page }) => {
+  test.skip(browserName === "chromium", "Chromium's Shift+Tab leaves the dialog")
+  await page.goto("/#/")
+  await page.getByRole("button", { name: "Settings" }).click()
+  const dialog = page.getByRole("dialog", { name: "Settings" })
+  const resting = (await dialogFocus(dialog)).shadow
+  // A click on blank space in the dialog (low in its tab list, inside its rounded corners) shows no ring.
+  await dialog.click({ position: { x: 24, y: 560 } })
+  await expect(dialog).toBeVisible()
+  expect(await dialogFocus(dialog)).toMatchObject({ visible: false, outline: false, shadow: resting })
+  await dialog.getByRole("button", { name: "Theming", exact: true }).focus()
+  await shiftTab(page, browserName)
+  await expectFocusRing(dialog, resting)
+})
+
+test("Shift+Tab from a confirm's Cancel shows a ring on the confirm it lands on", async ({ browserName, page }) => {
+  test.skip(browserName === "chromium", "Chromium's Shift+Tab leaves the dialog")
+  await page.goto("/#/")
+  await page.getByRole("button", { name: "Settings" }).click()
+  const settings = page.getByRole("dialog", { name: "Settings" })
+  await settings.getByRole("button", { name: "Storage", exact: true }).click()
+  await settings.getByRole("button", { name: "Delete all diagrams" }).click()
+  const confirm = page.getByRole("alertdialog")
+  await expect(confirm.getByRole("button", { name: "Cancel" })).toBeFocused()
+  const resting = (await dialogFocus(confirm)).shadow
+  await shiftTab(page, browserName)
+  await expectFocusRing(confirm, resting)
+})
