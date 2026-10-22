@@ -27,8 +27,7 @@ export function useScrollRestoration(target: RefObject<HTMLElement | null> | nul
     const top = () => (el() ? el()!.scrollTop : window.scrollY)
     const scrollTo = (y: number) => (el() ? el()!.scrollTo({ top: y }) : window.scrollTo({ top: y }))
 
-    // Without the Navigation API every entry has the key "", so nothing is kept and each view starts at the top.
-    const saved = entry ? Number(sessionStorage.getItem(key) ?? 0) : 0
+    const saved = Number(sessionStorage.getItem(key) ?? 0)
     let tries = 0
     // Cards and thumbnails can still be laying out; retry briefly until the position fits.
     const restore = () => {
@@ -40,7 +39,7 @@ export function useScrollRestoration(target: RefObject<HTMLElement | null> | nul
     restore()
 
     const onScroll = () => {
-      if (saving && entry) sessionStorage.setItem(key, String(Math.round(top())))
+      if (saving) sessionStorage.setItem(key, String(Math.round(top())))
     }
     const scroller: EventTarget = el() ?? window
     scroller.addEventListener("scroll", onScroll, { passive: true })
