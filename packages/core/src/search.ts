@@ -48,15 +48,16 @@ export type Search = (rows: DiagramIndexRow[], query: string) => Promise<Diagram
  */
 export async function searchIndex(all: DiagramIndexRow[], stale: () => boolean = () => false): Promise<Search | null> {
   const db = create({ schema: { id: "string", title: "string", source: "string" } as const, components: { tokenizer } })
+  /** Each diagram's words, as the index has them. */
+  const wordsOf = new Map<string, Set<string>>()
   // Building takes a while (about 70ms for 1000 diagrams), so it's done a slice at a time, each
   // in a task of its own: keystrokes that come in meanwhile are handled between slices.
   for (let i = 0; i < all.length; i += BUILD_SLICE) {
     await new Promise((resolve) => setTimeout(resolve))
     if (stale()) return null
-    await insertMultiple(
-      db,
-      all.slice(i, i + BUILD_SLICE).map((r) => ({ id: r.id, title: r.title, source: r.sourceText ?? r.sourcePreview }))
-    )
+    const docs = all.slice(i, i + BUILD_SLICE).map((r) => ({ id: r.id, title: r.title, source: r.sourceText ?? r.sourcePreview }))
+    await insertMultiple(db, docs)
+    for (const d of docs) wordsOf.set(d.id, new Set([...tokenizer.tokenize(d.title), ...tokenizer.tokenize(d.source)]))
   }
   const find = async (term: string, tolerance: number) =>
     (
@@ -82,14 +83,15 @@ export async function searchIndex(all: DiagramIndexRow[], stale: () => boolean =
         : short.length === words.length
           ? await find(query, 0)
           : [...(await find(words.filter((w) => !SHORT_WORDS.test(w)).join(" "), tolerance)), ...(await find(short.join(" "), 0))]
-    // An exact match outranks a typo: Orama scores both alike, so add an exact pass's scores.
-    if (tolerance && short.length < words.length) hits.push(...(await find(words.filter((w) => !SHORT_WORDS.test(w)).join(" "), 0)))
     const score = new Map<string, number>()
     for (const h of hits) score.set(h.document.id, (score.get(h.document.id) ?? 0) + h.score)
-    // Equal scores keep the order the rows came in (the library's sort), not the index's.
-    return [...score.keys()]
-      .filter((id) => position.has(id))
-      .sort((a, b) => score.get(b)! - score.get(a)! || position.get(a)! - position.get(b)!)
+    // Orama scores a typo or prefix match ("logic", "420") like the word itself ("login", "42"), and can score it
+    // higher when it's rarer. So a diagram ranks first by how many of the query's words it has whole, then by
+    // score; equal ones keep the order the rows came in (the library's sort), not the index's.
+    const found = (id: string) => words.filter((w) => wordsOf.get(id)!.has(w)).length
+    const exact = new Map([...score.keys()].filter((id) => position.has(id)).map((id) => [id, found(id)]))
+    return [...exact.keys()]
+      .sort((a, b) => exact.get(b)! - exact.get(a)! || score.get(b)! - score.get(a)! || position.get(a)! - position.get(b)!)
       .map((id) => rows[position.get(id)!]!)
   }
 }

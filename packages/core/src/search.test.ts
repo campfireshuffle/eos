@@ -91,24 +91,41 @@ describe("search", () => {
   })
 
   it("allows a typo in the other words of a query that also holds Chinese", async () => {
+    // "登录 logout flow" has one of the words whole, "login page" only a typo of one.
     expect(await titlesFound(["登录 login flow", "登录 logout flow", "login page"], "登录 logn")).toEqual([
       "登录 login flow",
-      "login page",
       "登录 logout flow",
+      "login page",
     ])
     expect(await titlesFound(["API 接口 gateway", "Payment 接口"], "gatway 接口")).toEqual(["API 接口 gateway", "Payment 接口"])
     expect(await titlesFound(["Checkout 流程", "Checkout page", "Order 流程"], "chekout 流程")).toEqual([
       "Checkout 流程",
-      "Checkout page",
       "Order 流程",
+      "Checkout page",
     ])
   })
 
-  it("ranks the exact title above titles a typo away", async () => {
-    const titles = [...Array.from({ length: 100 }, (_, i) => `Sprint ${i + 1} retro`), "Logic flow", "Login flow", "Auth v3", "Auth v2"]
-    expect((await titlesFound(titles, "sprint 42"))[0]).toBe("Sprint 42 retro")
-    expect((await titlesFound(titles, "login"))[0]).toBe("Login flow")
-    expect((await titlesFound(titles, "auth v2"))[0]).toBe("Auth v2")
+  it("ranks diagrams with the query's words whole above ones a typo or prefix away, in a library of 1000", async () => {
+    // "login" is common and "logic" rare, which Orama scores higher; "42" is a prefix of "420".
+    const words = ["login", "checkout", "payment", "auth", "queue", "worker", "cache", "session", "order", "api"]
+    const rows = Array.from({ length: 1000 }, (_, i) =>
+      row(
+        `d${i}`,
+        `${words[i % 10]} ${words[(i * 7) % 10]} ${i}`,
+        `flowchart TD\n  A[${words[(i * 3) % 10]}] --> B[${words[(i * 9) % 10]} step]\n`
+      )
+    )
+    rows.push(row("logic", "Logic flow"), row("login", "Login flow"), row("v3", "Auth v3"), row("v2", "Auth v2"))
+    rows.push(...Array.from({ length: 100 }, (_, i) => row(`s${i + 1}`, `Sprint ${i + 1} retro`)))
+    const find = await searchIndex(rows)
+    const titles = async (query: string) => (await find!(rows, query)).map((r) => r.title)
+
+    expect((await titles("sprint 42"))[0]).toBe("Sprint 42 retro")
+    expect((await titles("auth v2"))[0]).toBe("Auth v2")
+    expect((await titles("login flow"))[0]).toBe("Login flow")
+    const login = await titles("login")
+    expect(login[0]).toMatch(/\blogin\b/i)
+    expect(login.indexOf("Logic flow")).toBe(login.findLastIndex((t) => /\blogin\b/i.test(t)) + 1)
   })
 
   it("finds a word with or without its accents", async () => {
@@ -131,24 +148,31 @@ describe("search", () => {
     const rows = Array.from({ length: 400 }, (_, i) => row(`d${i}`, text(3), "flowchart TD\n  " + text(30)))
     rows.push(...SAMPLES.map((s, i) => row(`s${i}`, s.title, s.source)))
 
-    // searchIndex's query (a typo-tolerant pass plus an exact one, scores added), over an index built with Orama's default tokenizer.
+    // searchIndex's query and ranking (words found whole, then score), over an index built with Orama's default tokenizer.
     const db = create({ schema: { id: "string", title: "string", source: "string" } as const })
     await insertMultiple(
       db,
       rows.map((r) => ({ id: r.id, title: r.title, source: r.sourceText! }))
     )
     const position = new Map(rows.map((r, i) => [r.id, i]))
-    const find = async (term: string, tolerance: number) =>
-      (
-        (await search(db, { term, properties: ["title", "source"], boost: { title: 3 }, tolerance, limit: rows.length })) as {
-          hits: { score: number; document: { id: string } }[]
-        }
-      ).hits
+    const tokenize = (text: string) => db.tokenizer.tokenize(text, "english") as string[]
     const before = async (query: string) => {
-      const hits = [...(await find(query, query.length > 3 ? 1 : 0)), ...(query.length > 3 ? await find(query, 0) : [])]
-      const score = new Map<string, number>()
-      for (const h of hits) score.set(h.document.id, (score.get(h.document.id) ?? 0) + h.score)
-      return [...score.keys()].sort((a, b) => score.get(b)! - score.get(a)! || position.get(a)! - position.get(b)!)
+      const result = (await search(db, {
+        term: query,
+        properties: ["title", "source"],
+        boost: { title: 3 },
+        tolerance: query.length > 3 ? 1 : 0,
+        limit: rows.length,
+      })) as { hits: { score: number; document: { id: string; title: string; source: string } }[] }
+      const terms = [...new Set(tokenize(query))]
+      const whole = (d: { title: string; source: string }) => {
+        const has = new Set([...tokenize(d.title), ...tokenize(d.source)])
+        return terms.filter((t) => has.has(t)).length
+      }
+      return result.hits
+        .map((h) => ({ ...h, whole: whole(h.document) }))
+        .sort((a, b) => b.whole - a.whole || b.score - a.score || position.get(a.document.id)! - position.get(b.document.id)!)
+        .map((h) => h.document.id)
     }
     const now = (await searchIndex(rows))!
 
