@@ -1387,7 +1387,18 @@ describe("library events and reads", () => {
         tolerance: term.length > 3 ? 1 : 0,
         limit: rows.length,
       })
-      return result.hits.map((h) => h.document.id)
+      // Ranked as searchIndex does: by how many of the query's words a diagram has whole, then by score.
+      const tokenize = (text: string) => db.tokenizer.tokenize(text, "english") as string[]
+      const terms = [...new Set(tokenize(term))]
+      const whole = (d: { title: string; source: string }) => {
+        const has = new Set([...tokenize(d.title), ...tokenize(d.source)])
+        return terms.filter((t) => has.has(t)).length
+      }
+      const position = new Map(rows.map((r, i) => [r.id, i]))
+      return result.hits
+        .map((h) => ({ ...h, whole: whole(h.document) }))
+        .sort((a, b) => b.whole - a.whole || b.score - a.score || position.get(a.document.id)! - position.get(b.document.id)!)
+        .map((h) => h.document.id)
     }
     const all = await eos.listDiagrams()
     for (const q of ["checkout", "chekout", "bill", "a", "auth login", "worker 7", "nothing"]) {
