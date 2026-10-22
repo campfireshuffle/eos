@@ -862,6 +862,36 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** a noisy list while typing, not a buried result.
   - **Fix:** don't derive plural forms for words of 2 letters or fewer.
 
+- **"checkin" buries "Check-in process".**
+  - **What:** a hyphenated or apostrophe word is indexed whole and by its parts ("check-in" as "check-in", "check" and "in"), but not joined, so "checkin" only finds it as a typo, below closer matches.
+  - **Where:** `packages/core/src/search.ts` (`partsOf`, and the terms `searchIndex` builds from it).
+  - **Why low:** "check-in" and "check in" find it first; only the joined spelling ranks it low.
+  - **Fix:** index the joined form too ("checkin", "sarahs") alongside the parts.
+
+- **-ing forms undouble down to 3-letter stems, and miss 2-letter ones.**
+  - **What:** "settings" counts "set" as the word whole ("sett" undoubled), and "getting" "get", so a search for "settings" ranks "Set password" #3. The other way, the -ing rule needs a stem of 3 letters, so "use" doesn't count "using" as the word: "Using Redis" ranks 148th of 417.
+  - **Where:** `packages/core/src/search.ts` (`formsOf`, `undouble`).
+  - **Why low:** the intended diagram is still found; it ranks a few places lower, or lower only for the bare verb.
+  - **Fix:** weigh a derived form below the word itself, so "settings" prefers "setting" to "set"; and for a 2-letter -ing stem, count the stem plus "e" ("us" to "use").
+
+- **The one-keystroke prefix "creat" ranks "Create account" only #3.**
+  - **What:** while typing "create", "creat" ranks two other diagrams above "Create account". It is a prefix of "create" as it is of longer words ("creation", "created"), and is scored no better for being one letter short.
+  - **Where:** `packages/core/src/search.ts` (prefix scoring).
+  - **Why low:** one more keystroke ranks it first.
+  - **Fix:** rank a prefix match by how much of the word it covers, so "creat" of "create" beats "creat" of "creation".
+
+- **WebKit: Cmd-Z in the title field brings back stale text, and Enter saves it.**
+  - **What:** after React sets the title field's value (a rename from an agent or another tab, or a revert), WebKit's native undo still holds the earlier typing. Cmd-Z shows that old text, and Enter commits it as the title.
+  - **Where:** `apps/web/src/components/editor.tsx` (`TitleInput`).
+  - **Why low:** WebKit only, and it needs an undo right after the value changed from elsewhere. The old title is in history, and undo of the title isn't promised.
+  - **Fix:** clear the native undo stack when the value is set from outside (replace the field's value with `execCommand("insertText")` after selecting all, or remount the input).
+
+- **Phones: a long tag pill can widen the page.**
+  - **What:** `Pill` has `min-w-0` but also `shrink-0`, so a long unbroken tag name in the library's filter pill (or a card's) doesn't shrink and truncate; it can push the page wider than the screen.
+  - **Where:** `apps/web/src/components/pill.tsx`, and its callers in `home.tsx` and `diagram-card.tsx`.
+  - **Why low:** it needs a tag name too long for the phone's width; the page still scrolls to it.
+  - **Fix:** drop `shrink-0` from the pill (keeping `min-w-0`), so it shrinks and truncates within its row, with `max-w-full` where it sits in a wrapping row.
+
 ## Refactors to consider (from the round 11 cleanup review)
 
 - **What the preview shows, as one pure function.**
