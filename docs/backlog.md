@@ -185,7 +185,6 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `packages/core/src/search.ts`, `segment` and `BUILD_SLICE`.
   - **Why low:** it only matters with hundreds of long CJK diagrams. The build is sliced, so typing still gets turns.
   - **Fix:** cache `segment(run)` per index build, in a Map created in `searchIndex` and passed to a per-index tokenizer. With 8 repeated labels this gave 480 → 205 ms. Don't use a module-level Map: it would grow for the session.
-  - **Also:** Since A7, `searchIndex` tokenizes every diagram twice: once inside Orama and once for `wordsOf`. That makes the build 50–90% slower in every script. **Fix:** a per-build `Map<string, string[]>` memo in the tokenizer, shared by both uses. It also covers this entry's `segment` cache.
 
 - **Accent folding is too broad for Cyrillic and too narrow elsewhere.**
   - **What:**
@@ -723,7 +722,7 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Fix:** `aria-hidden` the placeholder text, and put "can't render" in the card's description instead. Repro: `a6/library/s/t16.mjs`.
 
 - **Search doesn't match tag names.**
-  - **Where:** `packages/core/src/search.ts` (the Orama schema).
+  - **Where:** `packages/core/src/search.ts` (the MiniSearch fields).
   - **Why low:** the tag tree filters by tag, and search finds titles and source.
   - **Fix:** index each diagram's tag paths as a searchable field.
 
@@ -811,7 +810,7 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
 
 - **A short search prefix-matches the diagram type keyword.**
   - **What:** "flow" matches `flowchart` and "seq" matches `sequenceDiagram`, so nearly every diagram is a hit.
-  - **Where:** `packages/core/src/search.ts` (Orama always matches prefixes).
+  - **Where:** `packages/core/src/search.ts` (MiniSearch matches prefixes).
   - **Why low:** since the A8 ranking batch, whole-word matches rank first and these trail at the bottom; only the hit count is inflated.
   - **Fix:** index the header keyword in a separate, unboosted field, or leave it out of `source`.
 
@@ -856,6 +855,12 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `e2e/helpers.ts` (`openEditor`), used by `e2e/preview.spec.ts`.
   - **Why low:** a test-harness flake; the app behaves.
   - **Fix:** open the editor with `location.hash = …` inside the page, or by clicking the card.
+
+- **Two-letter searches like "es" or "as" match most flowcharts.**
+  - **What:** short words count as the plural of a one-letter word, so "es" matches every node named E (and "as" the article "a") as a whole word; on a realistic flowchart library "es" goes from 2 results to 594. The intended title still ranks first.
+  - **Where:** `packages/core/src/search.ts` (word forms via pluralize).
+  - **Why low:** a noisy list while typing, not a buried result.
+  - **Fix:** don't derive plural forms for words of 2 letters or fewer.
 
 ## Refactors to consider (from the round 11 cleanup review)
 
