@@ -1158,25 +1158,28 @@ describe("editor binding", () => {
     expect(ed.state.text).toContain("B --> C")
   })
 
-  it("reports which changes are the person's own: their undo and redo, not an agent's edit or another tab's", async () => {
-    const name = `own-${n++}`
+  it("puts back the selection from before each step the person undoes or redoes, wherever others' edits moved it", async () => {
+    const name = `select-${n++}`
     const one = await Eos.create({ dbName: name, seed: false })
-    const id = await one.createDiagram({ source: "flowchart TD\n  A --> B" })
+    const id = await one.createDiagram({ source: "hello" })
     const two = await Eos.create({ dbName: name, seed: false })
     const a = await editor(one, id)
     const b = await editor(two, id)
-    const own: boolean[] = []
-    a.binding.onChange((_, mine) => own.push(mine))
-    a.type(a.state.text.length, "\n  B --> C")
-    await one.editDiagram(id, { source: a.state.text + "\n  C --> D" }, { kind: "agent", tool: "update_diagram" })
-    expect(own).toEqual([false])
+    const selected: [number, number][] = []
+    a.binding.onSelect((anchor, head) => selected.push([anchor, head]))
+    a.binding.select(2, 5) // "llo", deleted
+    a.state.text = "he"
+    a.binding.edit([{ from: 2, to: 5, insert: "" }])
+    a.binding.select(2, 2)
     await settle()
-    b.type(0, "%% hi\n")
+    b.type(0, ">> ") // another tab, before it
     await settle()
-    expect(own).toEqual([false, false])
     expect(await one.undo(id)).toBe(true)
+    expect(a.state.text).toBe(">> hello")
+    expect(selected).toEqual([[5, 8]]) // "llo" selected again
     expect(await one.redo(id)).toBe(true)
-    expect(own).toEqual([false, false, true, true])
+    expect(a.state.text).toBe(">> he")
+    expect(selected.at(-1)).toEqual([5, 5])
   })
 })
 
@@ -1997,13 +2000,13 @@ describe("share links", () => {
     const version = (await eos.getDiagram(id))!.version
     await other.getSource(id) // open in the other tab, which hears the edits
     const editor = await eos.bindSource(id)
-    const heard: [TextChange[], boolean][] = []
-    editor.onChange((changes, own) => heard.push([changes, own]))
+    const heard: TextChange[][] = []
+    editor.onChange((changes) => heard.push(changes))
     editor.edit([{ from: 9, to: 9, insert: "  P --> Q\n" }])
     await eos.editDiagram(id, { title: "Agent", source: "graph TD\n  A --> C\n" }, agent, { base: version })
     const merged = "graph TD\n  P --> Q\n  A --> C\n"
     expect(await eos.getSource(id)).toBe(merged)
-    expect(heard).toEqual([[[{ from: 27, to: 28, insert: "C" }], false]])
+    expect(heard).toEqual([[{ from: 27, to: 28, insert: "C" }]])
     await vi.waitFor(async () => expect(await other.getSource(id)).toBe(merged))
     const h = await eos.history(id)
     expect([h[0]!.actor.kind, h[0]!.changes?.sort(), h[0]!.version]).toEqual([

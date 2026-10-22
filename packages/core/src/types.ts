@@ -87,11 +87,14 @@ export interface SourceBinding {
   text(): string
   /** Applies the person's edit. Changes are in ascending order, in the coordinates of text() before the edit. */
   edit(changes: TextChange[]): void
+  /** Calls `listener` with each change made by anything other than edit(), in the coordinates of the text before it. */
+  onChange(listener: (changes: TextChange[]) => void): () => void
   /**
-   * Calls `listener` with each change made by anything other than edit(), in the coordinates of the text before it.
-   * `own` is true for the person's own changes in this tab (undo, redo, a restore), false for other tabs and agents.
+   * Reports where the person's selection is now. The last one before each step on their undo stack goes with that
+   * step, as Loro cursors, and onSelect's listeners get it back once the step is undone or redone.
    */
-  onChange(listener: (changes: TextChange[], own: boolean) => void): () => void
+  select(anchor: number, head: number): void
+  onSelect(listener: (anchor: number, head: number) => void): () => void
   /**
    * Calls `listener` when the diagram is closed underneath the binding (deleted, or
    * replaced by a backup). edit() then does nothing; bind again to keep editing.

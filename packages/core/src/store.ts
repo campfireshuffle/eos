@@ -1,4 +1,4 @@
-import { type Delta, type Frontiers, LoroDoc, type LoroMap, type LoroText, UndoManager, type Value } from "loro-crdt"
+import { type Cursor, type Delta, type Frontiers, LoroDoc, type LoroMap, type LoroText, UndoManager, type Value } from "loro-crdt"
 import * as z from "zod/mini"
 
 import { fromBase64, toBase64 } from "./base64"
@@ -74,6 +74,8 @@ interface OpenDiagram extends DiagramDoc {
    * undo or redo runs, `stepping` is the burst of the steps it moves, which they keep.
    */
   burst: { count: number; lastEdit: number; stepping: Value | undefined }
+  /** The person's selection (see SourceBinding.select), and who's told where an undo or redo puts it back. */
+  selection: { cursors: Cursor[]; listeners: Set<(anchor: number, head: number) => void> }
   persisted: Persisted
 }
 
@@ -361,9 +363,17 @@ export class Eos {
           for (const event of batch.events) {
             if (event.diff.type !== "text") continue
             const changes = changesOf(event.diff.diff)
-            if (changes.length) listener(changes, batch.by === "local" && batch.origin === actorOrigin(USER))
+            if (changes.length) listener(changes)
           }
         }),
+      select: (anchor, head) => {
+        const cursors = [d.text.getCursor(anchor), d.text.getCursor(head)]
+        d.selection.cursors = cursors.every((c) => c !== undefined) ? cursors : []
+      },
+      onSelect: (listener) => {
+        d.selection.listeners.add(listener)
+        return () => d.selection.listeners.delete(listener)
+      },
     }
   }
 
@@ -700,17 +710,26 @@ export class Eos {
         // Each step is tagged with the burst of typing it belongs to (a new burst after a pause).
         // Edits from other tabs split Loro's steps mid-burst, so ⌘Z undoes every step of a burst.
         const burst: OpenDiagram["burst"] = { count: 0, lastEdit: 0, stepping: undefined }
+        // Each step also keeps the selection from just before it (see SourceBinding.select), which onPop puts back once
+        // the step's change is shown. That waits a microtask, as the step's reverse is pushed after onPop with the
+        // selection from before it: the one undo or redo is about to move.
+        const selection: OpenDiagram["selection"] = { cursors: [], listeners: new Set() }
         const undo = new UndoManager(doc, {
           mergeInterval: MERGE_MS,
           maxUndoSteps: 200,
           excludeOriginPrefixes: ["agent", "import", "system", DETAILS],
           onPush: () => {
             // A step moving between the undo and redo stacks keeps its burst.
-            if (burst.stepping !== undefined) return { value: burst.stepping, cursors: [] }
+            if (burst.stepping !== undefined) return { value: burst.stepping, cursors: selection.cursors }
             const now = Date.now()
             if (now - burst.lastEdit > MERGE_MS) burst.count++
             burst.lastEdit = now
-            return { value: burst.count, cursors: [] }
+            return { value: burst.count, cursors: selection.cursors }
+          },
+          onPop: (_, { cursors: [anchor, head] }) => {
+            const at = (c: Cursor | undefined) => c && doc.getCursorPos(c)?.offset
+            const [a, h] = [at(anchor), at(head)]
+            if (a !== undefined && h !== undefined) queueMicrotask(() => selection.listeners.forEach((listener) => listener(a, h)))
           },
         })
         const agentUndo = new UndoManager(doc, {
@@ -727,6 +746,7 @@ export class Eos {
           undo,
           agentUndo,
           burst,
+          selection,
           persisted,
           // Only deletes close a diagram, so a pending index refresh and any queued writes are
           // dropped, not run (either could write the diagram back after the delete).

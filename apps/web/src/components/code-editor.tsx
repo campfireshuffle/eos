@@ -142,13 +142,14 @@ export function CodeEditor({
             autocapitalize: "off",
           }),
           EditorView.updateListener.of((u) => {
-            if (!u.docChanged) return
-            if (binding && !u.transactions.some((t) => t.annotation(external))) {
+            if (binding && u.docChanged && !u.transactions.some((t) => t.annotation(external))) {
               const changes: TextChange[] = []
               u.changes.iterChanges((from, to, _fromB, _toB, inserted) => changes.push({ from, to, insert: inserted.toString() }))
               binding.edit(changes)
             }
-            callbacks.current.onChange?.(u.state.doc.toString())
+            // After the edit, so the edit's undo step keeps the selection from before it.
+            if (u.selectionSet) binding?.select(u.state.selection.main.anchor, u.state.selection.main.head)
+            if (u.docChanged) callbacks.current.onChange?.(u.state.doc.toString())
           }),
         ],
       }),
@@ -177,6 +178,8 @@ export function CodeEditor({
     }
     // Changes from elsewhere arrive as edits, in the coordinates of the text the editor shows. CodeMirror maps the
     // selection: what's inserted at the caret goes after it, and a composition carries on.
+    // The person's own undo and redo put back the selection from before the step (see SourceBinding.select).
+    const unselect = binding?.onSelect((anchor, head) => v.dispatch({ selection: { anchor, head }, scrollIntoView: true }))
     const unbind = binding?.onChange((changes) => {
       const apply = () => v.dispatch({ changes, annotations: external.of(true) })
       // A change can land while CodeMirror is mid-update, which it refuses; apply it right after.
@@ -198,6 +201,7 @@ export function CodeEditor({
       window.removeEventListener("keydown", onEscape, true)
       for (const type of inputs) document.removeEventListener(type, unfocused, true)
       unbind?.()
+      unselect?.()
       v.destroy()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

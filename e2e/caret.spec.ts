@@ -31,12 +31,15 @@ const doc = (line: string, last = false) => (last ? `graph TD\n${line}` : `graph
 const HEAD = "graph TD\n".length
 
 /**
- * How far past the insertion's start the caret ends up: none, as what's inserted at the caret goes after it. An agent's
- * source is diffed by lines, so a line it adds above the caret's line, when the caret is past that line's start, goes in
- * at the line's start, before the caret.
+ * How far past the insertion's start the caret ends up. The person's own undo and redo put back the selection from
+ * before the step: the deleted text selected again (collapsed to its end before typing), or the caret after what's
+ * redone. Someone else's insertion at the caret goes after it, as CodeMirror maps the caret. An agent's source is
+ * diffed by lines, so a line it adds above the caret's line, when the caret is past that line's start, goes in at the
+ * line's start, before the caret.
  */
 function expectedCaret(line: string, col: number, insert: string, by: (typeof SOURCES)[number]) {
   const before = line.slice(0, col)
+  if (by === "own undo" || by === "own redo") return insert.length
   return by === "an agent" && before && (before + insert).endsWith("\n" + before) ? insert.length : 0
 }
 
@@ -46,18 +49,32 @@ async function caretAt(page: Page, pos: number) {
   for (let i = 0; i < pos; i++) await page.keyboard.press("ArrowRight")
 }
 
-/** Inserts `text` at `pos` as the editor's own edit (a paste, a drop): CodeMirror's view, found from its DOM. */
-async function insertAt(page: Page, pos: number, text: string) {
+/**
+ * Inserts `text` at `pos` as the editor's own edit (a drop), or with `paste` as a paste, which leaves the caret after
+ * it: CodeMirror's view, found from its DOM.
+ */
+async function insertAt(page: Page, pos: number, text: string, paste = false) {
   await page.evaluate(
-    ([at, t]) => {
+    ([at, t, after]) => {
       const content = document.querySelector(".cm-content") as unknown as {
         cmTile: { root: { view: { dispatch(spec: unknown): void } } }
       }
-      content.cmTile.root.view.dispatch({ changes: { from: at, insert: t }, userEvent: "input.paste" })
+      const selection = after ? { anchor: at + t.length } : undefined
+      content.cmTile.root.view.dispatch({ changes: { from: at, insert: t }, selection, userEvent: "input.paste" })
     },
-    [pos, text] as const
+    [pos, text, paste] as const
   )
 }
+
+/** The editor's main selection. */
+const selectionOf = (page: Page) =>
+  page.evaluate(() => {
+    const content = document.querySelector(".cm-content") as unknown as {
+      cmTile: { root: { view: { state: { selection: { main: { from: number; to: number } } } } } }
+    }
+    const { from, to } = content.cmTile.root.view.state.selection.main
+    return { from, to }
+  })
 
 // A restore remounts the editor (it shows the past version read-only first), so the caret isn't carried over: not in the matrix.
 const SOURCES = ["another tab", "an agent", "own undo", "own redo"] as const
@@ -121,9 +138,12 @@ for (const [spot, [spotName, { line, col, last }]] of Object.entries(SPOTS).entr
           await expectEditor(a, before)
           await a.waitForTimeout(1000)
           await a.keyboard.press("ControlOrMeta+z")
+          await expectEditor(a, after)
+          await expect.poll(() => selectionOf(a)).toEqual({ from: p, to: p + insert.length })
+          await a.keyboard.press("ArrowRight")
         } else {
           await caretAt(a, p)
-          await insertAt(a, p, insert)
+          await insertAt(a, p, insert, true)
           await expectEditor(a, after)
           await a.waitForTimeout(1000)
           await a.keyboard.press("ControlOrMeta+z")
