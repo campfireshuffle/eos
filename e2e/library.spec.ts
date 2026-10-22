@@ -608,6 +608,22 @@ test("search results are one list, best match first, and Group applies again onc
   expect(await headings.count()).toBeGreaterThan(1)
 
   const search = page.getByRole("textbox", { name: "Search diagrams" }).first()
+  // The first character switches to one list only once its results are in: no frame shows every card ungrouped.
+  const cards = await page.locator("[data-card-id]").count()
+  await page.evaluate(() => {
+    const frames: [number, number][] = []
+    Object.assign(window, { __frames: frames })
+    const record = () => {
+      frames.push([document.querySelectorAll(".eos-library-scroller h2").length, document.querySelectorAll("[data-card-id]").length])
+      if (frames.length < 600) requestAnimationFrame(record)
+    }
+    requestAnimationFrame(record)
+  })
+  await search.pressSequentially("L")
+  await expect(page.locator("[data-card-id] .text-label").first()).toHaveText("Login flow")
+  const frames = await page.evaluate(() => (window as unknown as { __frames: [number, number][] }).__frames)
+  expect(frames.filter(([h, c]) => h === 0 && c === cards)).toEqual([])
+
   await search.fill("Login flow")
   await expect(page.locator("[data-card-id] .text-label").first()).toHaveText("Login flow")
   await expect(headings).toHaveCount(0)

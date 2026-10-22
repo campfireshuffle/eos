@@ -121,7 +121,11 @@ describe("search", () => {
     rows.push(row("logic", "Logic flow"), row("login", "Login flow"), row("v3", "Auth v3"), row("v2", "Auth v2"))
     rows.push(...Array.from({ length: 100 }, (_, i) => row(`s${i + 1}`, `Sprint ${i + 1} retro`)))
     rows.push(row("payov", "Payments overview"), row("sarahs", "Sarah's onboarding"), row("signup", "Sign-up flow"))
-    rows.push(row("dont", "Don\u2019t ship on Friday"), row("followup", "Follow up"))
+    rows.push(row("dont", "Don\u2019t ship on Friday"), row("followup", "Follow up"), row("checkin", "Check in desk"))
+    // Each exact word next to a longer word a full stemmer takes to it.
+    rows.push(row("organ", "Organ donor matching"), row("organization", "Organization chart"))
+    rows.push(row("us", "US region failover"), row("use", "Use cases"), row("using", "Using queues"))
+    rows.push(row("author", "Author workflow"), row("authorization", "Authorization flow"))
     rows.push(
       row("arrow", "Routing", "flowchart LR\n  Billingpage-->Home\n"),
       row("billpre", "Billingpagex index", "flowchart LR\n  X --> Y\n")
@@ -156,6 +160,11 @@ describe("search", () => {
       ["don't", "not every diagram (through t)", (r) => r.length < rows.length],
       ["follow-up", "finds Follow up", (r) => r.includes("followup")],
       ["billingpage", "Billingpage-->Home above Billingpagex", (r) => before(r, "arrow", (id) => id === "billpre")],
+      ["organ", "Organ donor matching #1", (r) => r[0] === "organ"],
+      ["us", "US region failover #1", (r) => r[0] === "us"],
+      ["author", "Author workflow #1", (r) => r[0] === "author"],
+      // No other diagram has "check" and "in" whole: the parts take no typo, and prefixes ("checkout") don't count.
+      ["check-in", "only Check in desk", (r) => JSON.stringify(r) === JSON.stringify(["checkin"])],
       ["chekout", "a typo finds only checkout diagrams", (r) => r.length > 0 && r.every((id) => /checkout/i.test(text(id)))],
     ]
     const failing: string[] = []
