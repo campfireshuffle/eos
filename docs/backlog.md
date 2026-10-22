@@ -1,6 +1,6 @@
 # Backlog
 
-These are real issues that the audit loop judged below its bar. Each one is LOW: it isn't MEDIUM or worse, a regression, an accessibility failure or a false doc. They were deliberately left unfixed so the loop could converge.
+These are real issues that the audit loop judged below its bar. Each one is LOW: below MEDIUM under the owner's rules. Some are accessibility issues judged off the common path. They were deliberately left unfixed so the loop could converge.
 
 Each entry says what the issue is, where it is, why it's low, and a suggested fix. The first part lists defects. The second lists refactors from the round 11 cleanup review: each is worth doing the next time its code needs a fix, rather than patching that code again.
 
@@ -120,7 +120,7 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
 
 - **A core test asserts after a fixed 50 ms wait for another tab.**
   - **What:** store.test.ts "hears every keystroke in a tab that opens the diagram while another tab's typing is being saved" checks after `settle()` (50 ms). Under heavy machine load (load average 57+) it failed 8/12 with 3 parallel processes. Its siblings that wait on another tab ("merges two tabs typing…", "reads the rows once…") have the same pattern.
-  - **Where:** `packages/core/src/store.test.ts:548-563` and the other `settle()` checks in that describe.
+  - **Where:** `packages/core/src/store.test.ts` (about line 1104, with `settle` at line 1102) and the other `settle()` checks in that describe.
   - **Why low:** it passed in every CI run, in `turbo test`, and with 3 parallel processes at normal load. The product converges within milliseconds.
   - **Fix:** replace the last `await settle(); expect(...)` with `await expect.poll(() => two.getSource(id), { timeout: 5000 }).toBe(a.state.text)`. This was verified to still catch the bug it guards (onLocalUpdate before the write finishes).
 
@@ -503,8 +503,8 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** one agent per tab is the normal case, and a version id still restores exactly.
   - **Fix:** say "agent edits made in this tab (all agents), until it reloads".
 
-- **Two agent errors don't say what's wrong.**
-  - **What:** `get_library({ filters: { tags: [...many] } })` fails with Zod's bare `too_big`. `set_view({ page: "diagram" })` without `diagramId` returns `not_found` for `undefined`, rather than saying diagramId is required.
+- **Some agent errors don't say what's wrong.**
+  - **What:** `get_library({ filters: { tags: [...many] } })` fails with Zod's bare `too_big`, and `set_view` with many `filters.tags` fails with the same bare `too_big`. `set_view({ page: "diagram" })` without `diagramId` returns `not_found` for `undefined`, rather than saying diagramId is required.
   - **Where:** `packages/webmcp/src/index.ts`, the `get_library` schema and `set_view` (about lines 445–448). The second is related to "set_view's previewVersion needs diagramId…".
   - **Why low:** agent-only. A retry with a valid input works.
   - **Fix:** describe the limit in the schema. In `set_view`, fail with "page \"diagram\" needs diagramId", or default to the open diagram.
@@ -671,7 +671,7 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Fix:** apply the zoom after navigation settles (or keep it as pending UI state the preview reads on mount), and report the zoom actually applied.
 
 - **update_tag reports ok for nothing, and stores any text as the emoji.**
-  - **What:** `update_tag` on a nonexistent path, or with an empty `moveTo`, returns ok without changing anything. `emoji` accepts any string, not one grapheme.
+  - **What:** `update_tag` on a nonexistent path, or with an empty `moveTo`, returns ok without changing anything. `emoji` accepts any string, not one grapheme. `update_tag` echoes `moveTo` as typed, not normalised, and `delete_tag` with a blank path shows a confirm and then returns ok.
   - **Where:** `packages/webmcp/src/index.ts`, `update_tag` (about lines 403–415).
   - **Why low:** agent-only, and nothing is damaged. Found by A5's webmcp audit.
   - **Fix:** return not_found for an unknown path and invalid_input for an empty `moveTo`. Validate the emoji as a single grapheme (`Intl.Segmenter`).
@@ -688,23 +688,104 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** hashed asset URLs that are missing are already dead, and the chunk-failure UI still shows. Found by A5's settings audit.
   - **Fix:** return 404 for missing `/assets/*` (for example `assets.run_worker_first` for `/assets/*`, or `not_found_handling` scoped away from assets).
 
+- **A lost cross-tab message leaves the other tab holding that tab's later edits as pending.**
+  - **What:** if a tab closes between writing an update and broadcasting it, the other tab's Loro `import()` reports later updates from that tab as `pending` and Eos ignores it. That tab's editor stops showing them, its next row write overwrites the good row, and its backup leaves the edits out. Disk keeps every update, and a reload heals it. A fuzz diverged in 3 of 10 seeds, only right after an abrupt reload; 28 of 28 converged with graceful reloads.
+  - **Where:** `packages/core/src/store.ts` (about line 1009, where the import result is ignored).
+  - **Why low:** it needs a tab to die mid-write, nothing on disk is lost, and a reload recovers.
+  - **Fix:** when `import()` reports `pending`, reload that diagram from disk (`loadDoc` + import). Repro: `a6/core/lost.test.ts`.
+
+- **⌘Z after an agent edits the person's freshly typed line can leave fragments.**
+  - **What:** the person types a line, an agent edits that line, and the person's ⌘Z removes their characters one by one around the agent's, leaving text such as "Rdis". Redo restores it.
+  - **Where:** `packages/core/src/store.ts`, the Loro UndoManager setup that skips agent changes.
+  - **Why low:** it needs an agent edit on the very line just typed, and redo restores the text.
+  - **Fix:** none cheap; it follows from Loro's per-character undo with agent changes excluded. Repro: `a6/core/residue.test.ts`.
+
+- **The deleted-diagram banner's Restore drops focus to BODY.**
+  - **Where:** `apps/web/src/components/editor.tsx:213-221`.
+  - **Why low:** the diagram is restored and the editor works; only focus is lost, on an occasional path.
+  - **Fix:** do what Back to latest does: `flushSync` the restore, then `editorRef.current?.focus()`.
+
+- **Version history shows only the latest 100 versions, with no hint that older ones exist.**
+  - **Where:** `apps/web/src/components/history-menu.tsx:23`.
+  - **Why low:** only long-lived diagrams have more than 100 versions, and the recent ones are the ones usually wanted.
+  - **Fix:** raise the limit, or add a "Show older" row when the limit is reached.
+
+- **Shortcut hints always show ⌘, also on Windows and Linux.**
+  - **Where:** `apps/web/src/components/editor.tsx`, `apps/web/src/components/export-menu.tsx`.
+  - **Why low:** the shortcuts work with Ctrl; only the hint text is wrong.
+  - **Fix:** choose ⌘ or Ctrl once from the platform and use it in every hint.
+
+- **The selection bar can't unstar.**
+  - **What:** the bar always offers Star. In the Starred view, Star on starred cards does nothing, and there's no Unstar.
+  - **Where:** `apps/web/src/components/selection-bar.tsx` (`eos.setStarred(ids, true)`).
+  - **Why low:** each diagram can still be unstarred from the editor.
+  - **Fix:** show Unstar when every selected card is starred (or make Star a toggle with `aria-pressed`). Repro: `a6/library/s/t15.mjs`.
+
+- **Crossing 768px clears the selection.**
+  - **What:** resizing a window (or rotating a tablet) across the desktop/phone breakpoint drops the selected cards.
+  - **Where:** `apps/web/src/components/home.tsx` and the layout switch around it.
+  - **Why low:** an occasional action, and selecting again is quick.
+  - **Fix:** keep the selection across the layout switch (it lives in `lib/selection.ts`; don't clear it on remount).
+
+- **A broken card's accessible name starts with "Can't render".**
+  - **What:** a card whose source doesn't render reads "Can't render Broken one …" to a screen reader, before its title.
+  - **Where:** `apps/web/src/components/diagram-card.tsx:163`.
+  - **Why low:** the title is still in the name, and it's honest about the card.
+  - **Fix:** `aria-hidden` the placeholder text, and put "can't render" in the card's description instead. Repro: `a6/library/s/t16.mjs`.
+
+- **Search doesn't match tag names.**
+  - **Where:** `packages/core/src/search.ts` (the Orama schema).
+  - **Why low:** the tag tree filters by tag, and search finds titles and source.
+  - **Fix:** index each diagram's tag paths as a searchable field.
+
+- **A tag row's actions are hard to discover by keyboard or screen reader.**
+  - **What:** the row menu (Change icon, Move to top level, Delete tag) opens only on right-click, the ContextMenu key or Shift+F10, and nothing on the row says so.
+  - **Where:** `apps/web/src/components/tag-tree.tsx`.
+  - **Why low:** the standard context-menu keys work in every engine; this is discoverability, not access.
+  - **Fix:** add `aria-haspopup="menu"` and a description ("Shift+F10 for actions") to each row, or a visible "…" button that shows on focus.
+
+- **get_settings right after set_theme({ mode }) reports the old theme.**
+  - **What:** `applyTheme` runs in an effect, so `get_settings` straight after `set_theme({ mode })` returns the previous resolved mode and CSS. An agent that then calls `set_theme({ appCss })` can save light values as dark overrides.
+  - **Where:** `packages/webmcp/src/index.ts` (`set_theme`), `apps/web/src/lib/webmcp.ts` (`getTheme`).
+  - **Why low:** agent-only, and needs that exact sequence.
+  - **Fix:** `await ui.settled()` in `set_theme` before returning, or derive `resolvedMode` from the saved settings. Repro: `a6/webmcp/probes/p9.mjs`, `p10.mjs`.
+
+- **An agent's rename replaces a title the person is typing.**
+  - **Where:** `apps/web/src/components/editor.tsx` (`TitleInput`).
+  - **Why low:** deliberate (see the TitleInput comment); the person can type again, and undo of the title isn't promised.
+  - **Fix:** none planned; revisit if title edits get a merge.
+
+- **Agent input edge cases are accepted silently.**
+  - **What:** `baseVersion: ""` is treated as no base; `get_diagram` can return version `""`; `set_theme({ appCss: "hello" })` is stored, and the app falls back to defaults while `overridden.app` is true.
+  - **Where:** `packages/webmcp/src/index.ts`.
+  - **Why low:** agent-only; nothing is damaged and a valid call fixes it.
+  - **Fix:** reject an empty `baseVersion`; validate `appCss` parses to at least one declaration before saving.
+
+- **A broken or truncated share link drops the person into the library with no message.**
+  - **Where:** `apps/web/src/App.tsx` (`useShareImport`). docs/data-model.md §6 documents the behaviour.
+  - **Why low:** documented, and nothing is lost; the sender can resend.
+  - **Fix:** show a one-line alert ("This share link is incomplete or damaged").
+
+- **The editor Star, the selection bar's Star and share-link import have no e2e test.**
+  - **What:** breaking all three still passes the full e2e suite (798/798).
+  - **Where:** `e2e/library.spec.ts`, `e2e/navigation.spec.ts`.
+  - **Why low:** the features work today; only regressions would go unnoticed.
+  - **Fix:** add one test each: star from the editor and see the card in Starred; star two cards from the bar; open a `#/import` link and see the diagram.
+
 ## Refactors to consider (from the round 11 cleanup review)
 
 - **What the preview shows, as one pure function.**
   - **What:** editor.tsx works out what the preview shows through separate ternaries: the latest, the last valid version, a past version that's loading, valid or invalid. That logic has been patched three times (33ec5c6, 544dd16, ada3949).
     - `lastValid` is a ref written during render.
-    - `previewSource` isn't tied to a version, so switching between two past versions briefly shows the first one's text under the second one's banner. Found by reading the code; it lasts one tick.
     - The agent's preview label is built in `packages/webmcp`, so it can differ from `actorLabel`.
   - **Where:** `apps/web/src/components/editor.tsx:95-138`, `history-menu.tsx`, `packages/webmcp/src/index.ts:459-462`.
   - **Why low:** all preview states checked correct in round 11.
   - **Fix:** do this first if the logic needs another fix (cleanup #5).
     - Add `previewOf(latest, past)` in `lib/shown-version.ts`, with a unit-test matrix.
-    - Key the fetched text by version.
     - Store `actor` in `ui.preview`, and have the banner render it with `actorLabel`.
 
 - **Theming baseline owned by theme.ts.**
   - **What:** the CSS pre-fill baseline is read from the live computed style.
-    - It waits on a 0 ms timer after a mode change.
     - Reset forces `applyTheme` first.
     - webmcp rebuilds the same rules on its own.
   - **Where:** `settings-dialog.tsx:73-91, 153-173`, `lib/webmcp.ts:51-57`, `lib/theme.ts`.
@@ -746,10 +827,13 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** it's test-only, and it would fail loudly rather than pass wrongly.
   - **Fix:** dispatch a synthetic paste `ClipboardEvent` on `.cm-content`, which goes through the editor's real paste path, or expose the view on the element in dev builds only.
 
-- **Two branches of diffText are untested.**
-  - **What:** no core test reaches two things:
-    - `lineHunks`'s fallback when the changed lines have more distinct values than its one-character encoding allows (the `ids.size > 0xd800 - 0x100` return);
-    - the `/\S/` check in `diffText` that decides whether an inserted "extends then adds" text is split.
-  - **Where:** `packages/core/src/store.ts` (`lineHunks`, `diffText`) and `packages/core/src/store.test.ts`.
-  - **Why low:** the round 19 auditors tested each branch by hand (a 55k-line fallback run, the exactness fuzz) and they behave correctly. Only regressions would go uncaught.
-  - **Fix:** the next time the merge is touched, add two rows: a two-line change among more than 55,000 distinct lines, and an insertion at the end of a whitespace-only line.
+- **lineHunks's fallback is untested.**
+  - **What:** no core test reaches `lineHunks`'s fallback when the changed lines have more distinct values than its one-character encoding allows (the `ids.size > 0xd800 - 0x100` return).
+  - **Where:** `packages/core/src/store.ts:1155` (`lineHunks`) and `packages/core/src/store.test.ts`.
+  - **Why low:** the round 19 auditors tested it by hand (a 55k-line fallback run) and it behaves correctly. Only regressions would go uncaught.
+  - **Fix:** the next time the merge is touched, add a row: a two-line change among more than 55,000 distinct lines.
+
+- **Dead code from earlier rounds.**
+  - **What:** the Thumbnail `sourceText` fallback and `sourceText ?? sourcePreview`, the `sourcePreview` field, the unused `Result`/`ErrorCode` types, the unused `idb` dependency in `apps/web/package.json`, and `parseIds` duplicating `readDraggedIds`.
+  - **Why low:** no behaviour; it's clutter.
+  - **Fix:** remove them the next time those files are touched.
