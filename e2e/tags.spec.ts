@@ -239,6 +239,51 @@ test("unchecking a tag's last use in the Tags menu keeps focus on its row, and c
   ).toBe(true)
 })
 
+test("unchecking a tag just created in the Tags menu keeps focus on its row", async ({ browserName, context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.goto("/#/")
+  await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+  const { id } = await tool<{ id: string }>(page, "create_diagram", { title: "Alpha", tags: ["x"], open: false })
+  await page.locator(`[data-card-id="${id}"]`).focus()
+  await page.keyboard.press(" ")
+  await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Tags" }).focus()
+  await page.keyboard.press("Enter")
+  await page.keyboard.type("fresh")
+  await page.keyboard.press("Enter")
+  const fresh = page.getByRole("checkbox", { name: "fresh", exact: true })
+  await expect(fresh).toHaveAttribute("aria-checked", "true")
+  await fresh.focus()
+  await page.keyboard.press(" ")
+  // Its last use is gone, so the sidebar drops it; the menu keeps the row.
+  await expect(page.getByRole("row", { name: "fresh", exact: true })).toHaveCount(0)
+  await expect(fresh).toHaveAttribute("aria-checked", "false")
+  await expect(fresh).toBeFocused()
+  // WebKit doesn't Tab to buttons, so from a row with one below it Tab reaches Radix's focus guard, unchecked or not.
+  if (browserName === "webkit") return
+  await page.keyboard.press("Tab")
+  expect(
+    await page.evaluate(() => {
+      const f = document.activeElement!
+      return !f.matches("[data-radix-focus-guard]") && (!!f.closest("[data-selection-menu]") || f.textContent === "Tags")
+    })
+  ).toBe(true)
+})
+
+test("a tag an agent renames while the Tags menu is open shows only under its new name", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.goto("/#/")
+  await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+  const { id } = await tool<{ id: string }>(page, "create_diagram", { title: "Alpha", tags: ["old"], open: false })
+  await page.locator(`[data-card-id="${id}"]`).click({ button: "right" })
+  await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Tags" }).click()
+  await expect(page.getByRole("checkbox", { name: "old", exact: true })).toBeVisible()
+  await tool(page, "update_tag", { path: "old", moveTo: "renamed" })
+  await expect(page.getByRole("checkbox", { name: "renamed", exact: true })).toHaveAttribute("aria-checked", "true")
+  await expect(page.getByRole("checkbox", { name: "old", exact: true })).toHaveCount(0)
+})
+
 test("unchecking the view's tag in the Tags menu when every card of it is selected leaves focus on the library", async ({ context }) => {
   await withAgentTools(context)
   const page = await context.newPage()

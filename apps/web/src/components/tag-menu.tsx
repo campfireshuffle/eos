@@ -22,17 +22,17 @@ export function TagMenu({ ids }: { ids: string[] }) {
   const rows = useLibrary({})
   const [query, setQuery] = useState("")
   const [open, setOpen] = useState(false)
-  const [seen, setSeen] = useState<TagRecord[]>([])
+  // Tags this menu unchecked since it opened, with their row's place, so removing a tag's last use leaves its row,
+  // and focus, where they were. Checking it again re-adds the tag.
+  const [unchecked, setUnchecked] = useState(new Map<string, [number, TagRecord]>())
 
   const tagsById = useMemo(() => new Map((rows ?? []).map((r) => [r.id, new Set(r.tags)])), [rows])
   const all = useMemo(() => flatten(tags ?? []), [tags])
-  // Rows keep their place while the menu is open, so removing a tag's last use leaves its row, and focus, where they were.
   const shown = useMemo(() => {
-    const now = new Set(all.map((t) => t.path))
     const out = [...all]
-    seen.forEach((t, i) => now.has(t.path) || out.splice(Math.min(i, out.length), 0, t))
+    for (const [i, t] of [...unchecked.values()].sort(([a], [b]) => a - b)) if (!all.some((a) => a.path === t.path)) out.splice(i, 0, t)
     return out
-  }, [all, seen])
+  }, [all, unchecked])
   const stateOf = (path: string): State => {
     const n = ids.filter((id) => tagsById.get(id)?.has(path)).length
     return n === 0 ? "none" : n === ids.length ? "all" : "some"
@@ -44,8 +44,11 @@ export function TagMenu({ ids }: { ids: string[] }) {
   const canCreate = !!newTag && !all.some((t) => t.path === newTag)
 
   const toggle = (path: string) => {
-    if (stateOf(path) === "all") void eos.removeTags(ids, [path])
-    else void eos.addTags(ids, [path])
+    if (stateOf(path) === "all") {
+      const i = shown.findIndex((t) => t.path === path)
+      setUnchecked((u) => new Map(u).set(path, [i, shown[i]!]))
+      void eos.removeTags(ids, [path])
+    } else void eos.addTags(ids, [path])
   }
   const create = () => {
     if (!newTag) return
@@ -61,7 +64,7 @@ export function TagMenu({ ids }: { ids: string[] }) {
     <Popover
       open={open}
       onOpenChange={(o) => {
-        if (o) setSeen(all)
+        if (o) setUnchecked(new Map())
         setOpen(o)
       }}
     >
