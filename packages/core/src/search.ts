@@ -11,11 +11,9 @@ const BUILD_SLICE = 100
 const UNSPACED = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Thai}\p{sc=Lao}\p{sc=Khmer}\p{sc=Myanmar}]/u
 /** Scripts whose words are a character or a few long (these and Korean), so one typo makes another word. */
 const SHORT_WORDS = new RegExp(`${UNSPACED.source}|\\p{sc=Hangul}`, "u")
-/** Absent in older engines (Firefox before 125), where such a run stays one word. */
-const segmenter = typeof Intl.Segmenter === "function" ? new Intl.Segmenter(undefined, { granularity: "word" }) : null
-/** The words in a run of an unspaced script. Every piece holding a letter or digit is one: Firefox doesn't mark a run that is a single word as `isWordLike`. */
-const segment = (run: string) =>
-  segmenter ? [...segmenter.segment(run)].map((s) => s.segment).filter((s) => /[\p{L}\p{N}]/u.test(s)) : [run]
+const segmenter = new Intl.Segmenter(undefined, { granularity: "word" })
+/** The words in a run of an unspaced script: every piece holding a letter or digit, not only `isWordLike` ones, for a Firefox bug (tracked in docs/backlog.md) that marks a run that is one word as not word-like. */
+const segment = (run: string) => [...segmenter.segment(run)].map((s) => s.segment).filter((s) => /[\p{L}\p{N}]/u.test(s))
 /**
  * Words in any script, lowercased, with accents (combining marks U+0300–036F) dropped so "resume"
  * finds "Résumé". Every letter is part of a word, so "Straße" or "Привет" is one word, not
