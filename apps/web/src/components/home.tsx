@@ -180,7 +180,9 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
             )
           ) : (
             <div className="flex flex-col gap-7">
-              {groupRows(rows ?? [], route.group, route.sort, route.tag).map((g) => (
+              {/* Search results are one list, best match first: grouped, the best match could sit under a
+                  later date or tag. The Group setting applies again once the search is cleared. */}
+              {groupRows(rows ?? [], query.trim() ? "none" : route.group, route.sort, route.tag).map((g) => (
                 <section key={g.key} className="flex flex-col gap-3">
                   {g.label && (
                     <h2 className="flex items-baseline gap-2 text-caption font-medium text-muted-foreground">

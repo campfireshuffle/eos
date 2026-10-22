@@ -311,6 +311,9 @@ importers:
       '@orama/orama':
         specifier: 3.1.18
         version: 3.1.18
+      '@orama/stemmers':
+        specifier: 3.1.18
+        version: 3.1.18
       idb:
         specifier: ^8.0.4
         version: 8.0.4
@@ -1259,6 +1262,10 @@ packages:
 
   '@orama/orama@3.1.18':
     resolution: {integrity: sha512-a61ljmRVVyG5MC/698C8/FfFDw5a8LOIvyOLW5fztgUXqUpc1jOfQzOitSCbge657OgXXThmY3Tk8fpiDb4UcA==}
+    engines: {node: '>= 20.0.0'}
+
+  '@orama/stemmers@3.1.18':
+    resolution: {integrity: sha512-xXs5fpiUvBs4jJZtnayJmUSomdxxiwwwvTbAzPHSyI6geLM7bxXHgpVlYz4JeMBycHX8bHF7j9m7F35BxhuZ8g==}
     engines: {node: '>= 20.0.0'}
 
   '@oxc-project/types@0.154.0':
@@ -5071,6 +5078,8 @@ snapshots:
       fastq: 1.20.3
 
   '@orama/orama@3.1.18': {}
+
+  '@orama/stemmers@3.1.18': {}
 
   '@oxc-project/types@0.154.0': {}
 

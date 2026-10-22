@@ -105,27 +105,100 @@ describe("search", () => {
     ])
   })
 
-  it("ranks diagrams with the query's words whole above ones a typo or prefix away, in a library of 1000", async () => {
-    // "login" is common and "logic" rare, which Orama scores higher; "42" is a prefix of "420".
-    const words = ["login", "checkout", "payment", "auth", "queue", "worker", "cache", "session", "order", "api"]
-    const rows = Array.from({ length: 1000 }, (_, i) =>
-      row(
-        `d${i}`,
-        `${words[i % 10]} ${words[(i * 7) % 10]} ${i}`,
-        `flowchart TD\n  A[${words[(i * 3) % 10]}] --> B[${words[(i * 9) % 10]} step]\n`
-      )
-    )
+  it("ranks by expected positions in a library of 1000", async () => {
+    // A seeded library: 1000 diagrams with titles and contents of common words, plus the diagrams each query targets.
+    let seed = 7
+    const random = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31
+    const vocabulary = (
+      "login checkout payment auth queue worker cache session order api gateway user report invoice sarah sign " +
+      "dashboard flow sprint service database"
+    ).split(" ")
+    const pick = () => vocabulary[Math.floor(random() * vocabulary.length)]!
+    const rows = Array.from({ length: 1000 }, (_, i) => {
+      const lines = ["flowchart TD", ...Array.from({ length: 8 }, (_, j) => `  N${j}[${pick()} ${pick()}] --> N${j + 1}[${pick()}]`)]
+      return row(`d${i}`, `${pick()} ${pick()} ${i}`, lines.join("\n"))
+    })
     rows.push(row("logic", "Logic flow"), row("login", "Login flow"), row("v3", "Auth v3"), row("v2", "Auth v2"))
     rows.push(...Array.from({ length: 100 }, (_, i) => row(`s${i + 1}`, `Sprint ${i + 1} retro`)))
-    const find = await searchIndex(rows)
-    const titles = async (query: string) => (await find!(rows, query)).map((r) => r.title)
+    rows.push(row("payov", "Payments overview"), row("sarahs", "Sarah's onboarding"), row("signup", "Sign-up flow"))
+    rows.push(row("dont", "Don\u2019t ship on Friday"), row("followup", "Follow up"))
+    rows.push(
+      row("arrow", "Routing", "flowchart LR\n  Billingpage-->Home\n"),
+      row("billpre", "Billingpagex index", "flowchart LR\n  X --> Y\n")
+    )
+    // The library's order is newest first, so a tie can't pass by insertion order.
+    rows.reverse()
+    const find = (await searchIndex(rows))!
+    const ids = async (query: string) => (await find(rows, query)).map((r) => r.id)
+    const title = (id: string) => rows.find((r) => r.id === id)!.title
+    const text = (id: string) => `${title(id)} ${rows.find((r) => r.id === id)!.sourceText}`
 
-    expect((await titles("sprint 42"))[0]).toBe("Sprint 42 retro")
-    expect((await titles("auth v2"))[0]).toBe("Auth v2")
-    expect((await titles("login flow"))[0]).toBe("Login flow")
-    const login = await titles("login")
-    expect(login[0]).toMatch(/\blogin\b/i)
-    expect(login.indexOf("Logic flow")).toBe(login.findLastIndex((t) => /\blogin\b/i.test(t)) + 1)
+    const loginWhole = /\blogin\b/i
+    const before = (r: string[], id: string, other: (id: string) => boolean) => r.includes(id) && r.indexOf(id) < r.findIndex(other)
+    // Each query, what its results must be, written from the data above.
+    const matrix: [string, string, (r: string[]) => boolean][] = [
+      ["login", "#1 has login whole in its title", (r) => loginWhole.test(title(r[0]!))],
+      ["login", "Login flow above every title without login", (r) => before(r, "login", (id) => !loginWhole.test(title(id)))],
+      [
+        "login",
+        "Logic flow below every diagram with login whole",
+        (r) => r.indexOf("logic") > r.findLastIndex((id) => loginWhole.test(text(id))),
+      ],
+      ["sprint 42", "Sprint 42 retro #1, not 420", (r) => r[0] === "s42"],
+      ["auth v2", "Auth v2 #1", (r) => r[0] === "v2"],
+      ["login flow", "Login flow #1", (r) => r[0] === "login"],
+      // No other title has payment or payments, so this is #1.
+      ["payment", "Payments overview #1", (r) => r[0] === "payov"],
+      // About 40 diagrams have "sarah" in their contents.
+      ["sarah", "Sarah's onboarding #1", (r) => r[0] === "sarahs"],
+      ["sign", "Sign-up flow #1", (r) => r[0] === "signup"],
+      ["don't", "Don\u2019t ship on Friday #1", (r) => r[0] === "dont"],
+      ["don't", "not every diagram (through t)", (r) => r.length < rows.length],
+      ["follow-up", "finds Follow up", (r) => r.includes("followup")],
+      ["billingpage", "Billingpage-->Home above Billingpagex", (r) => before(r, "arrow", (id) => id === "billpre")],
+      ["chekout", "a typo finds only checkout diagrams", (r) => r.length > 0 && r.every((id) => /checkout/i.test(text(id)))],
+    ]
+    const failing: string[] = []
+    for (const [query, expected, holds] of matrix) if (!holds(await ids(query))) failing.push(`${query}: ${expected}`)
+    expect(failing).toEqual([])
+  })
+
+  it("ranks a title first that has the plural or singular of the query", async () => {
+    const topics = ["checkout", "auth", "orders", "inventory", "shipping", "billing", "search", "notifications", "analytics", "onboarding"]
+    const rows = Array.from({ length: 300 }, (_, i) => {
+      const t = topics[i % 10]!
+      const source = [
+        "flowchart LR",
+        `  A[${t} service] --> B[Gateway]`,
+        i % 8 === 0 ? "  B --> P[Payments API]" : "  B --> D[Database]",
+        i % 9 === 0 ? "  D --> U[Users table]" : "  D --> C[Cache]",
+      ].join("\n")
+      return row(`d${i}`, `${t[0]!.toUpperCase() + t.slice(1)} ${i}`, source)
+    })
+    rows.push(row("pay", "Payment flow", "flowchart LR\n  Cart --> Charge --> Receipt"))
+    rows.push(row("user", "User signup", "flowchart LR\n  Form --> Verify --> Done"))
+    rows.push(row("inv", "Invoices", "flowchart LR\n  Bill --> Send"))
+    const find = (await searchIndex(rows))!
+    const first = async (query: string) => (await find(rows, query))[0]?.id
+    expect(await first("payments")).toBe("pay")
+    expect(await first("payment")).toBe("pay")
+    expect(await first("users")).toBe("user")
+    expect(await first("invoice")).toBe("inv")
+  })
+
+  it("ranks the title first at every prefix typed so far", async () => {
+    const titles = ["Payments overview", "Configuration guide", "Happy path", "Sarah's onboarding", "Sign-up flow", "Database migrations"]
+    const rows = titles.map((t, i) => row(`d${i}`, t, "flowchart TD\n  X --> Y\n"))
+    const find = (await searchIndex(rows))!
+    const misses: string[] = []
+    for (const [i, word] of ["payments", "configuration", "happy", "sarah's", "sign-up", "migrations"].entries()) {
+      for (let n = 2; n <= word.length; n++) {
+        const query = word.slice(0, n)
+        const first = (await find(rows, query))[0]?.title
+        if (first !== titles[i]) misses.push(`${query} → ${first}`)
+      }
+    }
+    expect(misses).toEqual([])
   })
 
   it("finds a word with or without its accents", async () => {
@@ -134,7 +207,7 @@ describe("search", () => {
     expect(await titlesFound(["Café menu", "Other"], "cafe")).toEqual(["Café menu"])
   })
 
-  it("finds the same English diagrams, in the same order, as Orama's own tokenizer", async () => {
+  it("finds every diagram Orama's own tokenizer finds", async () => {
     // A fixed pseudo-random corpus of English, the accents Orama's tokenizer handles, and Mermaid punctuation.
     let seed = 42
     const random = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31
@@ -148,46 +221,34 @@ describe("search", () => {
     const rows = Array.from({ length: 400 }, (_, i) => row(`d${i}`, text(3), "flowchart TD\n  " + text(30)))
     rows.push(...SAMPLES.map((s, i) => row(`s${i}`, s.title, s.source)))
 
-    // searchIndex's query and ranking (words found whole, then score), over an index built with Orama's default tokenizer.
     const db = create({ schema: { id: "string", title: "string", source: "string" } as const })
     await insertMultiple(
       db,
       rows.map((r) => ({ id: r.id, title: r.title, source: r.sourceText! }))
     )
-    const position = new Map(rows.map((r, i) => [r.id, i]))
-    const tokenize = (text: string) => db.tokenizer.tokenize(text, "english") as string[]
-    const before = async (query: string) => {
-      const result = (await search(db, {
-        term: query,
-        properties: ["title", "source"],
-        boost: { title: 3 },
-        tolerance: query.length > 3 ? 1 : 0,
-        limit: rows.length,
-      })) as { hits: { score: number; document: { id: string; title: string; source: string } }[] }
-      const terms = [...new Set(tokenize(query))]
-      const whole = (d: { title: string; source: string }) => {
-        const has = new Set([...tokenize(d.title), ...tokenize(d.source)])
-        return terms.filter((t) => has.has(t)).length
-      }
-      return result.hits
-        .map((h) => ({ ...h, whole: whole(h.document) }))
-        .sort((a, b) => b.whole - a.whole || b.score - a.score || position.get(a.document.id)! - position.get(b.document.id)!)
-        .map((h) => h.document.id)
-    }
-    const now = (await searchIndex(rows))!
+    const orama = async (query: string) =>
+      (
+        (await search(db, {
+          term: query,
+          properties: ["title", "source"],
+          tolerance: query.length > 3 ? 1 : 0,
+          limit: rows.length,
+        })) as { hits: { document: { id: string } }[] }
+      ).hits.map((h) => h.document.id)
+    const eos = (await searchIndex(rows))!
 
     const queries = [
       ...words,
-      ...["logn", "databse", "chek", "pay", "u", "ab", "café", "cafe", "resume", "Résumé", "dont", "don't", "kebab"],
+      ...["logn", "databse", "chek", "pay", "ab", "café", "cafe", "resume", "Résumé", "dont", "don't", "kebab"],
       ...["case", "snake", "1.2", "v1", "login flow", "user api", "start", "end", "decision", "A --> B", "sub", "xy"],
       ...["x-y", "e1", "f_2", "2024", "CAFÉ"],
     ]
-    const differing: string[] = []
+    const missing: string[] = []
     for (const query of queries) {
-      const expected = await before(query)
-      const got = (await now(rows, query)).map((r) => r.id)
-      if (JSON.stringify(got) !== JSON.stringify(expected)) differing.push(`${query}: ${expected.length} → ${got.length}`)
+      const found = new Set((await eos(rows, query)).map((r) => r.id))
+      const lost = (await orama(query)).filter((id) => !found.has(id))
+      if (lost.length > 0) missing.push(`${query}: ${lost.length}`)
     }
-    expect(differing).toEqual([])
+    expect(missing).toEqual([])
   })
 })

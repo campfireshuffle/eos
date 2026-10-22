@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { openEosDB, type Database } from "./db"
 import { compact, lastChangeAt, loadDoc, newDiagramDoc, setTags } from "./docs"
+import { searchIndex } from "./search"
 import { decodeShare, encodeShare } from "./share"
 import { Eos, UnknownVersionError } from "./store"
 import type { Actor, DiagramIndexRow, TextChange } from "./types"
@@ -1372,34 +1373,8 @@ describe("library events and reads", () => {
         tags: [`t${i % 3}`],
       })
     }
-    const { create, insertMultiple, search } = await import("@orama/orama")
     /** What listDiagrams did before the index was kept: build one over just these rows. */
-    const reference = async (rows: DiagramIndexRow[], term: string) => {
-      const db = create({ schema: { id: "string", title: "string", source: "string" } as const })
-      await insertMultiple(
-        db,
-        rows.map((r) => ({ id: r.id, title: r.title, source: r.sourceText ?? r.sourcePreview }))
-      )
-      const result = await search(db, {
-        term,
-        properties: ["title", "source"],
-        boost: { title: 3 },
-        tolerance: term.length > 3 ? 1 : 0,
-        limit: rows.length,
-      })
-      // Ranked as searchIndex does: by how many of the query's words a diagram has whole, then by score.
-      const tokenize = (text: string) => db.tokenizer.tokenize(text, "english") as string[]
-      const terms = [...new Set(tokenize(term))]
-      const whole = (d: { title: string; source: string }) => {
-        const has = new Set([...tokenize(d.title), ...tokenize(d.source)])
-        return terms.filter((t) => has.has(t)).length
-      }
-      const position = new Map(rows.map((r, i) => [r.id, i]))
-      return result.hits
-        .map((h) => ({ ...h, whole: whole(h.document) }))
-        .sort((a, b) => b.whole - a.whole || b.score - a.score || position.get(a.document.id)! - position.get(b.document.id)!)
-        .map((h) => h.document.id)
-    }
+    const reference = async (rows: DiagramIndexRow[], term: string) => (await (await searchIndex(rows))!(rows, term)).map((r) => r.id)
     const all = await eos.listDiagrams()
     for (const q of ["checkout", "chekout", "bill", "a", "auth login", "worker 7", "nothing"]) {
       expect((await eos.listDiagrams({ query: q })).map((r) => r.id)).toEqual(await reference(all, q))

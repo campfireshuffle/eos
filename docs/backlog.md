@@ -223,12 +223,6 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** it's a brief flash during composition, and the final result is correct.
   - **Fix:** don't search while `e.nativeEvent.isComposing`, keeping the last results until `compositionend`.
 
-- **Search doesn't treat curly and straight apostrophes, or hyphens and spaces, as the same.**
-  - **What:** "don't" doesn't find a title typed as "don’t" (iOS smart punctuation), and "follow-up" doesn't find "Follow up". The query "don’t" also matches unrelated titles through the token "t". This predates round 16, since Orama's default splitter also kept `'` and `-`.
-  - **Where:** `packages/core/src/search.ts`, the tokenizer.
-  - **Why low:** the other words of the title still find it, and these are near misses rather than wrong results.
-  - **Fix:** fold `’` and `‘` to `'` before tokenizing, and index a hyphenated or apostrophised word's parts as well as the whole word.
-
 - **Sort: Title ignores Thai and Indic vowel signs and sorts numbers as text.**
   - **What:** a row's `titleKey` strips every `\p{M}`, which drops Thai and Indic vowel signs, and `localeCompare` on it compares digits as text, so "Item 10" comes before "Item 2". The tag tree's collator is numeric.
   - **Where:** `packages/core/src/store.ts`, `titleKey` (in the row builder) and the `sort === "title"` comparator in `listDiagrams`.
