@@ -8,8 +8,15 @@ const PortalContainer = React.createContext<HTMLElement | undefined>(undefined)
 
 export const usePortalContainer = () => React.useContext(PortalContainer)
 
+/** React Aria's live announcer, which it puts in <body>, lives in the top open modal, so its announcements aren't inert. */
+function adoptAnnouncer() {
+  const announcer = document.querySelector("[data-live-announcer]")
+  const top = [...document.querySelectorAll("dialog:modal")].at(-1) ?? document.body
+  if (announcer && announcer.parentNode !== top) top.prepend(announcer)
+}
+
 /**
- * A native modal <dialog>, shown with showModal() while `open`. The browser traps focus in it, closes it on Escape,
+ * A native modal <dialog>, shown with showModal() while `open`. The browser makes the rest of the page inert, closes it on Escape,
  * and returns focus to what had it when it opened; `onClose` hears every close. A closed dialog never keeps focus.
  * With `closeOnBackdrop`, a click that starts and ends on the backdrop closes it.
  */
@@ -28,6 +35,17 @@ function Dialog({
   if (open && !mounted) setMounted(true)
   React.useLayoutEffect(() => {
     if (open !== dialog?.open) dialog?.[open ? "showModal" : "close"]()
+    adoptAnnouncer()
+    if (!open || !dialog) return
+    // React Aria makes the announcer on its first announcement, which can come while this is open.
+    const observer = new MutationObserver(adoptAnnouncer)
+    observer.observe(document.body, { childList: true })
+    return () => {
+      observer.disconnect()
+      // Unmounted while open, it would take the announcer with it.
+      const announcer = dialog.querySelector(":scope > [data-live-announcer]")
+      if (announcer) document.body.prepend(announcer)
+    }
   }, [dialog, open])
   return (
     <dialog

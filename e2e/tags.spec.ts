@@ -279,3 +279,29 @@ test("in the narrow window's drawer, Escape cancels a keyboard tag drag and leav
   const library = await tool<{ diagrams: { title: string; tags: string[] }[] }>(page, "get_library")
   expect(library.diagrams.find((d) => d.title === "alpha")?.tags).toEqual(["alpha"])
 })
+
+for (const width of [700, 1200]) {
+  test(`at ${width}px, a keyboard tag drag's announcement reaches the accessibility tree`, async ({ browserName, context }) => {
+    test.skip(browserName !== "chromium", "Reads the accessibility tree over Chromium's DevTools protocol")
+    await withAgentTools(context)
+    const page = await context.newPage()
+    await page.setViewportSize({ width, height: 800 })
+    await page.goto("/#/")
+    await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+    for (const tag of ["alpha", "beta"]) await tool(page, "create_diagram", { title: tag, tags: [tag], open: false })
+    // In the narrow window the tree is in the modal drawer, which makes the rest of the page inert.
+    if (width < 768) await page.getByRole("button", { name: "Show sidebar" }).click()
+    const tree = page.getByRole("treegrid", { name: "Tags" })
+    await tree.getByRole("row", { name: "alpha", exact: true }).focus()
+    await page.keyboard.press("ArrowRight")
+    await page.keyboard.press("ArrowRight")
+    await page.keyboard.press("Enter")
+    await expect(page.getByRole("button", { name: /^Drop on beta/ })).toBeFocused()
+    const cdp = await context.newCDPSession(page)
+    const announced = async () => {
+      const { nodes } = await cdp.send("Accessibility.getFullAXTree")
+      return nodes.some((n) => !n.ignored && /^Started dragging/.test(String(n.name?.value ?? "")))
+    }
+    await expect.poll(announced).toBe(true)
+  })
+}
