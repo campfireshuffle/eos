@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright"
 import { expect, test, type Page } from "@playwright/test"
 
 import { cursorAtEndOf, focusNext, newDiagram, openEditor, storedText, tool, withAgentTools } from "./helpers"
@@ -11,6 +12,9 @@ const chain = (nodes: number) =>
     "  user([Request]) --> n1[Edge]",
     ...Array.from({ length: nodes - 2 }, (_, i) => `  n${i + 1} --> n${i + 2}[Step ${i + 2}]`),
   ].join("\n")
+
+/** The source editor that's shown: the past version's while one is, otherwise the live one. */
+const sourceEditor = (page: Page) => page.getByRole("textbox", { name: "Mermaid source" })
 
 const zoom = async (page: Page) => (await tool<{ view: { zoom: number } }>(page, "get_view")).view.zoom
 
@@ -319,15 +323,16 @@ test("a diagram an agent shrinks while it's panned can be brought back into view
   await expect.poll(async () => (await placement(page)).inside).toBe(true)
 })
 
-/** Makes a diagram yesterday, types an edit today, and shows the version from yesterday. */
-async function previewYesterday(page: Page) {
+/** Makes a diagram yesterday, types an edit at its end today, and shows the version from yesterday. */
+async function previewYesterday(page: Page, source = "flowchart LR\n  A --> B") {
   // A version from an earlier day has the longest label: its date as well as its time ("Oct 19, 2:05 PM").
   const now = Date.now()
   await page.clock.setSystemTime(now - 86_400_000)
-  const id = await newDiagram(page, "flowchart LR\n  A --> B")
+  const id = await newDiagram(page, source)
   await page.clock.setSystemTime(now)
   await openEditor(page, id)
   await cursorAtEndOf(page, 1)
+  await page.keyboard.press("ControlOrMeta+End")
   await page.keyboard.type(" --> C")
   await expect.poll(async () => (await tool<{ history: unknown[] }>(page, "get_diagram", { id, history: true })).history.length).toBe(2)
   await page.getByRole("button", { name: "Version history" }).click()
@@ -441,7 +446,7 @@ test("a past version that doesn't render shows nothing, not a later version, and
   await expect(rows).toHaveCount(3)
   await rows.nth(1).click()
   await expect(page.getByText("Viewing the version from")).toBeVisible()
-  await expect(page.locator(".cm-content")).toContainText("A --> B -->")
+  await expect(sourceEditor(page)).toContainText("A --> B -->")
   await expect(page.locator(".pele-preview svg")).toBeHidden()
   // Nothing is drawn, so the notice doesn't claim to show anything.
   await expect(page.getByText("Couldn’t render", { exact: true })).toBeVisible()
@@ -483,6 +488,84 @@ test("while a past version is shown there's no Undo or Redo to change the hidden
   await expect(page.getByRole("button", { name: "Undo" })).toBeVisible()
 })
 
+test("a past version longer than the pane can be reached with Tab, scrolled with the keyboard, and not changed", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const id = await previewYesterday(page, chain(80))
+  await expect(sourceEditor(page)).toHaveAttribute("aria-readonly", "true")
+  const { violations } = await new AxeBuilder({ page }).withRules(["scrollable-region-focusable"]).analyze()
+  expect(violations).toEqual([])
+  await page.getByRole("button", { name: "Copy source" }).focus()
+  await focusNext(page)
+  await expect(sourceEditor(page)).toBeFocused()
+  const scroller = sourceEditor(page).locator("..")
+  await page.keyboard.press("PageDown")
+  await expect.poll(() => scroller.evaluate((e) => e.scrollTop)).toBeGreaterThan(0)
+  await page.evaluate(() => {
+    const copies: string[] = ((window as unknown as { copies: string[] }).copies = [])
+    document.addEventListener("copy", () => copies.push(document.getSelection()?.toString() ?? ""))
+  })
+  await page.keyboard.press("Shift+ArrowDown")
+  await page.keyboard.press("ControlOrMeta+c")
+  expect(await page.evaluate(() => (window as unknown as { copies: string[] }).copies)).toEqual([expect.stringMatching(/\n/)])
+  const shown = await sourceEditor(page).innerText()
+  // A cut copies what's selected and leaves it, and what's typed or pasted goes nowhere.
+  await page.keyboard.press("ControlOrMeta+x")
+  await page.keyboard.type("xyz")
+  await page.keyboard.press("ControlOrMeta+v")
+  await page.waitForTimeout(300)
+  expect(await sourceEditor(page).innerText()).toBe(shown)
+  expect(await storedText(page, id)).toBe(`${chain(80)} --> C`)
+})
+
+// The live source, hidden while a past version shows, keeps its selection; none of this may edit it.
+for (const [where, focus] of [
+  ["where the version menu left it", async () => {}],
+  ["on the banner", (page: Page) => page.getByRole("button", { name: "Back to latest" }).focus()],
+  ["on the preview", (page: Page) => page.getByLabel("Diagram preview").click()],
+] as const) {
+  test(`while a past version shows, with focus ${where}, nothing typed or deleted reaches the hidden source`, async ({ context }) => {
+    await withAgentTools(context)
+    const page = await context.newPage()
+    const id = await previewYesterday(page)
+    await focus(page)
+    await page.keyboard.type("xyz")
+    await page.evaluate(() => (document.execCommand("insertText", false, "Q"), document.execCommand("delete")))
+    // Last, since off a text field Playwright's WebKit takes Backspace as Back.
+    for (const key of ["Delete", "Backspace"]) await page.keyboard.press(key)
+    await page.waitForTimeout(300)
+    expect(await storedText(page, id)).toBe("flowchart LR\n  A --> B --> C")
+  })
+}
+
+test("while a past version shows, the title takes what's typed, though the hidden source had the caret", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await previewYesterday(page)
+  const title = page.getByLabel("Diagram title")
+  await title.click()
+  await page.keyboard.press("ControlOrMeta+a")
+  await page.keyboard.type("Renamed")
+  await expect(title).toHaveValue("Renamed")
+})
+
+for (const name of ["Back to latest", "Restore this version"]) {
+  test(`after ${name}, focus is back in the source with its caret where it was`, async ({ context }) => {
+    await withAgentTools(context)
+    const page = await context.newPage()
+    // A long source, so the caret, at its end, is scrolled to.
+    const id = await previewYesterday(page, chain(80))
+    await page.getByRole("button", { name }).focus()
+    await page.keyboard.press("Enter")
+    await expect(page.getByText("Viewing the version from")).toHaveCount(0)
+    await expect(sourceEditor(page)).toBeFocused()
+    await expect(page.locator(".cm-cursor-primary")).toBeInViewport()
+    await page.keyboard.type("Z")
+    // Restoring removes the edit the caret was after, so it's at the end of what's left.
+    await expect.poll(() => storedText(page, id)).toBe(`${chain(80)}${name === "Back to latest" ? " --> C" : ""}Z`)
+  })
+}
+
 test("rotating a phone keeps showing the past version, and leaving the diagram ends it", async ({ context }) => {
   await withAgentTools(context)
   const page = await context.newPage()
@@ -491,13 +574,13 @@ test("rotating a phone keeps showing the past version, and leaving the diagram e
   const banner = page.getByText("Viewing the version from")
   // Landscape is wider than 768px, so the editor lays its panes out side by side.
   await page.setViewportSize({ width: 844, height: 390 })
-  await expect(page.locator(".cm-content")).toBeVisible()
+  await expect(sourceEditor(page)).toBeVisible()
   await expect(banner).toBeVisible()
-  await expect(page.locator(".cm-content")).toHaveAttribute("contenteditable", "false")
+  await expect(sourceEditor(page)).toHaveAttribute("aria-readonly", "true")
   await page.goBack()
   await expect(page.locator(".cm-content")).toHaveCount(0)
   await openEditor(page, id)
-  await expect(page.locator(".cm-content")).toHaveAttribute("contenteditable", "true")
+  await expect(sourceEditor(page)).not.toHaveAttribute("aria-readonly", "true")
   await expect(banner).toHaveCount(0)
 })
 

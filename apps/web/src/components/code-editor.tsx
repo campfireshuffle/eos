@@ -53,6 +53,7 @@ const theme = EditorView.theme(
 const noGutterTheme = EditorView.theme({ ".cm-scroller": { padding: "10px 14px" } })
 
 export interface CodeEditorHandle {
+  focus(): void
   focusLine(line: number, column: number): void
 }
 
@@ -115,10 +116,10 @@ export function CodeEditor({
           // Shows a "\r", and other invisible control characters, as a marker (␍), so what is typed next to one is where it looks.
           highlightSpecialChars(),
           EditorState.readOnly.of(readOnly),
-          EditorView.editable.of(!readOnly),
           // Escape arms CodeMirror's Escape-then-Tab exit (see the hint below). In a dialog it's handled, so the key
           // stops here and the dialog stays open with the unsaved text; elsewhere the default keymap still collapses a selection.
-          keymap.of([{ key: "Escape", run: (v) => (v.setTabFocusMode(2000), !!v.dom.closest("dialog")) }]),
+          // Read-only, Tab doesn't indent and there's nothing unsaved, so Escape is left to the dialog.
+          readOnly ? [] : keymap.of([{ key: "Escape", run: (v) => (v.setTabFocusMode(2000), !!v.dom.closest("dialog")) }]),
           onUndo
             ? // Undo goes through Loro: the person's own stack, which skips agent edits.
               keymap.of([
@@ -136,7 +137,10 @@ export function CodeEditor({
           wrap ? EditorView.lineWrapping : [],
           EditorView.contentAttributes.of({
             "aria-label": label,
-            ...(readOnly ? {} : { "aria-describedby": hintId }),
+            // Read-only, a tap brings up no on-screen keyboard.
+            ...(readOnly ? { inputmode: "none" } : { "aria-describedby": hintId }),
+            // Already focusable, as a contenteditable; this says so to checkers, which only count tabindex.
+            tabindex: "0",
             spellcheck: "false",
             autocapitalize: "off",
           }),
@@ -165,6 +169,11 @@ export function CodeEditor({
     if (!readOnly) for (const type of inputs) document.addEventListener(type, unfocused, true)
     if (handleRef) {
       handleRef.current = {
+        // Back from hidden, Firefox has scrolled it to the top: the caret is brought back into view.
+        focus() {
+          v.focus()
+          v.dispatch({ scrollIntoView: true })
+        },
         focusLine(line, column) {
           const target = v.state.doc.line(Math.max(1, Math.min(line, v.state.doc.lines)))
           const from = Math.min(target.to, target.from + Math.max(0, column - 1))

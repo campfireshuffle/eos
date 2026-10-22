@@ -17,6 +17,16 @@ test("importing a file that isn't a backup says why, and changes nothing", async
   expect((await tool<{ counts: unknown }>(page, "get_library")).counts).toEqual(before.counts)
 })
 
+test("Escape closes Settings from the read-only MCP config", async ({ page }) => {
+  await page.goto("/#/")
+  await page.getByRole("button", { name: "Settings" }).click()
+  const dialog = page.getByRole("dialog", { name: "Settings" })
+  await dialog.getByRole("button", { name: "MCP" }).click()
+  await dialog.getByRole("textbox", { name: "MCP config" }).click()
+  await page.keyboard.press("Escape")
+  await expect(dialog).toBeHidden()
+})
+
 test("the browser's theme colour follows the chosen mode, not only the system's", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" })
   await page.goto("/#/")

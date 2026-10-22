@@ -12,6 +12,7 @@ import {
   Trash2,
 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
+import { flushSync } from "react-dom"
 
 import { validate, type SourceBinding } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
@@ -47,6 +48,7 @@ export function Editor({ id }: { id: string }) {
   const [source, setSource] = useState<string | null>(null)
   const svgRef = useRef<SVGSVGElement | null>(null)
   const editorRef = useRef<CodeEditorHandle | null>(null)
+  const pastRef = useRef<CodeEditorHandle | null>(null)
 
   // The editor syncs with Loro edit by edit. Bind whenever there's no live binding and the
   // diagram exists: on open, and again after a backup replaces it.
@@ -95,6 +97,12 @@ export function Editor({ id }: { id: string }) {
   // Previewing a past version shows its source read-only in both panes.
   const preview = useUi((s) => s.preview)
   const previewing = preview?.id === id ? preview : null
+  // The live source is hidden and inert while a past version shows, but a selection left in it is still edited by
+  // execCommand in Firefox, and blocks typing elsewhere (see CodeEditor), so it goes. Its caret is in its state.
+  const live = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (previewing && live.current?.contains(getSelection()?.anchorNode ?? null)) getSelection()?.removeAllRanges()
+  }, [previewing])
   // The past version's source, null until it has loaded, so its read-only editor starts with it.
   const [loaded, setLoaded] = useState<{ id: string; version: string; source: string } | null>(null)
   const previewSource = loaded?.id === id && loaded.version === previewing?.version ? loaded.source : null
@@ -131,6 +139,11 @@ export function Editor({ id }: { id: string }) {
     const t = setTimeout(() => setAnnounced(status), 1000)
     return () => clearTimeout(t)
   }, [status])
+  // Focus goes back to the live editor, where the person left it, rather than with the banner's buttons.
+  const backToLatest = () => {
+    flushSync(() => setUi({ preview: null }))
+    editorRef.current?.focus()
+  }
   const undo = () => void eos.undo(id).catch(() => {})
   const redo = () => void eos.redo(id).catch(() => {})
 
@@ -183,12 +196,12 @@ export function Editor({ id }: { id: string }) {
               className="text-label"
               onClick={async () => {
                 await eos.restoreVersion(id, previewing.version)
-                setUi({ preview: null })
+                backToLatest()
               }}
             >
               Restore this version
             </Button>
-            <Button size="xs" variant="ghost" className="text-label" onClick={() => setUi({ preview: null })}>
+            <Button size="xs" variant="ghost" className="text-label" onClick={backToLatest}>
               Back to latest
             </Button>
           </div>
@@ -224,18 +237,23 @@ export function Editor({ id }: { id: string }) {
                 {copied ? <Check className="text-[var(--eos-green)]" /> : <Copy />}
               </IconButton>
             </PanelHeader>
-            {previewing && previewSource !== null ? (
-              <CodeEditor key={`preview:${previewing.version}`} value={previewSource} readOnly errorAt={errorLine} handleRef={editorRef} />
-            ) : binding && !previewing ? (
-              <CodeEditor
-                key={key}
-                binding={binding}
-                onChange={setSource}
-                onUndo={undo}
-                onRedo={redo}
-                errorAt={errorLine}
-                handleRef={editorRef}
-              />
+            {previewing && previewSource !== null && (
+              <CodeEditor key={`preview:${previewing.version}`} value={previewSource} readOnly errorAt={errorLine} handleRef={pastRef} />
+            )}
+            {/* Hidden, not unmounted, while a past version shows, so its caret and scroll are there to come back to;
+                inert, so the selection it keeps takes no editing. */}
+            {binding ? (
+              <div ref={live} hidden={!!previewing} inert={!!previewing} className="flex min-h-0 flex-1 flex-col">
+                <CodeEditor
+                  key={key}
+                  binding={binding}
+                  onChange={setSource}
+                  onUndo={undo}
+                  onRedo={redo}
+                  errorAt={errorLine}
+                  handleRef={editorRef}
+                />
+              </div>
             ) : (
               <div className="min-h-0 flex-1" />
             )}
@@ -251,7 +269,7 @@ export function Editor({ id }: { id: string }) {
                 <button
                   type="button"
                   className="flex items-center gap-2 text-left text-caption font-medium"
-                  onClick={() => editorRef.current?.focusLine(result.error.line, result.error.column)}
+                  onClick={() => (previewing ? pastRef : editorRef).current?.focusLine(result.error.line, result.error.column)}
                 >
                   <TriangleAlert className="size-3.5 text-destructive" />
                   {status}
