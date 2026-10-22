@@ -1380,14 +1380,14 @@ describe("library events and reads", () => {
         db,
         rows.map((r) => ({ id: r.id, title: r.title, source: r.sourceText ?? r.sourcePreview }))
       )
-      const result = await search(db, {
-        term,
-        properties: ["title", "source"],
-        boost: { title: 3 },
-        tolerance: term.length > 3 ? 1 : 0,
-        limit: rows.length,
-      })
-      return result.hits.map((h) => h.document.id)
+      const find = async (tolerance: number) =>
+        (await search(db, { term, properties: ["title", "source"], boost: { title: 3 }, tolerance, limit: rows.length })).hits
+      // A typo-tolerant pass plus an exact one, scores added, as searchIndex does.
+      const hits = [...(await find(term.length > 3 ? 1 : 0)), ...(term.length > 3 ? await find(0) : [])]
+      const score = new Map<string, number>()
+      for (const h of hits) score.set(h.document.id, (score.get(h.document.id) ?? 0) + h.score)
+      const position = new Map(rows.map((r, i) => [r.id, i]))
+      return [...score.keys()].sort((a, b) => score.get(b)! - score.get(a)! || position.get(a)! - position.get(b)!)
     }
     const all = await eos.listDiagrams()
     for (const q of ["checkout", "chekout", "bill", "a", "auth login", "worker 7", "nothing"]) {

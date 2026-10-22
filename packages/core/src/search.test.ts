@@ -104,6 +104,13 @@ describe("search", () => {
     ])
   })
 
+  it("ranks the exact title above titles a typo away", async () => {
+    const titles = [...Array.from({ length: 100 }, (_, i) => `Sprint ${i + 1} retro`), "Logic flow", "Login flow", "Auth v3", "Auth v2"]
+    expect((await titlesFound(titles, "sprint 42"))[0]).toBe("Sprint 42 retro")
+    expect((await titlesFound(titles, "login"))[0]).toBe("Login flow")
+    expect((await titlesFound(titles, "auth v2"))[0]).toBe("Auth v2")
+  })
+
   it("finds a word with or without its accents", async () => {
     expect(await titlesFound(["A naïve plan", "Other"], "naive")).toEqual(["A naïve plan"])
     expect(await titlesFound(["Résumé flow", "Other"], "resume")).toEqual(["Résumé flow"])
@@ -124,24 +131,24 @@ describe("search", () => {
     const rows = Array.from({ length: 400 }, (_, i) => row(`d${i}`, text(3), "flowchart TD\n  " + text(30)))
     rows.push(...SAMPLES.map((s, i) => row(`s${i}`, s.title, s.source)))
 
-    // searchIndex's query, over an index built with Orama's default tokenizer.
+    // searchIndex's query (a typo-tolerant pass plus an exact one, scores added), over an index built with Orama's default tokenizer.
     const db = create({ schema: { id: "string", title: "string", source: "string" } as const })
     await insertMultiple(
       db,
       rows.map((r) => ({ id: r.id, title: r.title, source: r.sourceText! }))
     )
     const position = new Map(rows.map((r, i) => [r.id, i]))
+    const find = async (term: string, tolerance: number) =>
+      (
+        (await search(db, { term, properties: ["title", "source"], boost: { title: 3 }, tolerance, limit: rows.length })) as {
+          hits: { score: number; document: { id: string } }[]
+        }
+      ).hits
     const before = async (query: string) => {
-      const result = (await search(db, {
-        term: query,
-        properties: ["title", "source"],
-        boost: { title: 3 },
-        tolerance: query.length > 3 ? 1 : 0,
-        limit: rows.length,
-      })) as { hits: { score: number; document: { id: string } }[] }
-      return result.hits
-        .sort((a, b) => b.score - a.score || position.get(a.document.id)! - position.get(b.document.id)!)
-        .map((h) => h.document.id)
+      const hits = [...(await find(query, query.length > 3 ? 1 : 0)), ...(query.length > 3 ? await find(query, 0) : [])]
+      const score = new Map<string, number>()
+      for (const h of hits) score.set(h.document.id, (score.get(h.document.id) ?? 0) + h.score)
+      return [...score.keys()].sort((a, b) => score.get(b)! - score.get(a)! || position.get(a)! - position.get(b)!)
     }
     const now = (await searchIndex(rows))!
 

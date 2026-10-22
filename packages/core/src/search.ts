@@ -82,6 +82,8 @@ export async function searchIndex(all: DiagramIndexRow[], stale: () => boolean =
         : short.length === words.length
           ? await find(query, 0)
           : [...(await find(words.filter((w) => !SHORT_WORDS.test(w)).join(" "), tolerance)), ...(await find(short.join(" "), 0))]
+    // An exact match outranks a typo: Orama scores both alike, so add an exact pass's scores.
+    if (tolerance && short.length < words.length) hits.push(...(await find(words.filter((w) => !SHORT_WORDS.test(w)).join(" "), 0)))
     const score = new Map<string, number>()
     for (const h of hits) score.set(h.document.id, (score.get(h.document.id) ?? 0) + h.score)
     // Equal scores keep the order the rows came in (the library's sort), not the index's.
