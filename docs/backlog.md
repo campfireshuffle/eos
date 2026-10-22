@@ -721,12 +721,6 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** each diagram can still be unstarred from the editor.
   - **Fix:** show Unstar when every selected card is starred (or make Star a toggle with `aria-pressed`). Repro: `a6/library/s/t15.mjs`.
 
-- **Crossing 768px clears the selection.**
-  - **What:** resizing a window (or rotating a tablet) across the desktop/phone breakpoint drops the selected cards.
-  - **Where:** `apps/web/src/components/home.tsx` and the layout switch around it.
-  - **Why low:** an occasional action, and selecting again is quick.
-  - **Fix:** keep the selection across the layout switch (it lives in `lib/selection.ts`; don't clear it on remount).
-
 - **A broken card's accessible name starts with "Can't render".**
   - **What:** a card whose source doesn't render reads "Can't render Broken one …" to a screen reader, before its title.
   - **Where:** `apps/web/src/components/diagram-card.tsx:163`.

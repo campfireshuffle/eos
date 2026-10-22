@@ -55,6 +55,8 @@ const noGutterTheme = EditorView.theme({ ".cm-scroller": { padding: "10px 14px" 
 export interface CodeEditorHandle {
   focus(): void
   focusLine(line: number, column: number): void
+  /** While the editor has focus, scrolls its caret back into view, e.g. after the layout reshapes it. */
+  keepCaretInView(): void
 }
 
 export function CodeEditor({
@@ -179,6 +181,9 @@ export function CodeEditor({
           const from = Math.min(target.to, target.from + Math.max(0, column - 1))
           v.dispatch({ selection: { anchor: from }, effects: EditorView.scrollIntoView(from, { y: "center" }) })
           v.focus()
+        },
+        keepCaretInView() {
+          if (v.hasFocus) v.dispatch({ scrollIntoView: true })
         },
       }
     }
