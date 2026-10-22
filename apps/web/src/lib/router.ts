@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react"
 
 import { tagMatches, type LibrarySort, type TagPath } from "@eos/core"
 
-import { nav, onNavigate } from "./history"
+import { onNavigate } from "./history"
 
 export type LibraryGroup = "date" | "subtag" | "none"
 
@@ -56,10 +56,9 @@ export function homeHref(
 export const diagramHref = (id: string) => `#/d/${id}`
 
 export function navigate(href: string, { replace = false } = {}) {
-  if (!replace) location.hash = href.replace(/^#/, "")
-  // The same history entry with a new URL, so its key, and the scroll position saved under it, carry over.
-  else if (nav) nav.navigate(href, { history: "replace" })
-  else location.replace(href)
+  // Replacing keeps the history entry with a new URL, so its key, and the scroll position saved under it, carry over.
+  // "auto" pushes, except to the URL already shown, which keeps its entry, as a link to it does.
+  navigation.navigate(href, { history: replace ? "replace" : "auto" })
 }
 
 /**

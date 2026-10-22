@@ -34,12 +34,11 @@ a proposed browser standard that lets a page offer tools to AI agents. It asks b
 Open [eos.lil.run](https://eos.lil.run). Your diagrams stay in this browser and are never uploaded. They're
 stored with [Loro](https://loro.dev), so edits in one tab show up in your other open tabs. Export a backup from Settings.
 
-Eos supports current Chrome and Edge, Firefox 147+ and Safari 26.2+. Older browsers, such as Firefox ESR 140, still
-open it, but without its Back and Forward buttons.
+Eos supports current Chrome and Edge, Firefox 147+ and Safari 26.2+.
 
 ## Develop
 
-Needs Node 22.13+ and pnpm 12.
+Needs Node 26 and pnpm 12.
 
 ```sh
 pnpm install

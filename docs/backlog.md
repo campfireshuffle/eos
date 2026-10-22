@@ -119,7 +119,7 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Fix:** on the input, `onDragOver`/`onDrop` that `preventDefault()` when `e.dataTransfer.types.includes(DIAGRAM_MIME)`.
 
 - **A core test asserts after a fixed 50 ms wait for another tab.**
-  - **What:** store.test.ts "hears every keystroke in a tab that opens the diagram while another tab's typing is being saved" checks after `settle()` (50 ms). Under heavy machine load (load average 57+) it failed 8/12 with 3 parallel processes. Its siblings that wait on another tab ("merges two tabs typing…", "starts a fresh burst…", "reads the rows once…") have the same pattern.
+  - **What:** store.test.ts "hears every keystroke in a tab that opens the diagram while another tab's typing is being saved" checks after `settle()` (50 ms). Under heavy machine load (load average 57+) it failed 8/12 with 3 parallel processes. Its siblings that wait on another tab ("merges two tabs typing…", "reads the rows once…") have the same pattern.
   - **Where:** `packages/core/src/store.test.ts:548-563` and the other `settle()` checks in that describe.
   - **Why low:** it passed in every CI run, in `turbo test`, and with 3 parallel processes at normal load. The product converges within milliseconds.
   - **Fix:** replace the last `await settle(); expect(...)` with `await expect.poll(() => two.getSource(id), { timeout: 5000 }).toBe(a.state.text)`. This was verified to still catch the bug it guards (onLocalUpdate before the write finishes).
@@ -206,8 +206,8 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Fix:** if it recurs, wait for the first confirm to have closed (`toBeHidden`) instead of a fixed 50 ms before opening the second.
 
 - **A heavy agent rewrite can drop what the person typed on the line it rewrites.**
-  - **What:** in a `baseVersion` merge, when the agent deletes or rewrites the line the person has typed on since the base, the person's new characters can be lost (for example, base `x\n\t`, the person adds `#P#` after `x`, the agent rewrites the whole text). Both the jsdiff-based merge before round 16 and the Loro-based merge after it lose text in some of these cases, but in different ones. Round 16's fuzzing found the total number of clearly wrong merges went down. Since round 18 the merge diffs by lines, and since round 19 a line break belongs to the line it ends. So only what the person typed on a line the agent changes or removes (or moves, see below) can be lost, along with a whole line the person added between two lines the agent changes or removes: one character diff of changed lines can run across both (for example, base `graph TD\n  A --> B\n  C --> D\n`, the person adds a line above `C --> D`, and the agent sends `graph TD\n%%  C --> D`). Fixing that needs `diffText` to pair changed lines before diffing their characters.
-  - **Where:** `packages/core/src/store.ts`, `editsFromBase` and `diffText`.
+  - **What:** in a `baseVersion` merge, when the agent deletes or rewrites the line the person has typed on since the base, the person's new characters can be lost (for example, base `x\n\t`, the person adds `#P#` after `x`, the agent rewrites the whole text). Both the jsdiff-based merge before round 16 and the Loro-based merge after it lose text in some of these cases, but in different ones. Round 16's fuzzing found the total number of clearly wrong merges went down. Since round 18 the merge diffs by lines, and since round 19 a line break belongs to the line it ends. So only what the person typed on a line the agent changes or removes (or moves, see below) can be lost, along with a whole line the person added between two lines the agent changes or removes: one character diff of changed lines can run across both (for example, base `graph TD\n  A --> B\n  C --> D\n`, the person adds a line above `C --> D`, and the agent sends `graph TD\n%%  C --> D`). Fixing that needs `diffText` to pair changed lines before diffing their characters. Since A1, HEAD keeps the typing in the core auditor's case, but strands it (`"a\nYb"`).
+  - **Where:** `packages/core/src/store.ts`, `mergeFromBase` and `diffText`.
   - **Why low:** the agent's deletion overlaps the person's edit, so there is no clearly right answer. The text is still in history, and the person can undo.
   - **Fix:** if wanted, keep insertions the person made inside a range the agent deletes, and place them after the agent's replacement.
 
@@ -253,13 +253,13 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **What:** `diffText` diffs by lines, so a reordering must call one of the lines involved "removed and added". When that's the line the person typed on since `baseVersion`, their typing is lost. Without a base, their caret leaves the line. Example: base `graph TD\n  P52 --> C\n  G --> E` with the person typing at the end of `P52 --> C`, and the agent sending `graph TD\n  G --> E\n  P52 --> C`.
     - HEAD before round 18 did the same by character coincidence. In round 18's fuzzing the line diff kept the person's text in 34 such cases where HEAD lost it, and lost it in 26 where HEAD kept it.
     - The webmcp auditor's "an agent's undo of a moved line puts the person's typing on another line" is the same shape. Nothing is lost there.
-  - **Where:** `packages/core/src/store.ts`, `diffText` and `editsFromBase`.
+  - **Where:** `packages/core/src/store.ts`, `diffText` and `mergeFromBase`.
   - **Why low:** which of two swapped lines "moved" is ambiguous. The text is in history, and agent undo reverts the move.
-  - **Fix:** if wanted, in `editsFromBase`, treat a removed line that comes back unchanged elsewhere (unique in both texts) as a move. Insert the line's current text, from its start through its line break as mapped now, instead of the agent's copy.
+  - **Fix:** if wanted, in `mergeFromBase`, treat a removed line that comes back unchanged elsewhere (unique in both texts) as a move. Insert the line's current text, from its start through its line break as mapped now, instead of the agent's copy.
 
 - **A person's edit that deletes the line break an agent's edit is anchored on can join the agent's line onto theirs.**
   - **What:** with `baseVersion`, the person replaces the last line by deleting from the line break before it (`"\nL341"` becomes `"\nL342 …"`), and the agent adds a line above that last line. The agent's `"L343\n"` is anchored after the deleted line break, so the result is `"…L342 …L343\n"`. The r17 `r17merge` fuzzer at GAP=1 gives 14 of 452 such cases. They're identical before and after round 18.
-  - **Where:** `packages/core/src/store.ts`, `editsFromBase` (a whole-line insertion after a deleted line break).
+  - **Where:** `packages/core/src/store.ts`, `mergeFromBase` (a whole-line insertion after a deleted line break).
   - **Why low:** the person's edit removed the agent's anchor, so the two edits overlap. The editor rarely selects across the previous line break to retype a line, and nothing is lost.
   - **Fix:** when the line break before a whole-line insertion (one ending with `"\n"`) was deleted since the base, insert at the start of the line now at that spot.
 
@@ -275,7 +275,7 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** the result is visible in the library, and errors are shown. WCAG 4.1.3 doesn't strictly apply, since no status message is shown.
   - **Fix:** a one-line status under the buttons ("Imported 12 diagrams." / "Deleted all diagrams.") in a `role="status"` region.
 
-- **Dialog, sheet and menu animations ignore reduced motion.**
+- **Dialog, drawer and menu animations ignore reduced motion.**
   - **What:** the dialog transitions (150 ms fades, the drawer's 200 ms slide) and the Radix plus tw-animate menu animations (fades, zoom-95) run under `prefers-reduced-motion: reduce`. The app's own sidebar and preview animations respect it.
   - **Where:** `packages/ui`: the dialog rules in `globals.css`, popover, dropdown.
   - **Why low:** they're short and small. This is WCAG 2.3.3, which is AAA.
@@ -303,6 +303,84 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **What:** the title field commits on blur, Enter, unmount, `beforeunload`, `pagehide` and hidden. A reload keeps the typed title, except sometimes in WebKit at 0 ms (the `title.spec` cell is fixme there). Closing the tab loses it in all three engines, because a write started while the tab closes never lands.
   - **Where:** `apps/web/src/components/editor.tsx` (`TitleInput`), `e2e/title.spec.ts`.
   - **Why it's here:** fixing it means saving the title while it's typed, for example debounced, which changes when renames reach history and other tabs. That's new behaviour, for the owner to decide.
+
+- **On a full disk, edits look saved but are lost on reload.**
+  - **What:** when IndexedDB writes fail (QuotaExceededError), `persistDoc` logs to `console.error` and carries on. The editor and library show the edit, but a reload brings back the last saved text. Nothing tells the person.
+  - **Where:** `packages/core/src/docs.ts`, `persistDoc`'s queue; `apps/web` has no save-failed UI.
+  - **Why low:** it needs the origin's storage quota to be exhausted. Once space frees up, the next write saves the whole doc and fills the gap.
+  - **Fix:** have `persistDoc` emit a save-failed or recovered event, which the store forwards. The web app shows a persistent pill ("Couldn't save. Free up space or export a backup.") until a write succeeds.
+
+- **The tag menu's "Move to top level" drops focus to the page.**
+  - **What:** after "Move to top level" on a nested tag, the row it was on is gone. Radix's `onCloseAutoFocus` targets the removed row, so focus lands on BODY.
+  - **Where:** `apps/web/src/components/tag-menu.tsx` and `tag-tree.tsx`, the moved-row refocus.
+  - **Why low:** it's a rarer action, and the moved row is visible. One Tab gets back into the tree.
+  - **Fix:** in `onCloseAutoFocus`, `preventDefault()` and focus the moved row by its new key, which the existing ref callback already finds.
+
+- **In-app Back/Forward: the scroll position is kept in sessionStorage, not navigation entry state.**
+  - **What:** `useScrollRestoration` stores `eos-scroll:<entry key>` in sessionStorage. The Navigation API's `updateCurrentEntry({ state })` and `currentEntry.getState()` would hold the position with the entry itself.
+  - **Where:** `apps/web/src/lib/scroll-restore.ts`.
+  - **Why low:** keying storage by `currentEntry.key` is what the key is for, and it works in all three engines.
+  - **Fix:** if wanted, store `{ scrollTop }` with `navigation.updateCurrentEntry`, throttled to scrollend, and read `getState()` on restore.
+
+- **The tag menu and the icon picker have no accessible name.**
+  - **What:** the `role="menu"` and the picker's popover are unnamed, because their trigger is an `aria-hidden` span. A screen reader announces "menu" with no tag.
+  - **Where:** `apps/web/src/components/tag-menu.tsx`, `tag-emoji-picker.tsx`.
+  - **Why low:** axe passes, and the focused item names its action.
+  - **Fix:** `aria-label={`${tag} actions`}` on the menu content, and `aria-label="Icon for ${tag}"` on the picker.
+
+- **`document.title` never changes per view.**
+  - **What:** every route has the title "Eos", so history, tabs and screen readers don't say which diagram or filter is open.
+  - **Where:** `apps/web/src/App.tsx` (route rendering).
+  - **Why low:** the page heading and the URL say it.
+  - **Fix:** set `document.title` from the route: "‹title› · Eos", "Starred · Eos", "#tag · Eos".
+
+- **A right-click on a second tag while the tag menu is open shows the browser's menu.**
+  - **What:** with one tag's menu open, right-clicking another tag row opens the native context menu, and the first menu stays open.
+  - **Where:** `apps/web/src/components/tag-tree.tsx` (the `onContextMenu` and Radix `DropdownMenu` modal layer).
+  - **Why low:** a second right-click works once the first menu is closed.
+  - **Fix:** on `pointerdown` outside, let Radix close the menu, then handle the `contextmenu` on the row. Or make the menu `modal={false}`, so the row receives the event.
+
+- **The past-version error line is hand-rolled where @codemirror/lint could own it.**
+  - **What:** `errorLine` (a StateField plus a line decoration) and `focusLine` re-implement a single diagnostic.
+  - **Where:** `apps/web/src/components/code-editor.tsx`.
+  - **Why low:** it works. `lint` would change the look (an underlined range, a tooltip and a panel), which is a UX decision.
+  - **Fix:** if wanted, `setDiagnostics` with one diagnostic from Pele's position, and `lintGutter()`.
+
+- **An apply that throws is retried silently in the next microtask.**
+  - **What:** `try { apply() } catch { queueMicrotask(apply) }` in the binding listener never fired in 705 e2e runs. It swallows real errors from the first attempt.
+  - **Where:** `apps/web/src/components/code-editor.tsx` (about line 194).
+  - **Why low:** dead in practice. A real error still surfaces from the retry.
+  - **Fix:** call `apply()` directly, and keep the microtask only if a test proves CodeMirror's "mid-update" refusal can happen there.
+
+- **The store's BroadcastChannel undefined guard is dead.**
+  - **What:** every browser at the floor, and Node 26, has `BroadcastChannel`.
+  - **Where:** `packages/core/src/store.ts`.
+  - **Why low:** dead code only.
+  - **Fix:** delete the guard. Delete the `peer--` loop guard in `mergeFromBase` too, since it can't trigger.
+
+- **Two collaboration e2e tests depend on the 800 ms merge window.**
+  - **What:** "redo in one tab reaches the other" and "typing after an undone deletion…" fail under heavy load.
+  - **Where:** `e2e/collaboration.spec.ts`.
+  - **Why low:** test timing only.
+  - **Fix:** `expect.poll` the undo or redo until the expected text, instead of one press after a fixed wait.
+
+- **No e2e test for closing a dialog from its backdrop.**
+  - **What:** neither a click on the backdrop (closes) nor a drag that starts inside and ends on the backdrop (stays open) is tested.
+  - **Where:** `e2e/settings.spec.ts`, `packages/ui/src/components/dialog.tsx` (`closeOnBackdrop`).
+  - **Why low:** it was verified by hand in A1 on three engines.
+  - **Fix:** add both cases to settings.spec.
+
+- **set_view's previewVersion needs diagramId, though its description says "the open diagram".**
+  - **What:** `set_view({ previewVersion })` without `diagramId` returns not_found, even with a diagram open.
+  - **Where:** `packages/webmcp/src/index.ts`, `set_view` (about lines 445–447).
+  - **Why low:** agent-only, and the error says what's missing.
+  - **Fix:** default `id` to the open diagram's id from the route, or change the description to "of diagramId".
+
+- **Settings' Save reverts an agent's set_theme made while Settings is open.**
+  - **What:** the CSS editors are uncontrolled, remounted by key. An agent's `set_theme` changes `customCss` or `diagramCss` underneath, and the person's Save writes the editor's older text back.
+  - **Where:** `apps/web/src/components/settings-dialog.tsx`.
+  - **Why low:** it needs an agent theming during an open Settings. The agent's change can be reapplied.
+  - **Fix:** bump the editor key when `customCss` or `diagramCss` changes from outside, and only when it differs from the editor's text.
 
 ## Refactors to consider (from the round 11 cleanup review)
 

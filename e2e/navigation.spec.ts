@@ -224,30 +224,21 @@ test("clicking a link to the page already shown keeps in-app Back inside Eos, an
   await expect(page.getByRole("button", { name: "Forward" })).toBeEnabled()
 })
 
-test("without the Navigation API the app still routes, searches and reloads, with no back/forward", async ({ context }) => {
-  // As in Firefox before 147 and Safari before 26.2.
-  await context.addInitScript(() => delete (window as { navigation?: unknown }).navigation)
-  const errors: string[] = []
-  context.on("weberror", (e) => errors.push(e.error().message))
-  const { page, cards, scrollTo, settledTop } = await library(context, "/?sort=title")
-  expect(await page.evaluate(() => "navigation" in window)).toBe(false)
-  await expect(cards.first()).toContainText("Diagram 0")
-  await scrollTo(600)
-  // Every entry would share one saved position, so a new view starts at the top.
-  await page.evaluate(() => (location.hash = "/?sort=created"))
-  await expect(cards.first()).toContainText("Diagram 23")
-  expect(await settledTop()).toBe(0)
-  await page
-    .locator("aside")
-    .getByRole("link", { name: /^Starred/ })
-    .click()
-  await expect(page).toHaveURL(/#\/\?starred=1&sort=created$/)
-  await page.getByRole("textbox", { name: "Search diagrams" }).fill("flow")
-  await expect(page).toHaveURL(/#\/\?starred=1&sort=created&q=flow$/)
-  await page.goBack()
-  await expect(page).toHaveURL(/#\/\?sort=created$/)
-  await page.reload()
-  await expect(page.getByRole("textbox", { name: "Search diagrams" })).toHaveValue("")
-  await expect(page.getByRole("button", { name: "Back" })).toHaveCount(0)
-  expect(errors).toEqual([])
+test("pressing in-app Back or Forward with the keyboard to the end of history keeps focus on it", async ({ page }) => {
+  await page.goto("about:blank")
+  await page.goto("/#/?starred=1")
+  await page.locator("aside").getByRole("link", { name: "Eos" }).click()
+  for (const [name, url] of [
+    ["Back", /#\/\?starred=1$/],
+    ["Forward", /#\/$/],
+  ] as const) {
+    const button = page.getByRole("button", { name })
+    await button.focus()
+    await page.keyboard.press("Enter")
+    await expect(page).toHaveURL(url)
+    await expect(button).toBeDisabled()
+    await expect(button).toBeFocused()
+    await page.keyboard.press("Enter") // nowhere to go
+    await expect(page).toHaveURL(url)
+  }
 })
