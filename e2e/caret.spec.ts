@@ -177,9 +177,11 @@ for (const [spotName, { line, col, last }] of Object.entries(SPOTS)) {
       ]
       await tool(a, "update_diagram", { id, source: agentLines.join("\n"), baseVersion: version })
       await a.keyboard.type("!")
-      // The person's text stays at its spot on its line; text the agent put at the same spot goes before it.
+      // The person's text stays at its spot on its line; text the agent put at the same spot goes before it,
+      // except on the empty last line, where each is a line of its own.
       const typed = (l: string, extra = "") => l.slice(0, col) + extra + "ob!" + l.slice(col)
-      const personLine = changeName === "text at the spot" ? typed(line, "X") : typed(line)
+      const own = last && line === "" ? "X\n" : ""
+      const personLine = changeName === "text at the spot" ? own + typed(line, own ? "" : "X") : typed(line)
       const expected = [
         "graph TD",
         ...(c.above !== undefined ? [c.above] : []),

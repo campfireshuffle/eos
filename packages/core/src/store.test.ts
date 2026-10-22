@@ -358,6 +358,165 @@ describe("Eos store", () => {
     }
   })
 
+  it("merges an edit from an older version line by line at every line boundary", { timeout: 120_000 }, async () => {
+    // Where the person typed, on which line, the agent's edit, and whether the base, the agent's text and
+    // the person's text end in "\n", all crossed; each cell checked against what a line-by-line merge keeps.
+    const eos = await fresh()
+    const base = ["graph TD", "  A --> B", "  C --> D"]
+    const P = "  P --> Q" // a whole line the person adds
+    const at = (from: number, insert: string): TextChange => ({ from, to: from, insert })
+    // Where the person typed around line k, which starts at s and ends at e: the keystrokes, and the
+    // boundary (lines above it) a whole line went in at, or the line's offset typed at.
+    type Typing = { keys: TextChange[]; line?: number; offset?: number }
+    const typings: Record<string, (k: number, s: number, e: number, text: string) => Typing | null> = {
+      nothing: () => ({ keys: [] }),
+      "a line above (Enter, up, type)": (k, s) => ({ keys: [at(s, "\n"), at(s, P)], line: k }),
+      "a line above (type, Enter)": (k, s) => ({ keys: [at(s, P), at(s + P.length, "\n")], line: k }),
+      "a line below (End, Enter, type)": (k, _, e) => ({ keys: [at(e, "\n"), at(e + 1, P)], line: k + 1 }),
+      "at the line's start": () => ({ keys: [at(0, "ob")], offset: 0 }),
+      "in the line's middle": () => ({ keys: [at(4, "ob")], offset: 4 }),
+      "at the line's end": (k) => ({ keys: [at(base[k]!.length, "ob")], offset: base[k]!.length }),
+      "on the empty last line": (k, _, __, text) =>
+        k === base.length - 1 && text.endsWith("\n") ? { keys: [at(text.length, P)], line: base.length } : null,
+    }
+    // The agent's edit to line k: its lines, and the base lines [from, to) it changes or removes.
+    const X = "  X --> Y"
+    type Edit = { lines: string[]; from: number; to: number }
+    const edits: Record<string, (L: string[], k: number) => Edit | null> = {
+      "nothing but the last line break": (L) => ({ lines: L, from: 0, to: 0 }),
+      "adds a line above": (L, k) => ({ lines: L.toSpliced(k, 0, X), from: 0, to: 0 }),
+      "adds a line below": (L, k) => ({ lines: L.toSpliced(k + 1, 0, X), from: 0, to: 0 }),
+      "removes the line": (L, k) => ({ lines: L.toSpliced(k, 1), from: k, to: k + 1 }),
+      "removes it and the line above": (L, k) => (k ? { lines: L.toSpliced(k - 1, 2), from: k - 1, to: k + 1 } : null),
+      indents: (L, k) => ({ lines: L.with(k, "  " + L[k]), from: k, to: k + 1 }),
+      "comments out": (L, k) => ({ lines: L.with(k, "%%" + L[k]), from: k, to: k + 1 }),
+      "changes the end": (L, k) => ({ lines: L.with(k, L[k]!.slice(0, -1) + "Z"), from: k, to: k + 1 }),
+      "changes the middle": (L, k) => ({ lines: L.with(k, L[k]!.slice(0, 4) + "~" + L[k]!.slice(5)), from: k, to: k + 1 }),
+      rewrites: (L, k) => ({ lines: L.with(k, "  R --> S"), from: k, to: k + 1 }),
+      "extends, then adds a line": (L, k) => ({ lines: L.toSpliced(k, 1, L[k] + "2", "  B2 --> X"), from: k, to: k + 1 }),
+    }
+    const plain = await eos.createDiagram({ source: "" })
+    const failures: string[] = []
+    let cells = 0
+    for (let k = 0; k < base.length; k++)
+      for (const ends of [true, false])
+        for (const [where, typing] of Object.entries(typings))
+          for (const flipPerson of [false, true])
+            for (const [what, edit] of Object.entries(edits))
+              for (const flipAgent of [false, true]) {
+                const text = base.join("\n") + (ends ? "\n" : "")
+                const s = base.slice(0, k).join("").length + k
+                const typed = typing(k, s, s + base[k]!.length, text)
+                const e = edit(base, k)
+                if (!typed || !e || (!flipAgent && e.from === e.to && e.lines === base)) continue
+                // Both edit the same line (ambiguous), or the person's line is between two lines the agent removes.
+                if (typed.offset !== undefined && e.from <= k && k < e.to) continue
+                if (typed.line !== undefined && e.from < typed.line && typed.line < e.to) continue
+                const agent = e.lines.join("\n") + (ends !== flipAgent ? "\n" : "")
+                cells++
+                const id = await eos.createDiagram({ source: text })
+                const version = (await eos.getDiagram(id))!.version
+                const editor = await eos.bindSource(id)
+                for (const key of typed.keys)
+                  editor.edit([typed.offset === undefined ? key : { ...key, from: s + key.from, to: s + key.to }])
+                if (flipPerson) {
+                  const now = editor.text()
+                  editor.edit([now.endsWith("\n") ? { from: now.length - 1, to: now.length, insert: "" } : at(now.length, "\n")])
+                }
+                const person = editor.text()
+                await eos.editDiagram(id, { source: agent }, undefined, { base: version })
+                const merged = await eos.getSource(id)
+                const got = merged.split("\n")
+                const bad: string[] = []
+                // The person's whole line is there once, as its own line; their part of a line is on its line.
+                if (typed.line !== undefined && got.filter((l) => l === P).length !== 1) bad.push("person's line")
+                if (typed.offset !== undefined && !got.includes(person.split("\n")[k]!)) bad.push("person's typing")
+                // Every line the agent added or changed is its own line, and every line it removed or changed is gone.
+                if (e.lines.some((l) => !base.includes(l) && !got.includes(l))) bad.push("agent's line")
+                if (base.slice(e.from, e.to).some((l) => !e.lines.includes(l) && got.includes(l))) bad.push("removed line")
+                // No blank line appears, unless both added a final line break: then there are two.
+                if (got.slice(0, -1).includes("") && (ends || !flipPerson || !flipAgent)) bad.push("blank line")
+                if (!typed.keys.length && !flipPerson && merged !== agent) bad.push("not the agent's text")
+                // Without a base, the edit gives exactly the text given.
+                await eos.setSource(plain, person)
+                await eos.editDiagram(plain, { source: agent })
+                if ((await eos.getSource(plain)) !== agent) bad.push("no-base edit")
+                if (bad.length)
+                  failures.push(
+                    `${bad.join(", ")}: ${JSON.stringify({ k, ends, where, flipPerson, what, flipAgent, person, agent, merged })}`
+                  )
+              }
+    expect(cells).toBe(1166)
+    expect(failures.slice(0, 20), `${failures.length} failures`).toEqual([])
+  })
+
+  it("merges an edit from an older version at line boundaries without joining or taking the person's lines", async () => {
+    const eos = await fresh()
+    const start = "flowchart TD\n  A[Start] --> B[End]\n"
+    const two = "graph TD\n  A --> B\n  C --> D"
+    const c = two.indexOf("  C")
+    // The text at the base, the person's keystrokes since, the edit made from the base, and the merge.
+    const cases: [string, TextChange[], string, string][] = [
+      // The person types a new last line after the final line break; the agent's text ends without one.
+      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start + "  B --> D", start + "  B --> D\n  B --> C"],
+      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start + "  B --> D\n", start + "  B --> D\n  B --> C"],
+      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start.trimEnd(), start + "  B --> C"],
+      [
+        start,
+        [{ from: start.length, to: start.length, insert: "  B --> C" }],
+        "flowchart TD\n  A[Start] --> B[Finish]",
+        "flowchart TD\n  A[Start] --> B[Finish]\n  B --> C",
+      ],
+      [start, [{ from: start.length, to: start.length, insert: "  B --> C\n" }], start + "  B --> D", start + "  B --> C\n  B --> D"],
+      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start + "\n  B --> D", start + "  B --> C\n  B --> D"],
+      [start, [{ from: start.length, to: start.length, insert: "  B --> C" }], start + "\n", start + "  B --> C\n"],
+      // The agent removes the last line, below a line the person added: by Enter at its start, or at the end of the line above.
+      [
+        two,
+        [
+          { from: c, to: c, insert: "\n" },
+          { from: c, to: c, insert: "  E --> F" },
+        ],
+        "graph TD\n  A --> B",
+        "graph TD\n  A --> B\n  E --> F",
+      ],
+      [
+        two + "\n",
+        [
+          { from: c, to: c, insert: "\n" },
+          { from: c, to: c, insert: "  E --> F" },
+        ],
+        "graph TD\n  A --> B\n",
+        "graph TD\n  A --> B\n  E --> F\n",
+      ],
+      [two, [{ from: c - 1, to: c - 1, insert: "\n  E --> F" }], "graph TD\n  A --> B", "graph TD\n  A --> B\n  E --> F"],
+      // The agent changes the start of a line the person added a line above.
+      [
+        "graph TD\nA --> B\n  X --> Y\n",
+        [{ from: 9, to: 9, insert: "  C --> D\n" }],
+        "graph TD\n  A --> B\n  X --> Y\n",
+        "graph TD\n  C --> D\n  A --> B\n  X --> Y\n",
+      ],
+      [
+        "graph TD\n  A --> B\n  X --> Y\n",
+        [{ from: 19, to: 19, insert: "  C --> D\n" }],
+        "graph TD\n  A --> B\n%%  X --> Y\n",
+        "graph TD\n  A --> B\n  C --> D\n%%  X --> Y\n",
+      ],
+      // Part of a line at a line's start goes before what the person typed there, at the very start too.
+      ["graph TD\nA --> B\n", [{ from: 0, to: 0, insert: "ob" }], "Xgraph TD\nA --> B\n", "Xobgraph TD\nA --> B\n"],
+      ["graph TD\nA --> B\n", [{ from: 9, to: 9, insert: "ob" }], "graph TD\nXA --> B\n", "graph TD\nXobA --> B\n"],
+    ]
+    for (const [base, keystrokes, edit, merged] of cases) {
+      const id = await eos.createDiagram({ source: base })
+      const version = (await eos.getDiagram(id))!.version
+      const editor = await eos.bindSource(id)
+      for (const keystroke of keystrokes) editor.edit([keystroke])
+      await eos.editDiagram(id, { source: edit }, undefined, { base: version })
+      expect.soft(await eos.getSource(id), JSON.stringify(edit)).toBe(merged)
+    }
+  })
+
   it("applies an edit without a base as exactly the text given", async () => {
     const eos = await fresh()
     let seed = 1
