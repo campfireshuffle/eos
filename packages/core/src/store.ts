@@ -895,10 +895,18 @@ export class Eos {
     }
   }
 
-  /** Rebuilds the rows marked as behind their docs: a page went away before it rewrote them (see persistDoc). */
+  /**
+   * Rebuilds the rows marked as behind their docs: a page went away before it rewrote them (see persistDoc).
+   * One that fails to save (a full disk) keeps its mark, for the next start, and doesn't stop Eos opening.
+   */
   private async repairRows() {
-    for (const id of await this.db.getAllKeys("pendingRows"))
-      if (await compact(this.db, id, newDiagramDoc(), this.rowOf(id))) this.indexChanged(id)
+    for (const id of await this.db.getAllKeys("pendingRows")) {
+      try {
+        if (await compact(this.db, id, newDiagramDoc(), this.rowOf(id))) this.indexChanged(id)
+      } catch (error) {
+        console.error(`Couldn't rebuild the library row of diagram ${id}`, error)
+      }
+    }
   }
 
   /** Rows written before search covered full contents only have a preview; fill them in once. */

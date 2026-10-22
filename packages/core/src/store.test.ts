@@ -839,6 +839,31 @@ describe("durability", () => {
     expect(await dbOf(later).count("pendingRows")).toBe(0)
   })
 
+  it("opens when a row behind its doc can't be rebuilt, and rebuilds it on a later start", async () => {
+    const name = `full-disk-${n++}`
+    const eos = await Eos.create({ dbName: name, seed: false })
+    const id = await eos.createDiagram({ source: "graph TD\n  A --> B\n" })
+    ;(await eos.bindSource(id)).edit([{ from: 19, to: 19, insert: "  B --> Zebra42\n" }])
+    const timers = (eos as unknown as { indexTimers: Map<string, { timer: ReturnType<typeof setTimeout> }> }).indexTimers
+    for (const { timer } of timers.values()) clearTimeout(timer)
+    await settle()
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    const restore = failWrites("put", "diagrams") // aborts the rebuild, as a full disk would
+    let later: Eos
+    try {
+      later = await Eos.create({ dbName: name, seed: false })
+    } finally {
+      restore()
+    }
+    expect(error).toHaveBeenCalledOnce()
+    error.mockRestore()
+    expect(await later.getSource(id)).toBe("graph TD\n  A --> B\n  B --> Zebra42\n")
+    expect(await dbOf(later).count("pendingRows")).toBe(1)
+    const fixed = await Eos.create({ dbName: name, seed: false })
+    expect((await dbOf(fixed).get("diagrams", id))!.sourceText).toContain("Zebra42")
+    expect(await dbOf(fixed).count("pendingRows")).toBe(0)
+  })
+
   it("leaves no row to rebuild on the next start once rows are rewritten", async () => {
     const eos = await fresh()
     const id = await eos.createDiagram({ source: "graph TD\n  A --> B\n" })
