@@ -40,9 +40,14 @@ export function groupRows(rows: DiagramIndexRow[], group: LibraryGroup, sort: Li
     if (!subs.size) add("~", tag ? `No subtag` : "Untagged", row)
     for (const sub of subs) add(sub, sub, row)
   }
-  // Named subtags alphabetically; the catch-all group last.
-  return [...groups.values()].sort((a, b) => (a.key === "~" ? 1 : b.key === "~" ? -1 : a.key.localeCompare(b.key)))
+  // Named subtags in tag-tree order; the catch-all group last.
+  return [...groups.values()].sort((a, b) => (a.key === "~" ? 1 : b.key === "~" ? -1 : compareTags(a.key, b.key)))
 }
+
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" })
+
+/** Orders tag names as people read them, "tag2" before "tag10", and names it ranks equal ("cafe", "café") always the same way. */
+export const compareTags = (a: string, b: string) => collator.compare(a, b) || (a < b ? -1 : a > b ? 1 : 0)
 
 /** Sortable key (newest first) and label for a timestamp. */
 export function dateBucket(ms: number): [string, string] {

@@ -3,9 +3,9 @@ import { expect, test, type Page } from "@playwright/test"
 import { newDiagram, openEditor, storedText, tool, withAgentTools } from "./helpers"
 
 /**
- * Where focus goes when a confirm closes. The invariant (ui-state.ts): a confirm returns focus to what had focus
- * when it was asked for. If that was the confirm fading out, focus goes to that one's opener. If nothing had
- * focus, focus is left alone. Every case also checks that the new confirm starts on Cancel.
+ * Where focus goes when a confirm closes: back to what had focus when it opened, which for a confirm opened as the
+ * last one closed is that one's opener. If nothing had focus, nothing has it after. The browser's <dialog> does this
+ * (see dialog.tsx). Every case also checks that the new confirm starts on Cancel.
  */
 
 type W = {
@@ -61,9 +61,9 @@ async function answer(page: Page, tag: string, how: Answer) {
   await expect.poll(() => result(page, tag)).toMatchObject(results[how])
 }
 
-/** Waits until the confirm has faded out and been removed, and Radix's close-focus has run. */
+/** Waits until the confirm has faded out and its close event has run. */
 async function closed(page: Page) {
-  await expect(page.locator("[role=alertdialog]")).toHaveCount(0)
+  await expect(page.getByRole("alertdialog")).toBeHidden()
   await page.evaluate(() => new Promise((r) => setTimeout(r, 100)))
 }
 
@@ -161,7 +161,8 @@ test("a confirm asked for while one is open answers busy, and leaves the first o
   await expect.poll(() => result(page, "alpha")).toMatchObject({ code: "user_declined" })
 })
 
-test("a confirm an agent aborts keeps its text while it fades out", async ({ page }) => {
+test("a confirm an agent aborts keeps its text while it fades out", async ({ browserName, page }) => {
+  test.skip(browserName !== "chromium", "Only Chromium fades a dialog out (overlay); elsewhere it closes at once")
   await editorWithTags(page)
   await agentDeletesTag(page, "alpha")
   await expect(page.getByRole("alertdialog")).toContainText("“alpha”")

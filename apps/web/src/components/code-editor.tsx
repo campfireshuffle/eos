@@ -116,10 +116,9 @@ export function CodeEditor({
           highlightSpecialChars(),
           EditorState.readOnly.of(readOnly),
           EditorView.editable.of(!readOnly),
-          // Escape arms CodeMirror's Escape-then-Tab exit (see the hint below), whether or not it also collapses a
-          // selection; it returns false, so the default keymap still collapses one. In a dialog, onEscape below
-          // takes Escape first and arms the exit itself, and the selection stays.
-          keymap.of([{ key: "Escape", run: (v) => (v.setTabFocusMode(2000), false) }]),
+          // Escape arms CodeMirror's Escape-then-Tab exit (see the hint below). In a dialog it's handled, so the key
+          // stops here and the dialog stays open with the unsaved text; elsewhere the default keymap still collapses a selection.
+          keymap.of([{ key: "Escape", run: (v) => (v.setTabFocusMode(2000), !!v.dom.closest("dialog")) }]),
           onUndo
             ? // Undo goes through Loro: the person's own stack, which skips agent edits.
               keymap.of([
@@ -200,16 +199,7 @@ export function CodeEditor({
         queueMicrotask(apply)
       }
     })
-    // In a dialog, Radix takes Escape at the document to close it, before CodeMirror sees it, and the
-    // unsaved text goes with it. Get there first and keep Escape for CodeMirror's own way out: then Tab.
-    const onEscape = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || !v.hasFocus || !v.dom.closest("[role=dialog]")) return
-      e.preventDefault()
-      v.setTabFocusMode(2000)
-    }
-    if (!readOnly) window.addEventListener("keydown", onEscape, true)
     return () => {
-      window.removeEventListener("keydown", onEscape, true)
       for (const type of inputs) document.removeEventListener(type, unfocused, true)
       unbind?.()
       unselect?.()

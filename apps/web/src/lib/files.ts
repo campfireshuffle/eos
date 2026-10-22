@@ -81,13 +81,8 @@ async function embeddedFontCss(): Promise<string> {
   return faces.join("\n")
 }
 
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(blob)
-  })
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  return `data:${blob.type};base64,${(await blob.bytes()).toBase64()}`
 }
 
 export async function svgToPng(svg: string, scale = 2): Promise<Blob> {

@@ -2,124 +2,79 @@
 
 import * as React from "react"
 import { cn } from "@workspace/ui/lib/utils"
-import { Dialog as DialogPrimitive } from "radix-ui"
 
-import { Button } from "@workspace/ui/components/button"
-import { XIcon } from "lucide-react"
+/** The modal dialog a popover, menu or tooltip portals into: a modal makes everything outside it inert. */
+const PortalContainer = React.createContext<HTMLElement | undefined>(undefined)
 
-function Dialog({ ...props }: React.ComponentProps<typeof DialogPrimitive.Root>) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />
+export const usePortalContainer = () => React.useContext(PortalContainer)
+
+/** React Aria's live announcer, which it puts in <body>, lives in the top open modal, so its announcements aren't inert. */
+function adoptAnnouncer() {
+  const announcer = document.querySelector("[data-live-announcer]")
+  const top = [...document.querySelectorAll("dialog:modal")].at(-1) ?? document.body
+  if (announcer && announcer.parentNode !== top) top.prepend(announcer)
 }
 
-function DialogTrigger({ ...props }: React.ComponentProps<typeof DialogPrimitive.Trigger>) {
-  return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
-}
-
-function DialogPortal({ ...props }: React.ComponentProps<typeof DialogPrimitive.Portal>) {
-  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
-}
-
-function DialogClose({ ...props }: React.ComponentProps<typeof DialogPrimitive.Close>) {
-  return <DialogPrimitive.Close data-slot="dialog-close" {...props} />
-}
-
-function DialogOverlay({ className, ...props }: React.ComponentProps<typeof DialogPrimitive.Overlay>) {
+/**
+ * A native modal <dialog>, shown with showModal() while `open`. The browser makes the rest of the page inert, closes it on Escape,
+ * and returns focus to what had it when it opened; `onClose` hears every close. A closed dialog never keeps focus.
+ * With `closeOnBackdrop`, a click that starts and ends on the backdrop closes it.
+ */
+function Dialog({
+  open,
+  onClose,
+  closeOnBackdrop,
+  className,
+  children,
+  ...props
+}: Omit<React.ComponentProps<"dialog">, "open"> & { open: boolean; closeOnBackdrop?: boolean }) {
+  const [dialog, setDialog] = React.useState<HTMLDialogElement | null>(null)
+  const pressed = React.useRef<EventTarget>(null)
+  // The contents mount as it opens, and stay until it has closed and faded out, or for as long as it's open again.
+  const [mounted, setMounted] = React.useState(open)
+  if (open && !mounted) setMounted(true)
+  React.useLayoutEffect(() => {
+    if (open !== dialog?.open) dialog?.[open ? "showModal" : "close"]()
+    adoptAnnouncer()
+    if (!open || !dialog) return
+    // React Aria makes the announcer on its first announcement, which can come while this is open.
+    const observer = new MutationObserver(adoptAnnouncer)
+    observer.observe(document.body, { childList: true })
+    return () => {
+      observer.disconnect()
+      // Unmounted while open, it would take the announcer with it.
+      const announcer = dialog.querySelector(":scope > [data-live-announcer]")
+      if (announcer) document.body.prepend(announcer)
+    }
+  }, [dialog, open])
   return (
-    <DialogPrimitive.Overlay
-      data-slot="dialog-overlay"
+    <dialog
+      ref={setDialog}
+      data-slot="dialog"
       className={cn(
-        "fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        "bg-popover text-body text-popover-foreground outline-none backdrop:bg-black/10 supports-backdrop-filter:backdrop:backdrop-blur-xs",
         className
       )}
-      {...props}
-    />
-  )
-}
-
-function DialogContent({
-  className,
-  children,
-  showCloseButton = true,
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content> & {
-  showCloseButton?: boolean
-}) {
-  return (
-    <DialogPortal>
-      <DialogOverlay />
-      <DialogPrimitive.Content
-        data-slot="dialog-content"
-        className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-body text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-          className
-        )}
-        {...props}
-      >
-        {children}
-        {showCloseButton && (
-          <DialogPrimitive.Close data-slot="dialog-close" asChild>
-            <Button variant="ghost" className="absolute top-2 right-2" size="icon-sm">
-              <XIcon />
-              <span className="sr-only">Close</span>
-            </Button>
-          </DialogPrimitive.Close>
-        )}
-      </DialogPrimitive.Content>
-    </DialogPortal>
-  )
-}
-
-function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
-  return <div data-slot="dialog-header" className={cn("flex flex-col gap-2", className)} {...props} />
-}
-
-function DialogFooter({
-  className,
-  showCloseButton = false,
-  children,
-  ...props
-}: React.ComponentProps<"div"> & {
-  showCloseButton?: boolean
-}) {
-  return (
-    <div
-      data-slot="dialog-footer"
-      className={cn("-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:justify-end", className)}
+      onClose={(e) => {
+        const d = e.currentTarget
+        // The event comes a task after the close, by which time the dialog may have opened again.
+        if (d.open) return
+        // With no opener to go back to, focus would stay on the closed dialog's last control.
+        if (d.contains(document.activeElement)) (document.activeElement as HTMLElement).blur()
+        void Promise.allSettled(d.getAnimations({ subtree: true }).map((a) => a.finished)).then(() => setMounted(false))
+        onClose?.(e)
+      }}
+      onPointerDown={(e) => (pressed.current = e.target)}
+      onClick={(e) => closeOnBackdrop && e.target === e.currentTarget && pressed.current === e.target && e.currentTarget.close()}
       {...props}
     >
-      {children}
-      {showCloseButton && (
-        <DialogPrimitive.Close asChild>
-          <Button variant="outline">Close</Button>
-        </DialogPrimitive.Close>
-      )}
-    </div>
+      <PortalContainer value={dialog ?? undefined}>{(open || mounted) && children}</PortalContainer>
+    </dialog>
   )
 }
 
-function DialogTitle({ className, ...props }: React.ComponentProps<typeof DialogPrimitive.Title>) {
-  return <DialogPrimitive.Title data-slot="dialog-title" className={cn("font-heading text-title leading-none", className)} {...props} />
+function DialogTitle({ className, ...props }: React.ComponentProps<"h2">) {
+  return <h2 data-slot="dialog-title" className={cn("font-heading text-title", className)} {...props} />
 }
 
-function DialogDescription({ className, ...props }: React.ComponentProps<typeof DialogPrimitive.Description>) {
-  return (
-    <DialogPrimitive.Description
-      data-slot="dialog-description"
-      className={cn("text-body text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground", className)}
-      {...props}
-    />
-  )
-}
-
-export {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogOverlay,
-  DialogPortal,
-  DialogTitle,
-  DialogTrigger,
-}
+export { Dialog, DialogTitle }

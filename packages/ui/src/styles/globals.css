@@ -208,3 +208,35 @@
     --eos-fs-code: 16px;
   }
 }
+
+/* Dialogs (dialog.tsx) fade and slide in. They fade and slide out only where a closing dialog can stay in the top
+   layer meanwhile (overlay, Chromium); elsewhere they close at once. The page behind a modal doesn't scroll. */
+dialog,
+dialog::backdrop {
+  transition:
+    opacity 150ms,
+    translate 200ms ease-out;
+}
+@starting-style {
+  dialog[open],
+  dialog[open]::backdrop {
+    opacity: 0;
+  }
+}
+@supports (overlay: auto) {
+  dialog,
+  dialog::backdrop {
+    transition:
+      opacity 150ms,
+      translate 200ms ease-out,
+      display 200ms allow-discrete,
+      overlay 200ms allow-discrete;
+  }
+  dialog:not([open]),
+  dialog:not([open])::backdrop {
+    opacity: 0;
+  }
+}
+:root:has(dialog:modal) {
+  overflow: hidden;
+}

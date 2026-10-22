@@ -37,7 +37,7 @@ export function useExportActions(title: string, source: string, getSvg: () => SV
     copySvg: guard(() => navigator.clipboard.writeText(svg())),
     copyEmbed: guard(() =>
       navigator.clipboard.writeText(
-        `<img alt="${title.replace(/"/g, "&quot;")}" src="data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg())))}">`
+        `<img alt="${title.replace(/"/g, "&quot;")}" src="data:image/svg+xml;base64,${new TextEncoder().encode(svg()).toBase64()}">`
       )
     ),
     downloadSvg: guard(() => download(`${title}.svg`, svg(), "image/svg+xml")),

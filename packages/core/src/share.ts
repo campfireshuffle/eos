@@ -1,4 +1,3 @@
-import { fromBase64, toBase64 } from "./base64"
 import type { TagPath } from "./types"
 
 export interface SharePayload {
@@ -16,7 +15,7 @@ const MAX_SHARE_TITLE = 1_000
 export async function encodeShare(payload: SharePayload): Promise<string> {
   const json = JSON.stringify({ v: 1, ...payload })
   const bytes = await pipe(new TextEncoder().encode(json), new CompressionStream("deflate-raw"))
-  const encoded = toBase64(bytes, "base64url")
+  const encoded = bytes.toBase64({ alphabet: "base64url", omitPadding: true })
   if (encoded.length > MAX_SHARE_HASH) throw new Error("This diagram is too large to share as a link.")
   return encoded
 }
@@ -24,7 +23,11 @@ export async function encodeShare(payload: SharePayload): Promise<string> {
 export async function decodeShare(encoded: string): Promise<SharePayload | null> {
   if (!encoded || encoded.length > MAX_SHARE_HASH) return null
   try {
-    const bytes = await pipe(fromBase64(encoded, "base64url"), new DecompressionStream("deflate-raw"), MAX_SHARE_BYTES)
+    const bytes = await pipe(
+      Uint8Array.fromBase64(encoded, { alphabet: "base64url" }),
+      new DecompressionStream("deflate-raw"),
+      MAX_SHARE_BYTES
+    )
     const data = JSON.parse(new TextDecoder().decode(bytes)) as Partial<SharePayload> & { v?: number }
     if (data.v !== 1 || typeof data.source !== "string") return null
     if (typeof data.title === "string" && data.title.length > MAX_SHARE_TITLE) return null
@@ -55,5 +58,5 @@ async function pipe(input: Uint8Array, stream: CompressionStream | Decompression
     }
     chunks.push(read.value)
   }
-  return new Uint8Array(await new Blob(chunks as BlobPart[]).arrayBuffer())
+  return new Blob(chunks as BlobPart[]).bytes()
 }
