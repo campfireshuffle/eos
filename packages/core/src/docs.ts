@@ -137,11 +137,10 @@ export function persistDoc(db: Database, id: DiagramId, doc: LoroDoc, onLocalUpd
     queue(
       async () => {
         const tx = db.transaction(["updates", "pendingRows"], "readwrite")
-        await Promise.all([
-          tx.objectStore("updates").add({ id, bytes, at: Date.now() }),
-          id !== WORKSPACE_ID && tx.objectStore("pendingRows").put({ id }),
-          tx.done,
-        ])
+        // The mark first: a request made after one that aborts the transaction throws at once,
+        // which would leave the earlier requests' rejections unhandled.
+        const mark = id !== WORKSPACE_ID && tx.objectStore("pendingRows").put({ id })
+        await Promise.all([mark, tx.objectStore("updates").add({ id, bytes, at: Date.now() }), tx.done])
         const count = await db.countFromIndex("updates", "byDiagram", id)
         // Stopped mid-write (by a delete): a snapshot now would write the diagram back.
         if (stopped) return
