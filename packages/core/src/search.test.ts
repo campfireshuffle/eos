@@ -15,6 +15,10 @@ async function titlesFound(titles: string[], query: string) {
   return (await (await searchIndex(rows))!(rows, query)).map((r) => r.title)
 }
 
+const titleWords = (title: string) => title.toLowerCase().split(/[^\p{L}\p{N}'-]+/u)
+/** A title's words as search has them: without accents, each followed by its parts ("t-shirt", "t", "shirt"). */
+const searchedWords = (title: string) => titleWords(title.normalize("NFD").replace(/[̀-ͯ]/g, "")).flatMap((w) => [w, ...w.split(/['-]+/)])
+
 /** 1000 diagrams with titles and contents of common words, the same on every call. */
 function seeded() {
   let seed = 7
@@ -164,9 +168,12 @@ describe("search", () => {
         "Payments overview above every title without payment or payments",
         (r) => before(r, "payov", (id) => !/\bpayments?\b/i.test(title(id))),
       ],
-      // About 40 diagrams have "sarah" in their contents.
-      ["sarah", "Sarah's onboarding #1", (r) => r[0] === "sarahs"],
-      ["sign", "Sign-up flow #1", (r) => r[0] === "signup"],
+      // About 90 seeded titles have sarah whole, and 110 sign, some twice ("sarah sarah 56") and in their contents
+      // too, so any of those may be #1; the possessive and the hyphenated word must rank with them.
+      ["sarah", "#1 has sarah whole in its title", (r) => /\bsarah\b/i.test(title(r[0]!))],
+      ["sarah", "Sarah's onboarding above every title without sarah", (r) => before(r, "sarahs", (id) => !/\bsarah\b/i.test(title(id)))],
+      ["sign", "#1 has sign whole in its title", (r) => /\bsign\b/i.test(title(r[0]!))],
+      ["sign", "Sign-up flow above every title without sign", (r) => before(r, "signup", (id) => !/\bsign\b/i.test(title(id)))],
       ["don't", "Don\u2019t ship on Friday #1", (r) => r[0] === "dont"],
       ["don't", "not every diagram (through t)", (r) => r.length < rows.length],
       ["follow-up", "finds Follow up", (r) => r.includes("followup")],
@@ -273,6 +280,9 @@ describe("search", () => {
       add("statuses", "Order statuses")
       add("virus", "Virus scan")
       add("campus", "Campus map")
+      // Titles for words partly typed.
+      add("onboarding", "Onboarding checklist")
+      add("release", "Release notes")
       rows.reverse()
       const find = (await searchIndex(rows))!
       const title = (id: string) => rows.find((r) => r.id === id)!.title
@@ -335,6 +345,14 @@ describe("search", () => {
         ],
         ["virus", "Virus scan #1", first("virus")],
         ["campus", "Campus map #1", first("campus")],
+        // Partly typed: a title with a word starting with what's typed is #1, not a big diagram with many such words.
+        ...["pay", "paym", "use", "onboar", "sessio", "releas", "repor", "univer"].map(
+          (typed): [string, string, (r: string[]) => boolean] => [
+            typed,
+            `#1 has a title word starting with ${typed}`,
+            (r) => r.length > 0 && titleWords(title(r[0]!)).some((w) => w.startsWith(typed)),
+          ]
+        ),
       ]
       const failing: string[] = []
       for (const [query, expected, holds] of matrix) {
@@ -343,6 +361,25 @@ describe("search", () => {
       }
       expect(failing).toEqual([])
     })
+
+  it("ranks a title starting with what's typed first, for nearly every prefix of every title word", async () => {
+    const rows = library(1000)
+    const find = (await searchIndex(rows))!
+    const words = [...new Set(rows.flatMap((r) => titleWords(r.title)))].filter((w) => w.length >= 4 && /^[a-z]+$/.test(w))
+    let typed = 0
+    let first = 0
+    for (const w of words)
+      for (let n = 2; n <= w.length; n++) {
+        const prefix = w.slice(0, n)
+        const top = (await find(rows, prefix))[0]
+        typed++
+        if (top && searchedWords(top.title).some((t) => t.startsWith(prefix))) first++
+      }
+    // Orama (main at 09601f6) had 620 of the 627 first. A title's words are counted as search has them, without
+    // accents and with their parts, so "re" starts "Résumé parser" and "sh" "T-shirt store".
+    expect(typed).toBe(627)
+    expect(first).toBeGreaterThanOrEqual(620)
+  })
 
   it("weighs an English word like a word in another script, a number or a code", async () => {
     const wrong: string[] = []
