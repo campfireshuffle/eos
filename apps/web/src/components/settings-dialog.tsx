@@ -30,8 +30,8 @@ import { applyTheme, changedVars, currentAppCss, DEFAULT_DIAGRAM_CSS } from "@/l
 import type { CodeLanguage } from "@/lib/mermaid-language"
 import { askConfirm, setUi, useUi } from "@/lib/ui-state"
 
-// CodeMirror is part of the editor's download; Settings fetches it when first opened.
-const CodeEditor = lazy(() => import("./code-editor").then((m) => ({ default: m.CodeEditor })))
+// CodeMirror comes with the editor's download, which the app preloads when idle.
+const CodeEditor = lazy(() => import("./editor").then((m) => ({ default: m.CodeEditor })))
 
 const TABS = [
   { id: "theming", label: "Theming", icon: Palette },

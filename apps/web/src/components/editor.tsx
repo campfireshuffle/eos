@@ -41,6 +41,9 @@ import { Preview } from "./preview"
 import { ResizeHandle } from "./resize-handle"
 import { EmptyPage, Page, PageHeader, Panel, PanelHeader } from "./page"
 
+// Settings' CSS editors take CodeMirror from here, so it has no download of its own to miss offline.
+export { CodeEditor }
+
 export function Editor({ id }: { id: string }) {
   const [copied, copy] = useCopy()
   const eos = useEos()

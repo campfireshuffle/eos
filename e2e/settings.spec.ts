@@ -223,3 +223,35 @@ test("Shift+Tab from a confirm's Cancel shows a ring on the confirm it lands on"
   await shiftTab(page, browserName)
   await expectFocusRing(confirm, resting)
 })
+
+const EDITOR_CHUNK = /\/assets\/editor-[^/]+\.js$/
+
+test("Settings opens offline once the app has loaded", async ({ context, page }) => {
+  // CodeMirror comes with the editor's chunk, which the app preloads when idle.
+  const preloaded = page.waitForResponse(EDITOR_CHUNK)
+  await page.goto("/#/")
+  await preloaded
+  await context.setOffline(true)
+  await page.getByRole("button", { name: "Settings" }).click()
+  const dialog = page.getByRole("dialog", { name: "Settings" })
+  const appCss = dialog.getByRole("textbox", { name: "App theme CSS" })
+  await expect(appCss).toBeVisible()
+  await expect(dialog.getByRole("textbox", { name: "Diagram theme CSS" })).toBeVisible()
+  await appCss.click()
+  await page.keyboard.press("ControlOrMeta+End")
+  await page.keyboard.type("--eos-offline: 1;")
+  await expect(appCss).toContainText("--eos-offline: 1;")
+  await expect(page.getByRole("alert")).toHaveCount(0)
+})
+
+test("a part that can't load offline says so, not that Eos was updated", async ({ context, page }) => {
+  await context.route(EDITOR_CHUNK, (route) => route.abort())
+  await page.goto("/#/")
+  await expect(page.getByRole("button", { name: "Settings" })).toBeVisible()
+  await context.setOffline(true)
+  await page.getByRole("button", { name: "Settings" }).click()
+  const alert = page.getByRole("alert")
+  await expect(alert).toContainText("offline")
+  await expect(alert).not.toContainText("updated")
+  await expect(alert.getByRole("button", { name: "Reload" })).toBeVisible()
+})
