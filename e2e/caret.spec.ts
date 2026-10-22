@@ -3,8 +3,8 @@ import { expect, test, type Page } from "@playwright/test"
 import { editorText, expectEditor, newDiagram, openEditor, storedText, tool, withAgentTools } from "./helpers"
 
 // Where text someone else inserts lands relative to the person's caret and line: caret spot × insertion × source
-// (the cells `runs` picks), then edits an agent merges from an older version while the person types. One rule covers them all: the
-// caret, and what the person types, stay with the text of their own line.
+// (the cells `runs` picks). One rule covers them all: the caret, and what the person types, stay with the text of
+// their own line. Then edits an agent merges from an older version while the person types, which keep what both typed.
 
 const SPOTS = {
   "start of an unindented line": { line: "A --> B", col: 0 },
@@ -29,7 +29,6 @@ const INSERTS = {
 
 const doc = (line: string, last = false) => (last ? `graph TD\n${line}` : `graph TD\n${line}\n  C --> D`)
 const HEAD = "graph TD\n".length
-const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
 /**
  * How far past the insertion's start the caret ends up: someone else's new line ("\n…") goes after the caret unless
@@ -175,34 +174,25 @@ for (const [spotName, { line, col, last }] of Object.entries(SPOTS)) {
         ...(c.below !== undefined ? [c.below] : []),
         ...tail,
       ]
-      await tool(a, "update_diagram", { id, source: agentLines.join("\n"), baseVersion: version })
+      const source = agentLines.join("\n")
+      await tool(a, "update_diagram", { id, source, baseVersion: version })
       await a.keyboard.type("!")
-      // The person's text stays at its spot on its line; text the agent put at the same spot goes before it,
-      // except on the empty last line, where each is a line of its own.
-      const typed = (l: string, extra = "") => l.slice(0, col) + extra + "ob!" + l.slice(col)
-      const own = last && line === "" ? "X\n" : ""
-      const personLine = changeName === "text at the spot" ? own + typed(line, own ? "" : "X") : typed(line)
-      const expected = [
-        "graph TD",
-        ...(c.above !== undefined ? [c.above] : []),
-        personLine,
-        ...(c.below !== undefined ? [c.below] : []),
-        ...tail,
-      ].join("\n")
-      // A blank line added next to an empty line: either of the two is the person's.
-      const alsoFine = line === "" && c.above === "" ? ["graph TD", personLine, "", ...tail].join("\n") : expected
-      await expect.poll(() => editorText(a)).toMatch(new RegExp(`^(${esc(expected)}|${esc(alsoFine)})$`))
-      expect([expected, alsoFine]).toContain(await storedText(a, id))
+      // Everything either side typed is there once: less the person's "ob" and "!", it's the agent's text. Of the two
+      // insertions at one spot, the person's goes first, so "ob" stays right after the text of its line it was typed after.
+      await expect.poll(async () => (await editorText(a)).replace("ob", "").replace("!", "")).toBe(source)
+      const merged = await editorText(a)
+      expect(merged.includes("\n" + line.slice(0, col) + "ob"), merged).toBe(true)
+      expect(await storedText(a, id)).toBe(merged)
     })
   }
 }
 
-// The agent changes the end of the person's line and adds a line after it, as one insertion in Loro's diff: what the
-// person typed at the line's end stays on their line, after the agent's change to it.
+// The agent changes the end of the person's line and adds a line after it: what the person typed at the line's end
+// stays right after the old end, so before the "2…" the agent added there, or after what the agent replaced "B" with.
 for (const last of [false, true]) {
-  for (const [lineNow, added] of [
-    ["  A --> B2", "  B2 --> X"],
-    ["  A --> Z", "  Y --> Z"],
+  for (const [lineNow, added, mine] of [
+    ["  A --> B2", "  B2 --> X", ["  A --> Bob2!", "  B2 --> X"]],
+    ["  A --> Z", "  Y --> Z", ["  A --> Z", "  Y --> Zob!"]],
   ] as const) {
     test(`merge: the person types at the end of ${last ? "the last line" : "a line"} while an agent changes it to "${lineNow.trim()}" and adds a line below`, async ({
       context,
@@ -216,7 +206,7 @@ for (const last of [false, true]) {
       await a.keyboard.type("ob")
       await tool(a, "update_diagram", { id, source: ["graph TD", lineNow, added, ...tail].join("\n"), baseVersion: version })
       await a.keyboard.type("!")
-      const expected = ["graph TD", `${lineNow}ob!`, added, ...tail].join("\n")
+      const expected = ["graph TD", ...mine, ...tail].join("\n")
       await expectEditor(a, expected)
       expect(await storedText(a, id)).toBe(expected)
     })

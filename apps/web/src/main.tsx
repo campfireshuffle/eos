@@ -68,5 +68,7 @@ try {
 } catch (error) {
   clearTimeout(slow)
   console.error(error)
-  status(`Eos couldn't open your diagrams: ${(error as Error).message}. Try reloading.`)
+  // Some errors (a QuotaExceededError) carry no message, only a name.
+  const { message, name } = error as Error
+  status(`Eos couldn't open your diagrams: ${message || name}. Try reloading.`)
 }

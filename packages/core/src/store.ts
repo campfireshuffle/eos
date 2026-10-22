@@ -281,8 +281,8 @@ export class Eos {
   /**
    * Changes title, source and tags. Title and tags are details, on nobody's undo stack;
    * the source change is undoable. With `base`, the version the source was read at, the
-   * source is applied as the edits that turn that version into it, so anything changed
-   * since (e.g. the person typing while an agent worked) is kept instead of overwritten.
+   * edits that turn that version into the source are merged by Loro with anything changed
+   * since (e.g. the person typing while an agent worked), as another tab's edits would be.
    */
   async editDiagram(
     id: DiagramId,
@@ -292,9 +292,9 @@ export class Eos {
   ) {
     if (edit.source !== undefined) edit = { ...edit, source: lf(edit.source) }
     await this.mutate(id, actor, (d) => {
-      // Work out the source edits first: reading the old version forks the doc, which
-      // would otherwise save this edit's other changes early, without their label.
-      const fromBase = edit.source !== undefined && base && base !== encodeVersion(d.doc) ? editsFromBase(d, base, edit.source) : null
+      // Merge the source first: forking the doc commits it, which would otherwise save this
+      // edit's other changes early, without their label.
+      const merged = edit.source !== undefined && base && base !== encodeVersion(d.doc) ? mergeFromBase(d, base, edit.source) : null
       if (edit.title !== undefined) d.meta.set("title", edit.title.trim() || "Untitled")
       if (edit.addTags?.length || edit.removeTags?.length) {
         const drop = new Set(normalizeTags(edit.removeTags ?? []))
@@ -305,7 +305,7 @@ export class Eos {
       }
       // Title and tags are details (see mutate); the source change below stays undoable.
       commit(d.doc, actor, { details: true })
-      if (fromBase) applyEdits(d.text, fromBase)
+      if (merged) d.text.applyDelta(merged)
       else if (edit.source !== undefined) applyEdits(d.text, diffText(sourceOf(d), edit.source))
     })
   }
@@ -895,10 +895,18 @@ export class Eos {
     }
   }
 
-  /** Rebuilds the rows marked as behind their docs: a page went away before it rewrote them (see persistDoc). */
+  /**
+   * Rebuilds the rows marked as behind their docs: a page went away before it rewrote them (see persistDoc).
+   * One that fails to save (a full disk) keeps its mark, for the next start, and doesn't stop Eos opening.
+   */
   private async repairRows() {
-    for (const id of await this.db.getAllKeys("pendingRows"))
-      if (await compact(this.db, id, newDiagramDoc(), this.rowOf(id))) this.indexChanged(id)
+    for (const id of await this.db.getAllKeys("pendingRows")) {
+      try {
+        if (await compact(this.db, id, newDiagramDoc(), this.rowOf(id))) this.indexChanged(id)
+      } catch (error) {
+        console.error(`Couldn't rebuild the library row of diagram ${id}`, error)
+      }
+    }
   }
 
   /** Rows written before search covered full contents only have a preview; fill them in once. */
@@ -1103,16 +1111,21 @@ function frontiersOf(d: Editable, version: string): Frontiers {
   return frontiers
 }
 
-/** A Loro text delta as edits in the coordinates of the text before it, in order. */
+/** A Loro text delta as edits in the coordinates of the text before it, in order: text deleted and inserted at one spot is one replacement. */
 function changesOf(delta: Delta<string>[]): TextChange[] {
   const changes: TextChange[] = []
   let pos = 0
   for (const op of delta) {
+    const last = changes.at(-1)
     if (op.retain !== undefined) pos += op.retain
     else if (op.delete !== undefined) {
-      changes.push({ from: pos, to: pos + op.delete, insert: "" })
+      if (last?.to === pos) last.to += op.delete
+      else changes.push({ from: pos, to: pos + op.delete, insert: "" })
       pos += op.delete
-    } else if (op.insert !== undefined) changes.push({ from: pos, to: pos, insert: op.insert })
+    } else if (op.insert !== undefined) {
+      if (last?.to === pos) last.insert += op.insert
+      else changes.push({ from: pos, to: pos, insert: op.insert })
+    }
   }
   return changes
 }
@@ -1168,9 +1181,7 @@ function lineHunks(a: string[], b: string[]) {
  * The edits that turn `a` into `b`, line by line. Invariant: lines `b` keeps are left alone, lines it
  * adds or removes go in or come out whole between lines, and only lines it changes get a character
  * diff, so whatever was typed on a kept line stays on that line. Whole lines go in as "  X\n" at the
- * start of a line, or "\n  X" at the end of the text. In changed lines, an insertion at the end of a
- * line's text that extends the line and then adds lines is two insertions there: the extension, and
- * the rest from its first line break ("2", then "\n  B2 --> X").
+ * start of a line, or "\n  X" at the end of the text.
  */
 function diffText(a: string, b: string): TextChange[] {
   const A = a.split("\n")
@@ -1192,144 +1203,39 @@ function diffText(a: string, b: string): TextChange[] {
     if (j0 === j1) return [i1 < A.length ? { from: sa[i0]!, to: sa[i1]!, insert: "" } : { from: sa[i0]! - 1, to: a.length, insert: "" }]
     // The changed lines' text, without the line break after the last.
     const at = sa[i0]!
-    const old = a.slice(at, sa[i1]! - 1)
-    return charDiff(old, b.slice(sb[j0]!, sb[j1]! - 1)).flatMap((e) => {
-      const edit = { from: at + e.from, to: at + e.to, insert: e.insert }
-      const br = e.insert.indexOf("\n")
-      if (br <= 0 || !/\S/.test(old.slice(old.lastIndexOf("\n", e.from - 1) + 1, e.from))) return [edit]
-      return [
-        { ...edit, insert: e.insert.slice(0, br) },
-        { ...edit, insert: e.insert.slice(br) },
-      ]
-    })
+    return charDiff(a.slice(at, sa[i1]! - 1), b.slice(sb[j0]!, sb[j1]! - 1)).map((e) => ({ ...e, from: at + e.from, to: at + e.to }))
   })
 }
 
 /**
- * The edits that turn the text at version `base` into `source`, each placed where that
- * spot of text is now. They're the edits an edit without a base makes (diffText). Loro
- * cursors map positions from the old text to the current one, so changes made since `base`
- * elsewhere in the text are kept.
- *
- * Lines are units: a line break belongs to the line it ends, and nothing the agent does joins
- * the person's text onto another line or takes a line the person added since, except one
- * added between two lines the agent changes or removes, as one character diff of changed
- * lines can run across both. So:
- * - An insertion inside a line goes right after the old character before it, so it stays next
- *   to what it followed even when text was added after that since. A line added after a line's
- *   text ("\n…") goes after what has been typed at the end of that line since.
- * - At a line's start, whole lines go right after the old line break before it (at the very
- *   start, before anything typed there), above lines the person added there; part of a line
- *   goes onto the old line's text, after those lines. One insertion of both is split so.
- * - A removed range is pinned on its own first and last characters, so it never takes text
- *   typed next to it. Removed lines go from where the first one's text starts now to the line
- *   break that now ends the last one's (the break stays when the person has joined the first
- *   onto the line above), and the last lines come out from the line break now before them,
- *   with what was typed at the end of the last; so lines added below or above stay. Where the
- *   person has deleted a removal's end already, it stays pinned on its characters.
- * - Once the person has typed after the text's final line break, it ends their line: the agent
- *   dropping it keeps it, and what the agent puts on the old empty last line goes on a line of
- *   its own.
+ * The change that turns the text at version `base` into `source`, merged with everything changed
+ * since, as a delta on the text now. The edits are made on a copy of the doc at `base`, where
+ * diffText's positions are exact, and Loro merges them into a copy of the doc now, as it merges
+ * another tab's: what anyone changed since `base` is kept.
  */
-function editsFromBase(d: Editable, base: string, source: string): TextChange[] {
-  const old = d.doc.forkAt(frontiersOf(d, base)).getText("source")
-  // Where the gap before the old text's i-th character is now (where it was, if deleted since).
-  const gapBefore = (i: number) => (i >= old.length ? d.text.length : (d.doc.getCursorPos(old.getCursor(i)!)?.offset ?? i))
-  // Where the gap after the old text's `char`, at i, is now. Nothing is left of it if deleted since.
-  const gapAfter = (i: number, char: string) => {
-    const now = d.doc.getCursorPos(old.getCursor(i)!)
-    return now ? now.offset + (now.update ? 0 : char.length) : i + char.length
+function mergeFromBase(d: Editable, base: string, source: string): Delta<string>[] {
+  const old = d.doc.forkAt(frontiersOf(d, base))
+  const now = d.doc.fork()
+  try {
+    // The highest peer the doc doesn't have (Loro reserves the maximum), so the edits are new ops to
+    // it, and of two insertions at one spot Loro puts the lower peer's first: the agent's go after
+    // the person's, whose typing stays next to what it followed.
+    const peers = d.doc.oplogVersion()
+    let peer = 2n ** 64n - 2n
+    while (peers.get(peer) !== undefined) peer--
+    old.setPeerId(peer)
+    const from = old.oplogVersion()
+    const text = old.getText("source")
+    applyEdits(text, diffText(text.toString(), source))
+    old.commit()
+    const before = now.frontiers()
+    now.import(old.export({ mode: "update", from }))
+    const diff = now.diff(before, now.frontiers(), false).find(([id]) => id === d.text.id)?.[1]
+    return diff?.type === "text" ? diff.diff : []
+  } finally {
+    old.free()
+    now.free()
   }
-  // Whether the old text's i-th character is still there.
-  const kept = (i: number) => !d.doc.getCursorPos(old.getCursor(i)!)?.update
-  const text = old.toString()
-  const now = d.text.toString()
-  // The length of the old text's code point ending at i: a cursor can't sit on the second half of a surrogate pair.
-  const width = (i: number) => (/[\udc00-\udfff]/.test(text[i - 1]!) && i > 1 ? 2 : 1)
-  // Where the gap after the old text's code point ending at i is now.
-  const after = (i: number) => gapAfter(i - width(i), text.slice(i - width(i), i))
-  // Where the text of the old line starting at i starts now: after any line breaks typed above it.
-  const lineStart = (i: number) => {
-    const at = i ? after(i) : 0
-    return at + now.slice(at, gapBefore(i)).lastIndexOf("\n") + 1
-  }
-  const end = text.length
-  const typedAfterEnd = text.endsWith("\n") && after(end) < now.length
-  const changes = diffText(text, source)
-  // A replacement up to the end, final line break and all: what replaces it goes where it started,
-  // on the line that line break ended, rather than on the old empty last line.
-  for (let i = 1; i < changes.length; i++) {
-    const [cut, put] = [changes[i - 1]!, changes[i]!]
-    if (!cut.insert && cut.to === end && text.endsWith("\n") && put.from === end)
-      changes.splice(i - 1, 2, { ...put, from: cut.from, to: cut.from }, cut)
-  }
-  const place = (from: number, insert: string): TextChange => {
-    const atLineStart = !from || text[from - 1] === "\n"
-    let at: number
-    if (insert.startsWith("\n") && (from === end || text[from] === "\n")) {
-      at = gapBefore(from)
-      // After the old text's end: before a final line break the person added there.
-      if (from === end && end && !text.endsWith("\n") && after(end) < now.length && now.endsWith("\n")) at--
-    } else if (!atLineStart) at = after(from)
-    else at = !insert.endsWith("\n") ? lineStart(from) : from ? after(from) : 0
-    // On the old empty last line: below the last line's text, and apart from what the person typed there.
-    if (from === end && atLineStart && !insert.startsWith("\n")) {
-      if (at && now[at - 1] !== "\n") insert = "\n" + insert
-      if (!insert.endsWith("\n") && at < now.length) insert += "\n"
-    }
-    return { from: at, to: at, insert }
-  }
-  return changes.flatMap(({ from, to, insert }): TextChange[] => {
-    if (insert) {
-      // At a line's start, whole lines then part of a line: each goes where its kind goes.
-      const br = insert.lastIndexOf("\n") + 1
-      const split = (!from || text[from - 1] === "\n") && br > 1 && br < insert.length
-      return split ? [place(from, insert.slice(0, br)), place(from, insert.slice(br))] : [place(from, insert)]
-    }
-    // Dropping the final line break but not the line it ends: that line break alone is pinned on itself.
-    const toEnd = to === end
-    const edits: TextChange[] = []
-    let finalBreak = false
-    if (toEnd && text.endsWith("\n") && from && text[from - 1] !== "\n") {
-      to--
-      finalBreak = !typedAfterEnd
-    }
-    if (from < to) {
-      // The line rules below go by the old characters at the removal's ends, so each applies only while
-      // its character is still there: what the person deleted already, and typed at its spot since, is theirs.
-      const lastKept = kept(to - width(to))
-      // Whole lines from where the first one's text starts now, with what was typed at its start.
-      const atLineStart = !from || text[from - 1] === "\n"
-      const wholeLines = atLineStart && text[to - 1] === "\n"
-      let start = wholeLines && kept(from) ? lineStart(from) : gapBefore(from)
-      // The last lines, from the line break before them: the one now directly before the first one's text.
-      const lastLines = toEnd && text[from] === "\n" && lastKept
-      if (lastLines && kept(from + 1)) {
-        const br = lineStart(from + 1) - 1
-        if (br >= start && now[br] === "\n") start = br
-      }
-      let stop = after(to)
-      const lineText = to - 1 > from && text[to - 2] !== "\n" // the last whole line isn't empty
-      if (wholeLines && lineText && kept(to - 1 - width(to - 1))) {
-        // Whole lines: up to the line break that now ends the last one's text, and through it when they
-        // start a line now (not when the person has joined the first onto the line above).
-        const ends = now.indexOf("\n", after(to - 1))
-        if (ends >= 0 && ends < stop) stop = ends + (!start || now[start - 1] === "\n" ? 1 : 0)
-      } else if (lastLines) {
-        // With what was typed at the last one's end, up to a line break after it.
-        const ends = now.indexOf("\n", stop)
-        stop = ends < 0 ? now.length : ends
-      } else if (atLineStart && toEnd && lastKept && !text.endsWith("\n") && source.endsWith("\n")) {
-        // The last line's text, leaving it empty: with the line break typed after it since, when the
-        // removal starts a line now, so that line goes rather than leave a blank line above the person's.
-        const ends = now.indexOf("\n", stop)
-        if (ends >= 0 && (!start || now[start - 1] === "\n")) stop = ends + 1
-      }
-      edits.push({ from: start, to: stop, insert: "" })
-    }
-    if (finalBreak) edits.push({ from: gapBefore(to), to: after(to + 1), insert: "" })
-    return edits
-  })
 }
 
 /** Runs `fn` and commits what it did as `actor`: one step on `undo`, if given (see Eos.mutate). */
