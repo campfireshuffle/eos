@@ -51,6 +51,8 @@ test("back returns to where the library was scrolled after searching", async ({ 
   await scrollTo(200)
   await page.getByPlaceholder("Search").first().fill("Diagram")
   await expect(page).toHaveURL(/q=Diagram/)
+  // A new search's results scroll the library to the top once they arrive; scroll after that.
+  expect(await settledTop()).toBe(0)
   await scrollTo(500)
   // Clicked where it sits: Playwright's own click would first scroll it into view.
   await cards.nth(12).evaluate((a: HTMLElement) => a.click())
