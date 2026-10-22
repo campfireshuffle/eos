@@ -712,11 +712,16 @@ export class Eos {
           excludeOriginPrefixes: ["user", "import", "system", DETAILS],
         })
         const persisted = persistDoc(this.db, id, doc, (bytes) => this.broadcast({ type: "update", id, bytes }))
-        return {
+        const meta = doc.getMap("meta")
+        // A title or tag change imported (from another tab, a backup or the saved log) rebuilds the row from the merged
+        // doc: another tab saved one from its own copy, which can lack a details change made here at the same time.
+        // That sends "index", never "update", so the tabs can't set each other off.
+        meta.subscribe(({ by }) => by === "import" && void this.afterChange(id, opened))
+        const opened: OpenDiagram = {
           id,
           doc,
           text: doc.getText("source"),
-          meta: doc.getMap("meta"),
+          meta,
           undo,
           agentUndo,
           selection,
@@ -731,6 +736,7 @@ export class Eos {
             this.closed.delete(id)
           },
         }
+        return opened
       })()
       this.open.set(id, p)
       p.catch(() => this.open.delete(id))
@@ -983,6 +989,15 @@ export class Eos {
   }
 
   private listenToOtherTabs() {
+    // Stars and tag emoji imported (from another tab or a backup), which the library shows. Reads add stars from the
+    // workspace (see withStar), so a star needs no row write: the views of each diagram whose star changed are told.
+    this.workspace.doc.subscribe(({ by, events }) => {
+      if (by !== "import") return
+      const starred = events.flatMap((e) =>
+        e.target === this.workspace.starred.id && e.diff.type === "map" ? Object.keys(e.diff.updated) : []
+      )
+      this.emit("library", ...starred.map((id) => `diagram:${id}` as const))
+    })
     if (typeof BroadcastChannel === "undefined") return
     this.channel = new BroadcastChannel("eos")
     this.channel.onmessage = async ({ data }: MessageEvent<SyncMessage>) => {
@@ -990,25 +1005,11 @@ export class Eos {
         this.settingsCache = withDefaults(await this.db.get("settings", "app"))
         this.emit("settings")
       } else if (data.type === "update" && data.id && data.bytes) {
-        if (data.id === WORKSPACE_ID) {
-          // Stars and tag emoji, which the library shows. Reads add stars from the workspace (see
-          // withStar), so a star needs no row write: the views of each diagram whose star flipped are told.
-          const before = this.workspace.starred.toJSON() as Record<string, unknown>
-          this.workspace.doc.import(data.bytes)
-          const after = this.workspace.starred.toJSON() as Record<string, unknown>
-          const flipped = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((id) => !before[id] !== !after[id])
-          this.emit("library", ...flipped.map((id) => `diagram:${id}` as const))
-        } else {
-          if (this.open.has(data.id)) {
-            const d = await this.openDiagram(data.id)
-            const before = JSON.stringify(metaOf(d))
-            d.doc.import(data.bytes)
-            // The other tab saved a row from its own copy, which can lack a details change made
-            // here at the same time: rebuild it from the merged doc. That sends "index", never
-            // "update", so the tabs can't set each other off.
-            if (JSON.stringify(metaOf(d)) !== before) void this.afterChange(data.id, d)
-          }
-          // Otherwise a diagram's index row changes with the "index" message that follows (once typing pauses).
+        if (data.id === WORKSPACE_ID) this.workspace.doc.import(data.bytes)
+        else {
+          // An open diagram's meta subscription rebuilds its row (see openDiagram). Otherwise a diagram's index row
+          // changes with the "index" message that follows (once typing pauses).
+          if (this.open.has(data.id)) (await this.openDiagram(data.id)).doc.import(data.bytes)
           this.emit(`diagram:${data.id}`)
         }
       } else if (data.type === "index") {
