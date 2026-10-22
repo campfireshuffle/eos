@@ -120,6 +120,28 @@ test("resetting the theme after a save shows the default app CSS again", async (
   await expect(line).toContainText("--eos-line: #dddad3;")
 })
 
+test("open Theming editors follow a mode switch and an agent's theme, which a reload keeps", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.emulateMedia({ colorScheme: "light" })
+  await page.goto("/#/")
+  await page.waitForFunction(() => "__tools" in window && "set_theme" in (window as unknown as { __tools: object }).__tools)
+  await page.getByRole("button", { name: "Settings" }).click()
+  const dialog = page.getByRole("dialog", { name: "Settings" })
+  const app = dialog.getByRole("textbox", { name: "App theme CSS" })
+  const diagram = dialog.getByRole("textbox", { name: "Diagram theme CSS" })
+  await expect(app).toContainText("--eos-ink: #f1f0ec;")
+  await dialog.getByRole("radio", { name: "Dark" }).click()
+  await expect(app).toContainText("--eos-ink: #0e0e0e;")
+  await tool(page, "set_theme", { appCss: ":root { --eos-line: #ff0000; }", diagramCss: ".pele { --pele-radius: 0; }" })
+  await expect(app).toContainText("--eos-line: #ff0000;")
+  await expect(diagram).toHaveText(".pele { --pele-radius: 0; }")
+  await page.reload()
+  await page.getByRole("button", { name: "Settings" }).click()
+  await expect(app).toContainText("--eos-line: #ff0000;")
+  await expect(diagram).toHaveText(".pele { --pele-radius: 0; }")
+})
+
 test("a confirm keeps its text while it fades out", async ({ page }) => {
   await page.goto("/#/")
   await page.getByRole("button", { name: "Settings" }).click()

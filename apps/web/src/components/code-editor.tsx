@@ -70,7 +70,7 @@ export function CodeEditor({
   gutter = true,
   wrap = false,
 }: {
-  /** The text to show. Ignored when `binding` is given. */
+  /** The starting text; to replace it, remount with a new `key`. Ignored when `binding` is given. */
   value?: string
   /**
    * Links the editor to a diagram's source in Loro: keystrokes go in as individual
@@ -78,7 +78,7 @@ export function CodeEditor({
    * so concurrent edits merge instead of overwriting each other.
    */
   binding?: SourceBinding
-  /** Called with the full text after every change. Without a binding, a change that came in through `value` isn't reported back. */
+  /** Called with the full text after every change. */
   onChange?: (value: string) => void
   /** When given, undo/redo go to these (e.g. Loro); otherwise CodeMirror keeps its own history. */
   onUndo?: () => void
@@ -95,8 +95,6 @@ export function CodeEditor({
   const host = useRef<HTMLDivElement>(null)
   const hintId = useId()
   const view = useRef<EditorView | null>(null)
-  // Values sent to onChange that haven't come back as `value` yet, oldest first.
-  const reported = useRef<string[]>([])
   const callbacks = useRef({ onChange, onUndo, onRedo })
   callbacks.current = { onChange, onUndo, onRedo }
 
@@ -150,11 +148,7 @@ export function CodeEditor({
               u.changes.iterChanges((from, to, _fromB, _toB, inserted) => changes.push({ from, to, insert: inserted.toString() }))
               binding.edit(changes)
             }
-            if (binding || !u.transactions.some((t) => t.annotation(external))) {
-              const doc = u.state.doc.toString()
-              if (!binding && reported.current.push(doc) > 50) reported.current.shift()
-              callbacks.current.onChange?.(doc)
-            }
+            callbacks.current.onChange?.(u.state.doc.toString())
           }),
         ],
       }),
@@ -247,27 +241,6 @@ export function CodeEditor({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  // Without a binding, apply a new value as a minimal patch. A value this editor reported itself
-  // is coming back late, while typing may have moved on; patching it in would undo those keystrokes.
-  useEffect(() => {
-    const v = view.current
-    if (!v || binding || value === undefined) return
-    const own = reported.current.indexOf(value)
-    if (own >= 0) return void reported.current.splice(0, own + 1)
-    reported.current = []
-    const prev = v.state.doc.toString()
-    if (prev === value) return
-    let from = 0
-    let to = prev.length
-    let end = value.length
-    while (from < to && from < end && prev[from] === value[from]) from++
-    while (to > from && end > from && prev[to - 1] === value[end - 1]) {
-      to--
-      end--
-    }
-    v.dispatch({ changes: { from, to, insert: value.slice(from, end) }, annotations: external.of(true) })
-  }, [value, binding])
 
   useEffect(() => {
     view.current?.dispatch({ effects: setErrorLine.of(errorAt) })

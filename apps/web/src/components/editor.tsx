@@ -95,12 +95,14 @@ export function Editor({ id }: { id: string }) {
   // Previewing a past version shows its source read-only in both panes.
   const preview = useUi((s) => s.preview)
   const previewing = preview?.id === id ? preview : null
-  const [previewSource, setPreviewSource] = useState<string | null>(null)
+  // The past version's source, null until it has loaded, so its read-only editor starts with it.
+  const [loaded, setLoaded] = useState<{ of: typeof previewing; source: string } | null>(null)
+  const previewSource = previewing && loaded?.of === previewing ? loaded.source : null
   useEffect(() => {
-    if (!previewing) return setPreviewSource(null)
+    if (!previewing) return
     let alive = true
     eos.getSource(id, previewing.version).then(
-      (s) => alive && setPreviewSource(s),
+      (source) => alive && setLoaded({ of: previewing, source }),
       () => {}
     )
     return () => {
@@ -222,15 +224,9 @@ export function Editor({ id }: { id: string }) {
                 {copied ? <Check className="text-[var(--eos-green)]" /> : <Copy />}
               </IconButton>
             </PanelHeader>
-            {previewing ? (
-              <CodeEditor
-                key={`preview:${previewing.version}`}
-                value={previewSource ?? ""}
-                readOnly
-                errorAt={errorLine}
-                handleRef={editorRef}
-              />
-            ) : binding ? (
+            {previewing && previewSource !== null ? (
+              <CodeEditor key={`preview:${previewing.version}`} value={previewSource} readOnly errorAt={errorLine} handleRef={editorRef} />
+            ) : binding && !previewing ? (
               <CodeEditor
                 key={key}
                 binding={binding}

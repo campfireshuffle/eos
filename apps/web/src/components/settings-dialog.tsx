@@ -72,25 +72,34 @@ export function SettingsDialog() {
 function Theming() {
   const eos = useEos()
   const { theme } = useSettings()
-  const [appCss, setAppCss] = useState(() => theme.customCss ?? currentAppCss())
-  // Until the user edits it, the app CSS shows the active mode's values.
-  const appDefault = useRef(theme.customCss ? null : appCss)
+  // The editors are uncontrolled: a fill gives them new text and a new key, so they remount with it.
+  const [shown, setShown] = useState(() => ({
+    app: theme.customCss ?? currentAppCss(),
+    diagram: theme.diagramCss ?? DEFAULT_DIAGRAM_CSS,
+    key: 0,
+  }))
+  // What the editors hold now.
+  const typed = useRef({ app: shown.app, diagram: shown.diagram })
+  // The app CSS pre-fill (the active mode's values), or null while saved CSS is shown.
+  const appDefault = useRef(theme.customCss ? null : shown.app)
+  // The stored theme as of the last fill or save; stored CSS that differs was changed elsewhere (an agent, another tab).
+  const known = useRef(theme)
+  const fill = (t: AppSettings["theme"], diagram = t.diagramCss ?? DEFAULT_DIAGRAM_CSS) => {
+    // App applies a new theme only after this renders, and the pre-fill is read from the page.
+    applyTheme(t)
+    const app = t.customCss ?? currentAppCss()
+    appDefault.current = t.customCss ? null : app
+    typed.current = { app, diagram }
+    known.current = t
+    setShown((s) => ({ app, diagram, key: s.key + 1 }))
+  }
   useEffect(() => {
-    if (theme.customCss || appDefault.current === null || appCss !== appDefault.current) return
-    // Wait a tick so the new mode's class is on <html> before reading the variables.
-    const t = setTimeout(() => {
-      const next = currentAppCss()
-      // Checked again here: anything typed in the meantime is kept.
-      setAppCss((cur) => {
-        if (cur !== appDefault.current) return cur
-        appDefault.current = next
-        return next
-      })
-    })
-    return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theme.mode])
-  const [diagramCss, setDiagramCss] = useState(theme.diagramCss ?? DEFAULT_DIAGRAM_CSS)
+    const k = known.current
+    known.current = theme
+    if (theme.customCss !== k.customCss || theme.diagramCss !== k.diagramCss) fill(theme)
+    // Until it's edited, the app CSS shows the active mode's values.
+    else if (theme.mode !== k.mode && typed.current.app === appDefault.current) fill(theme, typed.current.diagram)
+  }, [theme])
   const save = (patch: Partial<AppSettings["theme"]>) => eos.updateSettings({ theme: { ...theme, ...patch } })
 
   return (
@@ -128,7 +137,7 @@ function Theming() {
             </ToggleGroupItem>
           </ToggleGroup>
         </div>
-        <CssBox value={appCss} onChange={setAppCss} label="App theme CSS" />
+        <CssBox key={shown.key} value={shown.app} onChange={(v) => (typed.current.app = v)} label="App theme CSS" />
       </section>
 
       <section className="flex flex-1 flex-col gap-3">
@@ -143,7 +152,7 @@ function Theming() {
             Pele theming docs <ArrowUpRight className="size-3.5" />
           </a>
         </div>
-        <CssBox value={diagramCss} onChange={setDiagramCss} label="Diagram theme CSS" />
+        <CssBox key={shown.key} value={shown.diagram} onChange={(v) => (typed.current.diagram = v)} label="Diagram theme CSS" />
       </section>
 
       <div className="flex items-center gap-2">
@@ -151,15 +160,8 @@ function Theming() {
           variant="ghost"
           size="sm"
           onClick={() => {
-            setDiagramCss(DEFAULT_DIAGRAM_CSS)
-            void save({ customCss: null, diagramCss: null }).then(() => {
-              // Apply the reset theme before reading it: the page may not have re-rendered with it yet
-              // (WebKit runs a 0ms timer before React's render), and a stale read would become the baseline.
-              applyTheme(eos.getSettings().theme)
-              const next = currentAppCss()
-              appDefault.current = next
-              setAppCss(next)
-            })
+            fill({ ...theme, customCss: null, diagramCss: null })
+            void save({ customCss: null, diagramCss: null })
           }}
         >
           <RotateCcw /> Reset to default
@@ -167,12 +169,15 @@ function Theming() {
         <div className="flex-1" />
         <Button
           size="sm"
-          onClick={() =>
-            save({
-              customCss: appDefault.current === null ? appCss : changedVars(appCss, appDefault.current),
-              diagramCss: diagramCss === DEFAULT_DIAGRAM_CSS ? null : diagramCss,
-            })
-          }
+          onClick={() => {
+            const { app, diagram } = typed.current
+            const patch = {
+              customCss: appDefault.current === null ? app : changedVars(app, appDefault.current),
+              diagramCss: diagram === DEFAULT_DIAGRAM_CSS ? null : diagram,
+            }
+            known.current = { ...theme, ...patch }
+            void save(patch)
+          }}
         >
           Save
         </Button>
