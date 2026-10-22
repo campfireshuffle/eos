@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { fromBase64, toBase64 } from "./base64"
 import { openEosDB, type Database } from "./db"
-import { compact, loadDoc, newDiagramDoc, setTags } from "./docs"
+import { compact, lastChangeAt, loadDoc, newDiagramDoc, setTags } from "./docs"
 import { decodeShare, encodeShare } from "./share"
 import { Eos, UnknownVersionError } from "./store"
 import type { Actor, DiagramIndexRow, TextChange } from "./types"
@@ -725,6 +725,40 @@ describe("durability", () => {
     await settle()
     const later = await Eos.create({ dbName: name, seed: false })
     expect(await later.getSource(id)).toBe("AB")
+  })
+
+  it("brings a row behind its doc up to date on the next start, when the page went away before rewriting it", async () => {
+    const name = `stale-row-${n++}`
+    const eos = await Eos.create({ dbName: name, seed: false })
+    const id = await eos.createDiagram({ source: "graph TD\n  A --> B\n" })
+    ;(await eos.bindSource(id)).edit([{ from: 19, to: 19, insert: "  B --> Zebra42\n" }])
+    // The page dies before the pause in typing that rewrites the row: the doc's write lands, the row's never starts.
+    const timers = (eos as unknown as { indexTimers: Map<string, { timer: ReturnType<typeof setTimeout> }> }).indexTimers
+    for (const { timer } of timers.values()) clearTimeout(timer)
+    await settle()
+    expect((await dbOf(eos).get("diagrams", id))!.sourceText).not.toContain("Zebra42")
+    const later = await Eos.create({ dbName: name, seed: false })
+    const doc = await loadDoc(dbOf(later), id)
+    const row = (await dbOf(later).get("diagrams", id))!
+    expect(row.sourceText).toBe("graph TD\n  A --> B\n  B --> Zebra42\n")
+    expect(row.updatedAt).toBe(lastChangeAt(doc))
+    expect((await later.listDiagrams({ query: "Zebra42" })).map((r) => r.id)).toEqual([id])
+    expect(await dbOf(later).count("pendingRows")).toBe(0)
+  })
+
+  it("leaves no row to rebuild on the next start once rows are rewritten", async () => {
+    const eos = await fresh()
+    const id = await eos.createDiagram({ source: "graph TD\n  A --> B\n" })
+    ;(await eos.bindSource(id)).edit([{ from: 19, to: 19, insert: "  B --> C\n" }])
+    await new Promise((r) => setTimeout(r, 400)) // past the pause in typing that rewrites the row
+    await eos.editDiagram(
+      id,
+      { source: "graph TD\n  A --> B\n  B --> D\n", title: "Renamed" },
+      { kind: "agent", tool: "update_diagram", changes: ["source", "title"] }
+    )
+    await eos.addTags(id, ["work"])
+    await settle()
+    expect(await dbOf(eos).count("pendingRows")).toBe(0)
   })
 
   it("saves the stars and tag emoji a backup brings in", async () => {

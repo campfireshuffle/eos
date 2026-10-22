@@ -1,6 +1,6 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test"
 
-import { tool, withAgentTools } from "./helpers"
+import { newDiagram, openEditor, tool, withAgentTools } from "./helpers"
 
 test("Esc cancels a confirm without dropping the selection", async ({ context }) => {
   await withAgentTools(context)
@@ -425,3 +425,25 @@ test("Search finds a diagram by a single Chinese, Japanese or Thai word", async 
     await expect(page.locator("[data-card-id] .text-label")).toHaveText([title])
   }
 })
+
+// Nothing a page starts as it goes away is sure to land, so the row is rebuilt on the next start.
+for (const how of ["reload", "close"] as const)
+  for (const wait of [0, 100, 250])
+    test(`a diagram's row and search catch up with typing after a ${how} ${wait}ms after the last keystroke`, async ({ context }) => {
+      await withAgentTools(context)
+      const library = await context.newPage()
+      const id = await newDiagram(library, "flowchart TD\n  A --> B\n")
+      const editor = await context.newPage()
+      await openEditor(editor, id)
+      await editor.locator(".cm-line").nth(1).click()
+      await editor.keyboard.press("End")
+      await editor.keyboard.type("\n  B --> Zebra42", { delay: 40 })
+      await editor.waitForTimeout(wait)
+      if (how === "reload") await editor.reload()
+      else await editor.close()
+      const later = await context.newPage()
+      await later.goto("/#/")
+      await later.waitForFunction(() => "__tools" in window && "get_library" in (window as unknown as { __tools: object }).__tools)
+      const found = async () => JSON.stringify(await tool(later, "get_library", { query: "Zebra42" })).includes(id)
+      await expect.poll(found).toBe(true)
+    })

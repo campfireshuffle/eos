@@ -24,6 +24,8 @@ export interface EosDB extends DBSchema {
     value: StoredRow
     indexes: { byUpdatedAt: number; byTag: string }
   }
+  /** Diagrams whose `diagrams` row may be behind their doc (see persistDoc). */
+  pendingRows: { key: DiagramId; value: { id: DiagramId } }
   settings: { key: "app"; value: AppSettings }
 }
 
@@ -40,7 +42,7 @@ export interface OpenHooks {
 }
 
 export async function openEosDB(name = "eos", hooks: OpenHooks = {}): Promise<Database> {
-  const db = await openDB<EosDB>(name, 2, {
+  const db = await openDB<EosDB>(name, 3, {
     blocked: () => hooks.onBlocked?.(),
     // Never hold up a newer tab's upgrade: close, then let the app decide (it reloads).
     blocking: () => {
@@ -50,14 +52,16 @@ export async function openEosDB(name = "eos", hooks: OpenHooks = {}): Promise<Da
     upgrade(db, oldVersion) {
       // v1 had a thumbnails cache; Pele renders cards fast enough that it was never used.
       if (oldVersion === 1) (db as unknown as IDBPDatabase).deleteObjectStore("thumbnails")
-      if (oldVersion >= 1) return
-      db.createObjectStore("snapshots", { keyPath: "id" })
-      const updates = db.createObjectStore("updates", { autoIncrement: true })
-      updates.createIndex("byDiagram", "id")
-      const diagrams = db.createObjectStore("diagrams", { keyPath: "id" })
-      diagrams.createIndex("byUpdatedAt", "updatedAt")
-      diagrams.createIndex("byTag", "tagPrefixes", { multiEntry: true })
-      db.createObjectStore("settings")
+      if (oldVersion < 1) {
+        db.createObjectStore("snapshots", { keyPath: "id" })
+        const updates = db.createObjectStore("updates", { autoIncrement: true })
+        updates.createIndex("byDiagram", "id")
+        const diagrams = db.createObjectStore("diagrams", { keyPath: "id" })
+        diagrams.createIndex("byUpdatedAt", "updatedAt")
+        diagrams.createIndex("byTag", "tagPrefixes", { multiEntry: true })
+        db.createObjectStore("settings")
+      }
+      if (oldVersion < 3) db.createObjectStore("pendingRows", { keyPath: "id" })
     },
   })
   return db

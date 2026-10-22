@@ -1,7 +1,7 @@
 import { LoroDoc, LoroList, type LoroMap, type LoroText } from "loro-crdt"
 import * as z from "zod/mini"
 
-import type { Database, StoredRow } from "./db"
+import { WORKSPACE_ID, type Database, type StoredRow } from "./db"
 import type { Actor, DiagramId, DiagramMeta, HistoryEntry, TagPath } from "./types"
 
 /** Compact the update log into a snapshot once it grows past this many rows. */
@@ -94,9 +94,17 @@ export interface Persisted {
   stop(): void
   /** If the last write failed, saves the whole doc now instead of with the next change. */
   retry(): void
+  /** Settles once every change so far has been written, or has failed to be. */
+  written(): Promise<void>
 }
 
-/** Appends every local change to the update log; compacts when it gets long. */
+/**
+ * Appends every local change to the update log; compacts when it gets long. A diagram's change
+ * logged also marks its `diagrams` row as behind the doc (`pendingRows`), in the same transaction,
+ * so the mark is on disk whenever the change is; writing the row from the doc clears it (see
+ * updateRow and compact). A page can go away before it rewrites the row, and nothing it starts
+ * then is sure to land, so the next start rebuilds the marked rows.
+ */
 export function persistDoc(db: Database, id: DiagramId, doc: LoroDoc, onLocalUpdate?: (bytes: Uint8Array) => void): Persisted {
   let pending = Promise.resolve()
   let stopped = false
@@ -128,7 +136,12 @@ export function persistDoc(db: Database, id: DiagramId, doc: LoroDoc, onLocalUpd
   const unsubscribe = doc.subscribeLocalUpdates((bytes) => {
     queue(
       async () => {
-        await db.add("updates", { id, bytes, at: Date.now() })
+        const tx = db.transaction(["updates", "pendingRows"], "readwrite")
+        await Promise.all([
+          tx.objectStore("updates").add({ id, bytes, at: Date.now() }),
+          id !== WORKSPACE_ID && tx.objectStore("pendingRows").put({ id }),
+          tx.done,
+        ])
         const count = await db.countFromIndex("updates", "byDiagram", id)
         // Stopped mid-write (by a delete): a snapshot now would write the diagram back.
         if (stopped) return
@@ -145,6 +158,7 @@ export function persistDoc(db: Database, id: DiagramId, doc: LoroDoc, onLocalUpd
     retry: () => {
       if (gap) queue(async () => {})
     },
+    written: () => pending,
   }
 }
 
@@ -158,11 +172,11 @@ export type RowBuilder = (doc: LoroDoc, saved: StoredRow | undefined) => StoredR
 /**
  * Saves the whole doc as its snapshot and clears its update log. With `row`, its library
  * index row is built and written in the same transaction, so neither is saved without the
- * other: if `row` returns nothing (the diagram was purged, say), nothing is written.
- * Returns whether it saved.
+ * other, and its pending mark is cleared: if `row` returns nothing (the diagram was purged,
+ * say), nothing else is written. Returns whether it saved.
  */
 export async function compact(db: Database, id: DiagramId, doc: LoroDoc, row?: RowBuilder): Promise<boolean> {
-  const tx = db.transaction(row ? ["snapshots", "updates", "diagrams"] : ["snapshots", "updates"], "readwrite")
+  const tx = db.transaction(row ? ["snapshots", "updates", "diagrams", "pendingRows"] : ["snapshots", "updates"], "readwrite")
   const snapshots = tx.objectStore("snapshots")
   const log = tx.objectStore("updates").index("byDiagram")
   const save = async () => {
@@ -179,6 +193,7 @@ export async function compact(db: Database, id: DiagramId, doc: LoroDoc, row?: R
     if (saved) doc.import(saved.bytes)
     for (const u of logged) doc.import(u.bytes)
     const next = row?.(doc, savedRow)
+    if (row) await tx.objectStore("pendingRows").delete(id)
     if (row && !next) return false
     await Promise.all([
       snapshots.put({ id, bytes: doc.export({ mode: "snapshot" }), savedAt: Date.now() }),
@@ -195,17 +210,21 @@ export async function compact(db: Database, id: DiagramId, doc: LoroDoc, row?: R
 /**
  * Rewrites a diagram's library index row from the one saved now, in one transaction, so a
  * change made meanwhile (another tab's delete, say) isn't overwritten by an older copy.
- * `update` returns undefined to write nothing. Returns whether it wrote.
+ * `update` returns undefined to write nothing. Returns whether it wrote. `fromDoc`: `update`
+ * builds the row from the doc as it is now, so the diagram's pending mark is cleared too.
  */
 export async function updateRow(
   db: Database,
   id: DiagramId,
-  update: (saved: StoredRow | undefined) => StoredRow | undefined
+  update: (saved: StoredRow | undefined) => StoredRow | undefined,
+  { fromDoc = false } = {}
 ): Promise<boolean> {
-  const tx = db.transaction("diagrams", "readwrite")
+  const tx = db.transaction(["diagrams", "pendingRows"], "readwrite")
+  const rows = tx.objectStore("diagrams")
   const write = async () => {
-    const next = update(await tx.store.get(id))
-    if (next) await tx.store.put(next)
+    const next = update(await rows.get(id))
+    if (fromDoc) await tx.objectStore("pendingRows").delete(id)
+    if (next) await rows.put(next)
     return !!next
   }
   const [written] = await Promise.all([write(), tx.done])

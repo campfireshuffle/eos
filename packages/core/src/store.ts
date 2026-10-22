@@ -144,14 +144,15 @@ export class Eos {
     const eos = new Eos(db, { doc, starred: doc.getMap("starred"), tagEmoji: doc.getMap("tagEmoji"), persisted })
     eos.settingsCache = withDefaults(await db.get("settings", "app"))
     eos.listenToOtherTabs()
-    // Save what's pending if the tab is closed, or hidden: a mobile browser may discard a
-    // hidden tab without a pagehide.
+    // Try to save what's pending if the tab is closed, or hidden: a mobile browser may discard a
+    // hidden tab without a pagehide. Writes started then may never land; rows are repaired below.
     if (typeof addEventListener === "function") addEventListener("pagehide", () => eos.saveNow())
     // Shown again, check the cached rows: a tab closed partway through a bulk change never sent
     // the index message for it.
     if (typeof document !== "undefined")
       document.addEventListener("visibilitychange", () => (document.visibilityState === "hidden" ? eos.saveNow() : void eos.recheckRows()))
     await eos.backfillSearchText()
+    await eos.repairRows()
     if (options.seed !== false && (await db.count("diagrams")) === 0) {
       for (const s of SAMPLES) await eos.createDiagram(s, { kind: "system", reason: "seed" })
     }
@@ -828,7 +829,7 @@ export class Eos {
     return () => set.delete(listener)
   }
 
-  private refreshIndexSoon(id: DiagramId, d: DiagramDoc) {
+  private refreshIndexSoon(id: DiagramId, d: OpenDiagram) {
     clearTimeout(this.indexTimers.get(id)?.timer)
     const run = () => {
       this.indexTimers.delete(id)
@@ -838,8 +839,10 @@ export class Eos {
   }
 
   /**
-   * When the page goes away: retries a failed write instead of waiting for the next edit,
-   * then refreshes pending index rows. The docs go first, as the index can be rebuilt from them.
+   * When the page goes away: retries a failed write instead of waiting for the next edit, then
+   * refreshes pending index rows. The docs go first, as the index can be rebuilt from them. Both
+   * are only attempts: the page can die before they land, so a row left behind its doc is
+   * rebuilt on the next start (see persistDoc).
    */
   private saveNow() {
     this.workspace.persisted.retry()
@@ -861,8 +864,10 @@ export class Eos {
   }
 
   /** Rebuilds an open diagram's index row. Returns false, writing nothing, if the diagram has been purged. */
-  private async afterChange(id: DiagramId, d: DiagramDoc): Promise<boolean> {
-    if (!(await updateRow(this.db, id, (saved) => this.rowOf(id)(d.doc, saved)))) return false
+  private async afterChange(id: DiagramId, d: OpenDiagram): Promise<boolean> {
+    // After the doc's writes, so this row clears the pending marks they leave (see persistDoc).
+    await d.persisted.written()
+    if (!(await updateRow(this.db, id, (saved) => this.rowOf(id)(d.doc, saved), { fromDoc: true }))) return false
     this.indexChanged(id)
     return true
   }
@@ -888,6 +893,12 @@ export class Eos {
       sourceText: source,
       ...(deletedAt ? { deletedAt } : {}),
     }
+  }
+
+  /** Rebuilds the rows marked as behind their docs: a page went away before it rewrote them (see persistDoc). */
+  private async repairRows() {
+    for (const id of await this.db.getAllKeys("pendingRows"))
+      if (await compact(this.db, id, newDiagramDoc(), this.rowOf(id))) this.indexChanged(id)
   }
 
   /** Rows written before search covered full contents only have a preview; fill them in once. */

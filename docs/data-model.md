@@ -133,7 +133,7 @@ Reasons for keeping this in a separate doc:
 
 ## 2. IndexedDB schema
 
-Database `eos`, version 2, opened through `idb` (`openEosDB` in `db.ts`). Version 1 also had a `thumbnails` store, which was never used; upgrading to 2 deletes it.
+Database `eos`, version 3, opened through `idb` (`openEosDB` in `db.ts`). Version 1 also had a `thumbnails` store, which was never used; upgrading to 2 deletes it. Version 3 adds `pendingRows`.
 
 ```ts
 interface EosDB {
@@ -157,6 +157,8 @@ interface EosDB {
       byTag: TagPath // multiEntry over tagPrefixes
     }
   }
+  /** Diagrams whose `diagrams` row may be behind their doc: rebuilt on the next start (see Write path). */
+  pendingRows: { key: DiagramId; value: { id: DiagramId } }
   /** Singleton app settings. */
   settings: { key: "app"; value: AppSettings }
 }
@@ -181,8 +183,8 @@ Reads (`listDiagrams`, `counts`, `getDiagram`, the starred filter) add `starred:
 
 ### Write path
 
-1. `doc.subscribeLocalUpdates(bytes => …)` fires after each local commit, and each update is appended to `updates` as it comes, one write after another (`persistDoc` in `docs.ts`). If a write fails, the log is missing an update that every later one builds on, so the next write saves a full snapshot instead (see Compaction), or sooner on `pagehide` or when the tab is hidden. A diagram's queued writes are dropped when it is closed, which only a delete does.
-2. The `diagrams` row is rewritten separately, after each change. While someone is typing it waits for a 300 ms pause, and a pending rewrite runs at once on `pagehide` or when the tab is hidden. A new diagram's snapshot and row are written in one transaction, so neither exists without the other.
+1. `doc.subscribeLocalUpdates(bytes => …)` fires after each local commit, and each update is appended to `updates` as it comes, one write after another (`persistDoc` in `docs.ts`). If a write fails, the log is missing an update that every later one builds on, so the next write saves a full snapshot instead (see Compaction). It's also tried at once on `pagehide` or when the tab is hidden, though a write started then may never land. A diagram's queued writes are dropped when it is closed, which only a delete does.
+2. The `diagrams` row is rewritten separately, after each change's write. While someone is typing it waits for a 300 ms pause, and a pending rewrite is tried at once on `pagehide` or when the tab is hidden. That may not land either, so each diagram update is written together with a `pendingRows` mark, in one transaction, and rewriting the row from the doc clears it. On start, Eos rebuilds the row of every marked diagram (`repairRows`), so a page that went away before rewriting a row leaves it behind only until the next start. A new diagram's snapshot and row are written in one transaction, so neither exists without the other.
 3. Imported ops (a backup restored or merged) aren't local updates, so `subscribeLocalUpdates` never sees them. The import saves each doc it changes as a full snapshot and posts the imported bytes as an `update` (§5) itself.
 4. Delete all clears the workspace doc's saved history along with everything else, so the change that unstars and drops tag emoji is saved as a full snapshot too. Logged on its own, it would build on history no longer on disk.
 5. Updates that arrive from other tabs (§5) are **not** persisted by the receiving tab. The tab that wrote them already did, so the log never holds duplicates. Importing an update twice is harmless anyway, because Loro dedupes by op id.
@@ -391,11 +393,11 @@ Backups carry only the theme. Agent settings are the person's say over what agen
 | Event           | Doc                                              | IndexedDB                                | Broadcast          |
 | --------------- | ------------------------------------------------ | ---------------------------------------- | ------------------ |
 | New diagram     | `new LoroDoc()`, set meta, commit as its creator | put snapshot + index row                 | `index`            |
-| Keystroke       | `text.insert/delete`, committed per edit         | append `updates`                         | `update`           |
-| Agent tool      | store write, committed as the agent (§3)         | append `updates`                         | `update`           |
+| Keystroke       | `text.insert/delete`, committed per edit         | append `updates`, mark `pendingRows`     | `update`           |
+| Agent tool      | store write, committed as the agent (§3)         | append `updates`, mark `pendingRows`     | `update`           |
 | Other tab edit  | `import(bytes)`                                  | —                                        | —                  |
-| Undo            | `undo.undo()`                                    | append `updates`                         | `update`           |
-| Restore version | `revertTo` + commit                              | append `updates`                         | `update`           |
+| Undo            | `undo.undo()`                                    | append `updates`, mark `pendingRows`     | `update`           |
+| Restore version | `revertTo` + commit                              | append `updates`, mark `pendingRows`     | `update`           |
 | Star / unstar   | workspace `starred` set/delete                   | workspace `updates`                      | workspace `update` |
 | Tag emoji       | workspace `tagEmoji` entry                       | workspace `updates`                      | workspace `update` |
 | Delete          | — (keeps its `starred` key)                      | set `deletedAt` on the index row         | `index`            |
