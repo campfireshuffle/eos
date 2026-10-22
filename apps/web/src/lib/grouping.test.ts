@@ -1,6 +1,8 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { dateBucket, relativeTime } from "./grouping"
+import type { DiagramIndexRow } from "@eos/core"
+
+import { dateBucket, groupRows, relativeTime } from "./grouping"
 
 /** A local time in October 2026. */
 const oct = (day: number, hour: number, minute = 0) => new Date(2026, 9, day, hour, minute).getTime()
@@ -70,5 +72,12 @@ describe("relativeTime agrees with the Date heading across a daylight-saving cha
 
   it("counts an edit made 24 hours earlier on the 25-hour day in hours, under Today", () => {
     expect(seen(at(10, 1, 0, 30), at(10, 1, 23, 50))).toEqual({ card: "24h ago", heading: "Today" })
+  })
+})
+
+describe("groupRows by subtag", () => {
+  it("orders subtags as the tag tree does: tag2 before tag10", () => {
+    const rows = ["tag10", "tag2", "Tag1"].map((t) => ({ tags: [t] }) as unknown as DiagramIndexRow)
+    expect(groupRows(rows, "subtag", "modified", null).map((g) => g.key)).toEqual(["Tag1", "tag2", "tag10"])
   })
 })

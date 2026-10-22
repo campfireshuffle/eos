@@ -18,6 +18,7 @@ import { Popover, PopoverAnchor, PopoverContent } from "@workspace/ui/components
 import { cn } from "@workspace/ui/lib/utils"
 
 import { useEos } from "@/lib/eos"
+import { tagCollator } from "@/lib/grouping"
 import { followTag, homeHref, navigate } from "@/lib/router"
 import { DIAGRAM_MIME } from "@/lib/selection"
 import { askConfirm } from "@/lib/ui-state"
@@ -27,7 +28,6 @@ import { EmojiGrid } from "./tag-emoji-picker"
 /** Drag payload for a tag dragged within the tree. */
 const TAG_MIME = "application/x-eos-tag"
 
-const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" })
 const nameOf = (path: TagPath) => path.split("/").pop()!
 const parentOf = (path: TagPath) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : null)
 
@@ -344,7 +344,9 @@ function TagMenu({
 }
 
 function sortTags(tags: TagRecord[]): TagRecord[] {
-  return [...tags].sort((a, b) => collator.compare(nameOf(a.path), nameOf(b.path))).map((t) => ({ ...t, children: sortTags(t.children) }))
+  return [...tags]
+    .sort((a, b) => tagCollator.compare(nameOf(a.path), nameOf(b.path)))
+    .map((t) => ({ ...t, children: sortTags(t.children) }))
 }
 
 function collect(tags: TagRecord[], keep: (t: TagRecord) => boolean): TagPath[] {
