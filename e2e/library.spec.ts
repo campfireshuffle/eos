@@ -41,7 +41,7 @@ test("a search in Deleted that matches nothing says so, and an empty Deleted say
   await withAgentTools(context)
   const page = await context.newPage()
   await page.goto("/#/?deleted=1")
-  await expect(page.getByText("Nothing deleted.")).toBeVisible()
+  await expect(page.getByRole("status").filter({ hasText: "Nothing deleted." })).toBeVisible()
 
   await page.goto("/#/")
   await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
@@ -54,7 +54,7 @@ test("a search in Deleted that matches nothing says so, and an empty Deleted say
   await page.goto("/#/?deleted=1")
   await expect(page.locator("[data-card-id]", { hasText: "Old roadmap" })).toBeVisible()
   await page.getByRole("textbox", { name: "Search diagrams" }).first().fill("zzz")
-  await expect(page.getByText("No diagrams match.")).toBeVisible()
+  await expect(page.getByRole("status").filter({ hasText: "No diagrams match." })).toBeVisible()
   await expect(page.getByText("Nothing deleted.")).toBeHidden()
 })
 
