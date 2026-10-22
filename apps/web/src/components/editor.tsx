@@ -96,13 +96,13 @@ export function Editor({ id }: { id: string }) {
   const preview = useUi((s) => s.preview)
   const previewing = preview?.id === id ? preview : null
   // The past version's source, null until it has loaded, so its read-only editor starts with it.
-  const [loaded, setLoaded] = useState<{ of: typeof previewing; source: string } | null>(null)
-  const previewSource = previewing && loaded?.of === previewing ? loaded.source : null
+  const [loaded, setLoaded] = useState<{ id: string; version: string; source: string } | null>(null)
+  const previewSource = loaded?.id === id && loaded.version === previewing?.version ? loaded.source : null
   useEffect(() => {
     if (!previewing) return
     let alive = true
     eos.getSource(id, previewing.version).then(
-      (source) => alive && setLoaded({ of: previewing, source }),
+      (source) => alive && setLoaded({ id, version: previewing.version, source }),
       () => {}
     )
     return () => {

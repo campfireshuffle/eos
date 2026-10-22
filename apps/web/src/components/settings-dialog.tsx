@@ -72,34 +72,26 @@ export function SettingsDialog() {
 function Theming() {
   const eos = useEos()
   const { theme } = useSettings()
-  // The editors are uncontrolled: a fill gives them new text and a new key, so they remount with it.
-  const [shown, setShown] = useState(() => ({
-    app: theme.customCss ?? currentAppCss(),
-    diagram: theme.diagramCss ?? DEFAULT_DIAGRAM_CSS,
-    key: 0,
-  }))
+  // The editors are uncontrolled: new text comes with a new key, so the editor remounts with it.
+  const [app, setApp] = useState(() => ({ css: theme.customCss ?? currentAppCss(), key: 0 }))
+  const [diagram, setDiagram] = useState(() => ({ css: theme.diagramCss ?? DEFAULT_DIAGRAM_CSS, key: 0 }))
   // What the editors hold now.
-  const typed = useRef({ app: shown.app, diagram: shown.diagram })
+  const typed = useRef({ app: app.css, diagram: diagram.css })
   // The app CSS pre-fill (the active mode's values), or null while saved CSS is shown.
-  const appDefault = useRef(theme.customCss ? null : shown.app)
-  // The stored theme as of the last fill or save; stored CSS that differs was changed elsewhere (an agent, another tab).
-  const known = useRef(theme)
-  const fill = (t: AppSettings["theme"], diagram = t.diagramCss ?? DEFAULT_DIAGRAM_CSS) => {
-    // App applies a new theme only after this renders, and the pre-fill is read from the page.
-    applyTheme(t)
-    const app = t.customCss ?? currentAppCss()
-    appDefault.current = t.customCss ? null : app
-    typed.current = { app, diagram }
-    known.current = t
-    setShown((s) => ({ app, diagram, key: s.key + 1 }))
+  const appDefault = useRef(theme.customCss ? null : app.css)
+  const fillApp = (css: string) => {
+    appDefault.current = typed.current.app = css
+    setApp((f) => ({ css, key: f.key + 1 }))
   }
   useEffect(() => {
-    const k = known.current
-    known.current = theme
-    if (theme.customCss !== k.customCss || theme.diagramCss !== k.diagramCss) fill(theme)
     // Until it's edited, the app CSS shows the active mode's values.
-    else if (theme.mode !== k.mode && typed.current.app === appDefault.current) fill(theme, typed.current.diagram)
-  }, [theme])
+    if (theme.customCss || typed.current.app !== appDefault.current) return
+    // App applies the new mode only after this renders, and the pre-fill is read from the page.
+    applyTheme(theme)
+    const next = currentAppCss()
+    if (next !== appDefault.current) fillApp(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theme.mode])
   const save = (patch: Partial<AppSettings["theme"]>) => eos.updateSettings({ theme: { ...theme, ...patch } })
 
   return (
@@ -137,7 +129,7 @@ function Theming() {
             </ToggleGroupItem>
           </ToggleGroup>
         </div>
-        <CssBox key={shown.key} value={shown.app} onChange={(v) => (typed.current.app = v)} label="App theme CSS" />
+        <CssBox key={app.key} value={app.css} onChange={(v) => (typed.current.app = v)} label="App theme CSS" />
       </section>
 
       <section className="flex flex-1 flex-col gap-3">
@@ -152,7 +144,7 @@ function Theming() {
             Pele theming docs <ArrowUpRight className="size-3.5" />
           </a>
         </div>
-        <CssBox key={shown.key} value={shown.diagram} onChange={(v) => (typed.current.diagram = v)} label="Diagram theme CSS" />
+        <CssBox key={diagram.key} value={diagram.css} onChange={(v) => (typed.current.diagram = v)} label="Diagram theme CSS" />
       </section>
 
       <div className="flex items-center gap-2">
@@ -160,7 +152,10 @@ function Theming() {
           variant="ghost"
           size="sm"
           onClick={() => {
-            fill({ ...theme, customCss: null, diagramCss: null })
+            typed.current.diagram = DEFAULT_DIAGRAM_CSS
+            setDiagram((f) => ({ css: DEFAULT_DIAGRAM_CSS, key: f.key + 1 }))
+            applyTheme({ ...theme, customCss: null, diagramCss: null })
+            fillApp(currentAppCss())
             void save({ customCss: null, diagramCss: null })
           }}
         >
@@ -171,12 +166,10 @@ function Theming() {
           size="sm"
           onClick={() => {
             const { app, diagram } = typed.current
-            const patch = {
+            void save({
               customCss: appDefault.current === null ? app : changedVars(app, appDefault.current),
               diagramCss: diagram === DEFAULT_DIAGRAM_CSS ? null : diagram,
-            }
-            known.current = { ...theme, ...patch }
-            void save(patch)
+            })
           }}
         >
           Save
