@@ -207,7 +207,7 @@ test("with the sidebar hidden, the window's left edge still scrolls the page, an
   await expect(page.locator(".eos-shell")).toHaveAttribute("data-collapsed", "false")
 })
 
-// Firefox replaces the entry with an unstamped one when a link to the page already shown is clicked.
+// A link to the page already shown keeps its history entry, and so the entry's key.
 test("clicking a link to the page already shown keeps in-app Back inside Eos, and the search in the URL", async ({ page }) => {
   await page.goto("about:blank")
   await page.goto("/#/?starred=1")
@@ -222,4 +222,32 @@ test("clicking a link to the page already shown keeps in-app Back inside Eos, an
   // The first Eos entry: going back would leave Eos, so there's no Back.
   await expect(page.getByRole("button", { name: "Back" })).toBeDisabled()
   await expect(page.getByRole("button", { name: "Forward" })).toBeEnabled()
+})
+
+test("without the Navigation API the app still routes, searches and reloads, with no back/forward", async ({ context }) => {
+  // As in Firefox before 147 and Safari before 26.2.
+  await context.addInitScript(() => delete (window as { navigation?: unknown }).navigation)
+  const errors: string[] = []
+  context.on("weberror", (e) => errors.push(e.error().message))
+  const { page, cards, scrollTo, settledTop } = await library(context, "/?sort=title")
+  expect(await page.evaluate(() => "navigation" in window)).toBe(false)
+  await expect(cards.first()).toContainText("Diagram 0")
+  await scrollTo(600)
+  // Every entry would share one saved position, so a new view starts at the top.
+  await page.evaluate(() => (location.hash = "/?sort=created"))
+  await expect(cards.first()).toContainText("Diagram 23")
+  expect(await settledTop()).toBe(0)
+  await page
+    .locator("aside")
+    .getByRole("link", { name: /^Starred/ })
+    .click()
+  await expect(page).toHaveURL(/#\/\?starred=1&sort=created$/)
+  await page.getByRole("textbox", { name: "Search diagrams" }).fill("flow")
+  await expect(page).toHaveURL(/#\/\?starred=1&sort=created&q=flow$/)
+  await page.goBack()
+  await expect(page).toHaveURL(/#\/\?sort=created$/)
+  await page.reload()
+  await expect(page.getByRole("textbox", { name: "Search diagrams" })).toHaveValue("")
+  await expect(page.getByRole("button", { name: "Back" })).toHaveCount(0)
+  expect(errors).toEqual([])
 })
