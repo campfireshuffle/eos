@@ -380,6 +380,63 @@ test.describe("marquee", () => {
     await page.evaluate(() => new Promise(requestAnimationFrame))
     expect(errors).toEqual([])
   })
+
+  test("Clear after a marquee focuses the first card it selected, not one unselected earlier", async ({ context }) => {
+    const { page, cards } = await library(context)
+    // Selected and unselected again from the keyboard, so it was the card last toggled.
+    await cards.nth(0).focus()
+    await page.keyboard.press(" ")
+    await page.keyboard.press(" ")
+    await expect(selectionCount(page)).toHaveText("0 selected")
+    // The second and third cards, which share the first row.
+    const second = page.locator(`[data-card-id="${await cards.nth(1).getAttribute("data-card-id")}"]`)
+    await dragFrom(page, (await cards.nth(1).boundingBox())!, (await cards.nth(2).boundingBox())!)
+    await page.mouse.up()
+    await expect(page.getByText("2 selected")).toBeVisible()
+    await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Clear selection" }).focus()
+    await page.keyboard.press("Enter")
+    await expect(selectionCount(page)).toHaveText("0 selected")
+    await expect(second).toBeFocused()
+  })
+})
+
+test.describe("focus after a selection-bar action", () => {
+  for (const action of ["Clear selection", "Delete"])
+    for (const input of ["mouse", "keyboard"])
+      test(`${action} by ${input} doesn't scroll the library`, async ({ context }) => {
+        await withAgentTools(context)
+        const page = await context.newPage()
+        await page.setViewportSize({ width: 1280, height: 720 })
+        await page.goto("/#/")
+        await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+        for (let i = 0; i < 60; i++) await tool(page, "create_diagram", { title: `Card ${i}`, open: false })
+        const cards = page.locator("[data-card-id]")
+        await expect(cards.filter({ hasText: "Card 59" })).toBeVisible()
+
+        await cards.first().click({ button: "right" })
+        await expect(page.getByText("1 selected")).toBeVisible()
+        const scroller = page.locator(".eos-library-scroller")
+        const scrollTop = () => scroller.evaluate((el) => el.scrollTop)
+        // Far down, but short of the end, which a Delete pulls up by the row it empties.
+        await scroller.evaluate((el) => (el.scrollTop = el.scrollHeight - el.clientHeight - 800))
+        const before = await scrollTop()
+        expect(before).toBeGreaterThan(1000)
+
+        const button = page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: action, exact: true })
+        if (input === "mouse") await button.click()
+        else {
+          await button.focus()
+          await page.keyboard.press("Enter")
+        }
+        if (action === "Delete") await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click()
+        await expect(selectionCount(page)).toHaveText("0 selected")
+        await page.evaluate(() => new Promise(requestAnimationFrame))
+        expect(await scrollTop()).toBe(before)
+        if (input === "keyboard")
+          expect(await page.evaluate(() => document.activeElement !== document.body && !document.activeElement?.closest("[inert]"))).toBe(
+            true
+          )
+      })
 })
 
 // Safari throws once a page calls history.replaceState more than 100 times in 10 seconds.

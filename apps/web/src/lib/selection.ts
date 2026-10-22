@@ -45,20 +45,31 @@ export function getSelection() {
  * Moves focus off the selection bar before an action empties the selection. Call it first: the bar's actions go
  * inert when nothing is selected, which would drop the focused button's focus to the page.
  * `removing` (the selected cards are about to leave the view): the next unselected card, else the one before.
- * Otherwise the card last toggled, else the first selected one. Failing both, the library itself.
+ * Otherwise the card last toggled if it's still selected, else the first selected one. Focus never scrolls the
+ * library: a target out of view gives way to a card in view (one that stays), else to the library itself.
  */
 export function focusOffSelection(removing: boolean) {
   if (!document.activeElement?.closest("[role=toolbar][aria-label=Selection]")) return
+  const scroller = document.querySelector<HTMLElement>(".eos-library-scroller")
   const cards = [...document.querySelectorAll<HTMLElement>("[data-card-id]")]
   const isSelected = (card: HTMLElement) => selected.has(card.dataset.cardId!)
+  const stays = (card: HTMLElement) => !removing || !isSelected(card)
+  const inView = (card: HTMLElement) => {
+    const c = card.getBoundingClientRect()
+    const s = scroller?.getBoundingClientRect() ?? new DOMRect(0, 0, innerWidth, innerHeight)
+    const top = Math.max(0, s.top)
+    const bottom = Math.min(innerHeight, s.bottom)
+    return c.bottom > top && c.top < bottom
+  }
   let target: HTMLElement | undefined
   if (removing) {
     const last = cards.findLastIndex(isSelected)
-    target = cards.slice(last + 1).find((c) => !isSelected(c)) ?? cards.slice(0, Math.max(last, 0)).findLast((c) => !isSelected(c))
+    target = cards.slice(last + 1).find(stays) ?? cards.slice(0, Math.max(last, 0)).findLast(stays)
   } else {
-    target = cards.find((c) => c.dataset.cardId === lastToggled) ?? cards.find(isSelected)
+    target = cards.find((c) => c.dataset.cardId === lastToggled && isSelected(c)) ?? cards.find(isSelected)
   }
-  ;(target ?? document.querySelector<HTMLElement>(".eos-library-scroller"))?.focus()
+  if (target && !inView(target)) target = cards.find((c) => stays(c) && inView(c))
+  ;(target ?? scroller)?.focus({ preventScroll: true })
 }
 
 /** Starts dragging one card, or the whole selection when the card is part of it. */
