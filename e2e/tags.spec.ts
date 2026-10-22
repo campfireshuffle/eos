@@ -169,6 +169,7 @@ test("the Tags menu closes once its change takes the selected cards out of view"
   // Both left the inbox view, so nothing is selected: the menu goes rather than acting on nothing.
   await expect(cards).toHaveCount(0)
   await expect(page.getByPlaceholder("Find or create a tag")).toBeHidden()
+  await expect(page.locator(".eos-library-scroller")).toBeFocused()
 
   // The next selection brings the bar back without the menu: that waits for Tags to be pressed.
   await page.evaluate(() => (location.hash = "/"))
@@ -177,6 +178,31 @@ test("the Tags menu closes once its change takes the selected cards out of view"
   await expect(page.getByPlaceholder("Find or create a tag")).toBeHidden()
   expect(await page.evaluate(() => document.activeElement?.matches("input[placeholder='Find or create a tag']"))).toBe(false)
 })
+
+for (const by of ["keyboard", "mouse"]) {
+  test(`removing the view's tag from the Tags menu by ${by} leaves focus on a card still in view`, async ({ context }) => {
+    const page = await viewing(context, "x")
+    const cards = page.locator("[data-card-id]")
+    const tags = page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Tags" })
+    if (by === "keyboard") {
+      await cards.first().focus()
+      await page.keyboard.press(" ")
+      await tags.focus()
+      await page.keyboard.press("Enter")
+      await page.keyboard.type("x")
+      await page.keyboard.press("Enter")
+    } else {
+      await cards.first().click({ button: "right" })
+      await tags.click()
+      await page.getByRole("checkbox", { name: "x", exact: true }).click()
+    }
+    await expect(cards).toHaveCount(1)
+    await expect(page.getByText("0 selected")).toBeAttached()
+    await expect(page.getByPlaceholder("Find or create a tag")).toBeHidden()
+    // Not dropped to the page with the menu, nor left on the bar's inert Tags button.
+    await expect(cards.first()).toBeFocused()
+  })
+}
 
 test("the Tags menu finds a tag typed as the sidebar shows it, with its #", async ({ context }) => {
   const page = await viewing(context, "work")
