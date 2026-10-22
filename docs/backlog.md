@@ -599,6 +599,12 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** test only. Found by A4's settings audit.
   - **Fix:** wait for the full card count (`await expect(cards).toHaveCount(n)`) after `goto("/#/")`, before selecting.
 
+- **WebKit: Tab in the selection bar's Tags menu skips the tag rows.**
+  - **What:** in WebKit, Tab from the menu's search field skips the tag rows (buttons) and can land on an invisible Radix focus guard; Safari doesn't Tab to buttons unless "Press Tab to highlight each item" is on. Arrow keys and ⌥Tab still reach the rows.
+  - **Where:** `apps/web/src/components/tag-menu.tsx`, e2e `tags.spec.ts` (the created-tag test skips its Tab step on WebKit).
+  - **Why low:** it's the platform's default for buttons, and nothing is lost.
+  - **Fix:** make the rows a roving-tabindex list (arrow keys between rows, one Tab stop), or use checkboxes, which Safari does Tab to.
+
 ## Refactors to consider (from the round 11 cleanup review)
 
 - **What the preview shows, as one pure function.**
