@@ -55,7 +55,10 @@ const noGutterTheme = EditorView.theme({ ".cm-scroller": { padding: "10px 14px" 
 export interface CodeEditorHandle {
   focus(): void
   focusLine(line: number, column: number): void
-  /** While the editor has focus, scrolls its caret back into view, e.g. after the layout reshapes it. */
+  /**
+   * While the editor has focus, scrolls its caret back into view as the layout reshapes it: now, and each time the
+   * editor's size changes after, until the person types, moves the caret, scrolls or leaves.
+   */
   keepCaretInView(): void
 }
 
@@ -102,6 +105,10 @@ export function CodeEditor({
   callbacks.current = { onChange, onUndo, onRedo }
 
   useEffect(() => {
+    // Set by keepCaretInView: the caret is scrolled back into view each time the editor changes shape, until the
+    // person types, moves the caret, scrolls or leaves. A layout can take a few frames to settle (in Firefox, the
+    // source is briefly as tall as its text, which scrolls it to the top), so one scroll when asked isn't enough.
+    let keepCaret = false
     const v = new EditorView({
       parent: host.current!,
       state: EditorState.create({
@@ -146,7 +153,14 @@ export function CodeEditor({
             spellcheck: "false",
             autocapitalize: "off",
           }),
+          EditorView.domEventHandlers({
+            wheel: () => void (keepCaret = false),
+            touchstart: () => void (keepCaret = false),
+            mousedown: () => void (keepCaret = false),
+          }),
           EditorView.updateListener.of((u) => {
+            if (u.docChanged || u.selectionSet || (u.focusChanged && !u.view.hasFocus)) keepCaret = false
+            else if (keepCaret && u.geometryChanged) u.view.dispatch({ effects: EditorView.scrollIntoView(u.state.selection.main.head) })
             if (binding && u.docChanged && !u.transactions.some((t) => t.annotation(external))) {
               const changes: TextChange[] = []
               u.changes.iterChanges((from, to, _fromB, _toB, inserted) => changes.push({ from, to, insert: inserted.toString() }))
@@ -183,7 +197,9 @@ export function CodeEditor({
           v.focus()
         },
         keepCaretInView() {
-          if (v.hasFocus) v.dispatch({ scrollIntoView: true })
+          if (!v.hasFocus) return
+          keepCaret = true
+          v.dispatch({ effects: EditorView.scrollIntoView(v.state.selection.main.head) })
         },
       }
     }
