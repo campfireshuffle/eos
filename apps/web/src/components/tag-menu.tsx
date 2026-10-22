@@ -60,8 +60,11 @@ export function TagMenu({ ids }: { ids: string[] }) {
         side="top"
         align="center"
         sideOffset={10}
+        data-selection-menu
         // Focusing the search on a touch screen raises the keyboard over the list; there, it waits for a tap.
         onOpenAutoFocus={(e) => matchMedia("(pointer: coarse)").matches && e.preventDefault()}
+        // Emptying the selection already moved focus off the bar, so not back to its now inert Tags button.
+        onCloseAutoFocus={(e) => !ids.length && e.preventDefault()}
         className="max-h-[var(--radix-popover-content-available-height)] w-64 gap-1 p-1.5"
       >
         <Input

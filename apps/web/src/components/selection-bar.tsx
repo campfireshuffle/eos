@@ -4,7 +4,7 @@ import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { useEos } from "@/lib/eos"
-import { clearSelection, focusOffSelection, useSelection } from "@/lib/selection"
+import { clearSelection, useSelection } from "@/lib/selection"
 import { askConfirm } from "@/lib/ui-state"
 
 import { TagMenu } from "./tag-menu"
@@ -46,9 +46,8 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
                 size="sm"
                 className="rounded-full"
                 onClick={async () => {
-                  focusOffSelection(true)
+                  clearSelection(true)
                   await eos.restoreDiagram(ids)
-                  clearSelection()
                 }}
               >
                 <RotateCcw /> <span className="max-sm:sr-only">Restore</span>
@@ -60,9 +59,8 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
                 onClick={async () => {
                   const what = count === 1 ? "this diagram" : `${count} diagrams`
                   if (!(await askConfirm(`Permanently delete ${what}? This can’t be undone.`, "Delete forever"))) return
-                  focusOffSelection(true)
+                  clearSelection(true)
                   await eos.purge(ids)
-                  clearSelection()
                 }}
               >
                 <Trash2 /> <span className="max-sm:sr-only">Delete forever</span>
@@ -80,9 +78,8 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
                 className="rounded-full text-destructive hover:text-destructive"
                 onClick={async () => {
                   if (!(await askConfirm(`Move ${count === 1 ? "this diagram" : `${count} diagrams`} to Deleted?`))) return
-                  focusOffSelection(true)
+                  clearSelection(true)
                   await eos.deleteDiagram(ids)
-                  clearSelection()
                 }}
               >
                 <Trash2 /> <span className="max-sm:sr-only">Delete</span>
@@ -95,10 +92,7 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
             size="icon-sm"
             className="rounded-full text-muted-foreground"
             aria-label="Clear selection"
-            onClick={() => {
-              focusOffSelection(false)
-              clearSelection()
-            }}
+            onClick={() => clearSelection()}
           >
             <X />
           </Button>

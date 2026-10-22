@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react"
 
-import { clearSelection, focusOffSelection, getSelection, setSelection } from "@/lib/selection"
+import { clearSelection, getSelection, setSelection } from "@/lib/selection"
 
 /**
  * Drag on empty space to rubber-band select cards ([data-card-id]).
@@ -29,10 +29,7 @@ export function Marquee({
       const target = e.target as HTMLElement
       // Keys in a dialog or menu are its own (Esc closes it), and leave the selection alone.
       if (target.closest?.("dialog, [role=dialog], [role=menu]")) return
-      if (e.key === "Escape") {
-        focusOffSelection(false)
-        clearSelection()
-      }
+      if (e.key === "Escape") clearSelection()
       // ⌘A in a text field selects its text.
       const typing = target.isContentEditable || target.closest?.("input, textarea, select")
       // By the letter typed (A sits elsewhere on AZERTY), or by the key's place on a non-Latin layout.
