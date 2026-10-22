@@ -39,7 +39,7 @@ type Anchored = { tag: TagPath; x: number; y: number; from: HTMLElement }
 
 /**
  * The tag tree, built on React Aria's Tree. Rows drag with a mouse or touch; with a keyboard or
- * screen reader, from each row's drag button (→ from the row, then Enter). Tags are always
+ * screen reader, from each row's drag button (→ → from the row, then Enter). Tags are always
  * alphabetical, so drags only ever drop *onto* a tag (nesting under it) or onto the top-level
  * zone; there are no between-row drops. Dropping diagram cards onto a tag tags them.
  */
