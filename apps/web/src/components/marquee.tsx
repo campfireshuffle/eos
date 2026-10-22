@@ -28,7 +28,7 @@ export function Marquee({
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement
       // Keys in a dialog or menu are its own (Esc closes it), and leave the selection alone.
-      if (target.closest?.("[role=dialog], [role=alertdialog], [role=menu]")) return
+      if (target.closest?.("dialog, [role=dialog], [role=menu]")) return
       if (e.key === "Escape") clearSelection()
       // ⌘A in a text field selects its text.
       const typing = target.isContentEditable || target.closest?.("input, textarea, select")

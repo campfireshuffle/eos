@@ -3,7 +3,7 @@ import { useDefaultLayout } from "react-resizable-panels"
 
 import { decodeShare } from "@eos/core"
 import { ResizablePanel, ResizablePanelGroup } from "@workspace/ui/components/resizable"
-import { Sheet, SheetContent, SheetTitle } from "@workspace/ui/components/sheet"
+import { Dialog } from "@workspace/ui/components/dialog"
 import { TooltipProvider } from "@workspace/ui/components/tooltip"
 import { cn } from "@workspace/ui/lib/utils"
 
@@ -89,18 +89,15 @@ function Shell({ route, children }: { route: Route; children: ReactNode }) {
       <>
         {/* On phones the page itself scrolls (so Safari can collapse its toolbar); the editor pins itself to the viewport. */}
         <div className="flex min-h-svh flex-col">{children}</div>
-        <Sheet open={mobileNavOpen} onOpenChange={(open) => setUi({ mobileNavOpen: open })}>
-          <SheetContent
-            side="left"
-            showCloseButton={false}
-            className="w-72 max-w-[85vw] bg-background p-0"
-            // Escape during a keyboard tag drag cancels only the drag. Radix hears it first, while the dragged row is still marked.
-            onEscapeKeyDown={(e) => document.querySelector("[data-dragging]") && e.preventDefault()}
-          >
-            <SheetTitle className="sr-only">Navigation</SheetTitle>
-            {sidebar}
-          </SheetContent>
-        </Sheet>
+        <Dialog
+          open={mobileNavOpen}
+          onClose={() => setUi({ mobileNavOpen: false })}
+          closeOnBackdrop
+          aria-label="Navigation"
+          className="m-0 h-full max-h-none w-72 max-w-[85vw] border-r bg-background shadow-lg not-open:-translate-x-10 open:flex open:flex-col starting:open:-translate-x-10"
+        >
+          {sidebar}
+        </Dialog>
       </>
     )
   }

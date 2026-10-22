@@ -1,14 +1,29 @@
-import { ArrowUpRight, Bot, Check, Copy, Database, Download, Heart, Info, Monitor, Moon, Palette, RotateCcw, Star, Sun } from "lucide-react"
-import { Fragment, lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react"
+import {
+  ArrowUpRight,
+  Bot,
+  Check,
+  Copy,
+  Database,
+  Download,
+  Heart,
+  Info,
+  Monitor,
+  Moon,
+  Palette,
+  RotateCcw,
+  Star,
+  Sun,
+  X,
+} from "lucide-react"
+import { Fragment, lazy, Suspense, useEffect, useId, useRef, useState, type ReactNode } from "react"
 
 import type { AppSettings, ThemeMode } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
 import { ToggleGroup, ToggleGroupItem } from "@workspace/ui/components/toggle-group"
-import { Dialog, DialogContent, DialogTitle } from "@workspace/ui/components/dialog"
+import { Dialog, DialogTitle } from "@workspace/ui/components/dialog"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { useEos, useSettings, useStorageUsage } from "@/lib/eos"
-import { useRestoreFocus } from "@/lib/restore-focus"
 import { useCopy } from "@/lib/use-copy"
 import { download } from "@/lib/files"
 import { applyTheme, changedVars, currentAppCss, DEFAULT_DIAGRAM_CSS } from "@/lib/theme"
@@ -28,43 +43,55 @@ const TABS = [
 export function SettingsDialog() {
   const open = useUi((s) => s.settingsOpen)
   const tab = useUi((s) => s.settingsTab)
-  const restoreFocus = useRestoreFocus()
+  const title = useId()
   return (
-    <Dialog open={open} onOpenChange={(o) => setUi({ settingsOpen: o })}>
-      {/* Sized to the window at every width; below 768px the section list becomes a row of tabs on top. */}
-      <DialogContent
-        {...restoreFocus}
-        className="flex h-[min(640px,calc(100dvh-2rem))] w-[min(1040px,calc(100vw-2rem))] max-w-none gap-0 overflow-hidden p-0 max-md:flex-col sm:max-w-none"
-      >
-        {/* On phones the close button sits at the right of this row, so the tabs scroll in the space to its left. */}
-        <nav className="flex shrink-0 border-border bg-background/55 max-md:border-b max-md:py-2 max-md:pr-11 max-md:pl-2 md:w-[232px] md:flex-col md:border-r md:px-2.5 md:pt-[18px]">
-          <DialogTitle className="px-2.5 pb-3 text-title max-md:sr-only">Settings</DialogTitle>
-          <div className="flex min-w-0 gap-0.5 [scrollbar-width:none] max-md:items-center max-md:overflow-x-auto max-md:[mask-image:linear-gradient(to_right,black_calc(100%-16px),transparent)] md:flex-col">
-            {TABS.map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                type="button"
-                aria-current={tab === id || undefined}
-                onClick={() => setUi({ settingsTab: id })}
-                className={cn(
-                  "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-label text-muted-foreground outline-none hover:bg-accent/30 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring max-md:h-9 max-md:px-2",
-                  tab === id && "bg-accent text-foreground"
-                )}
-              >
-                <Icon className="size-4 max-md:hidden" />
-                {label}
-              </button>
-            ))}
-          </div>
-        </nav>
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto px-7 pt-[22px] pb-5 max-md:px-4 max-md:pt-4">
-          <h2 className="text-heading">{TABS.find((t) => t.id === tab)?.label}</h2>
-          {tab === "theming" && <Theming />}
-          {tab === "mcp" && <Mcp />}
-          {tab === "storage" && <Storage />}
-          {tab === "about" && <About />}
+    // Sized to the window at every width; below 768px the section list becomes a row of tabs on top.
+    <Dialog
+      open={open}
+      onClose={() => setUi({ settingsOpen: false })}
+      closeOnBackdrop
+      aria-labelledby={title}
+      className="m-auto h-[min(640px,calc(100dvh-2rem))] max-h-none w-[min(1040px,calc(100vw-2rem))] max-w-none overflow-hidden rounded-xl ring-1 ring-foreground/10 open:flex max-md:flex-col"
+    >
+      {/* On phones the close button sits at the right of this row, so the tabs scroll in the space to its left. */}
+      <nav className="flex shrink-0 border-border bg-background/55 max-md:border-b max-md:py-2 max-md:pr-11 max-md:pl-2 md:w-[232px] md:flex-col md:border-r md:px-2.5 md:pt-[18px]">
+        <DialogTitle id={title} className="px-2.5 pb-3 leading-none max-md:sr-only">
+          Settings
+        </DialogTitle>
+        <div className="flex min-w-0 gap-0.5 [scrollbar-width:none] max-md:items-center max-md:overflow-x-auto max-md:[mask-image:linear-gradient(to_right,black_calc(100%-16px),transparent)] md:flex-col">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              aria-current={tab === id || undefined}
+              onClick={() => setUi({ settingsTab: id })}
+              className={cn(
+                "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-label text-muted-foreground outline-none hover:bg-accent/30 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring max-md:h-9 max-md:px-2",
+                tab === id && "bg-accent text-foreground"
+              )}
+            >
+              <Icon className="size-4 max-md:hidden" />
+              {label}
+            </button>
+          ))}
         </div>
-      </DialogContent>
+      </nav>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto px-7 pt-[22px] pb-5 max-md:px-4 max-md:pt-4">
+        <h2 className="text-heading">{TABS.find((t) => t.id === tab)?.label}</h2>
+        {tab === "theming" && <Theming />}
+        {tab === "mcp" && <Mcp />}
+        {tab === "storage" && <Storage />}
+        {tab === "about" && <About />}
+      </div>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Close"
+        onClick={() => setUi({ settingsOpen: false })}
+        className="absolute top-2 right-2"
+      >
+        <X />
+      </Button>
     </Dialog>
   )
 }

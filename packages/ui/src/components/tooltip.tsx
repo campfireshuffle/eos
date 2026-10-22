@@ -2,6 +2,8 @@ import * as React from "react"
 import { cn } from "@workspace/ui/lib/utils"
 import { Tooltip as TooltipPrimitive } from "radix-ui"
 
+import { usePortalContainer } from "@workspace/ui/components/dialog"
+
 function TooltipProvider({ delayDuration = 0, ...props }: React.ComponentProps<typeof TooltipPrimitive.Provider>) {
   return <TooltipPrimitive.Provider data-slot="tooltip-provider" delayDuration={delayDuration} {...props} />
 }
@@ -27,7 +29,7 @@ function TooltipTrigger({ onFocus, ...props }: React.ComponentProps<typeof Toolt
 
 function TooltipContent({ className, sideOffset = 0, children, ...props }: React.ComponentProps<typeof TooltipPrimitive.Content>) {
   return (
-    <TooltipPrimitive.Portal>
+    <TooltipPrimitive.Portal container={usePortalContainer()}>
       <TooltipPrimitive.Content
         data-slot="tooltip-content"
         sideOffset={sideOffset}

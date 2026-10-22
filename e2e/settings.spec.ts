@@ -120,14 +120,15 @@ test("resetting the theme after a save shows the default app CSS again", async (
   await expect(line).toContainText("--eos-line: #dddad3;")
 })
 
-test("a confirm keeps its text while it fades out", async ({ page }) => {
+test("a confirm keeps its text while it fades out", async ({ browserName, page }) => {
+  test.skip(browserName !== "chromium", "Only Chromium fades a dialog out (overlay); elsewhere it closes at once")
   await page.goto("/#/")
   await page.getByRole("button", { name: "Settings" }).click()
   const dialog = page.getByRole("dialog", { name: "Settings" })
   await dialog.getByRole("button", { name: "Storage", exact: true }).click()
   await dialog.getByRole("button", { name: "Delete all diagrams" }).click()
   await expect(page.getByRole("alertdialog")).toBeVisible()
-  // The dialog stays mounted for a frame after Cancel while its exit animation runs.
+  // Its text stays after Cancel, while it fades out.
   const closing = await page.evaluate(async () => {
     const alert = document.querySelector("[role=alertdialog]")!
     ;[...alert.querySelectorAll("button")].find((b) => b.textContent === "Cancel")!.click()

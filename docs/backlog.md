@@ -54,17 +54,11 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** the code is correct today, and an e2e test catches the larger of the two.
   - **Fix:** add two core tests. First, star in one tab, then check listDiagrams, counts and the `diagram:<id>` event in the same tab. Second, check that `setStarred` rejects a missing id.
 
-- **The confirm dialog's close-focus guards aren't tested.**
-  - **What:** in `onCloseAutoFocus`, each of these can be removed and all 22 confirm tests still pass in all three browsers: `!getUi().confirm?.open`, `document.activeElement === document.body`, and `e.preventDefault()`. The new dialog's focus trap seems to absorb the old one's late focus call. The abort guard `state.confirm?.id === entry.id` isn't tested either. Separately, `answerConfirm`'s comment gives a reason for closing before resolving that has no effect: promise callbacks run in a later microtask anyway.
-  - **Where:** `apps/web/src/components/confirm-dialog.tsx`, `apps/web/src/lib/ui-state.ts` (`askConfirm`, `answerConfirm`), `e2e/confirm.spec.ts`.
-  - **Why low:** behaviour is correct in every case checked. The guards are defensive.
-  - **Fix:** add a test where an agent aborts after the person has answered and a second confirm is open (the second must stay open), plus one that moves focus elsewhere before the close. Otherwise drop the guards that can't be observed. Then trim `answerConfirm`'s comment to what the order actually does.
-
-- **An Escape within a frame of an agent's confirm can close Settings instead.**
-  - **What:** with Settings open, an Escape that lands within about 4 to 16 ms of an agent's confirm taking focus goes to Settings. Settings closes, and any unsaved Theming CSS goes with it. The confirm stays open. Radix works out `isHighestLayer` at render time, and Settings hasn't re-rendered yet. The same race could make the e2e test "Escape on an agent's confirm over Settings" flaky (it passed 6/6).
-  - **Where:** `apps/web/src/components/settings-dialog.tsx` (DialogContent).
-  - **Why low:** a person can't press a key within one frame of a dialog appearing.
-  - **Fix:** `onEscapeKeyDown={(e) => getUi().confirm?.open && e.preventDefault()}` on Settings' DialogContent.
+- **The confirm's abort guard isn't tested.**
+  - **What:** the abort guard `state.confirm?.id === entry.id` can be removed and the confirm tests still pass. Separately, `answerConfirm`'s comment gives a reason for closing before resolving that has no effect: promise callbacks run in a later microtask anyway.
+  - **Where:** `apps/web/src/lib/ui-state.ts` (`askConfirm`, `answerConfirm`), `e2e/confirm.spec.ts`.
+  - **Why low:** behaviour is correct in every case checked. The guard is defensive.
+  - **Fix:** add a test where an agent aborts after the person has answered and a second confirm is open (the second must stay open). Then trim `answerConfirm`'s comment to what the order actually does.
 
 - **On touch tablets in the desktop layout, the left 4px of Show sidebar don't respond.**
   - **What:** with the sidebar collapsed on a coarse pointer (iPad Pro 11 landscape, 1194×834), a tap at x=8 on Show sidebar (x=6 to 34) does nothing. Taps at x=11 and further right work. react-resizable-panels widens a 0px separator's hit area to ±10px on coarse pointers.
@@ -110,7 +104,7 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
     - ⇧0 and ⇧1 fit or reset the hidden zoom.
   - **Where:** `apps/web/src/components/editor.tsx`, `useShortcuts` (a window `keydown` with no modal check).
   - **Why low:** nothing is lost. The changes are hidden and reversible, and page zoom is still in the browser menu.
-  - **Fix:** in `onKey`, return early when `getUi().settingsOpen || getUi().confirm?.open`, or when `e.target` is inside `[role=dialog], [role=alertdialog]`.
+  - **Fix:** in `onKey`, return early when `getUi().settingsOpen || getUi().confirm?.open`, or when `e.target` is inside a `dialog`.
 
 - **An agent's replace import asks more mildly than delete_all_data, though it destroys as much.**
   - **What:** `import_backup {mode: "replace"}` asks "The agent wants to replace all your diagrams with a backup." It wipes everything first (Deleted, stars and tag emoji too), and the backup can be empty (`{"v":1,"diagrams":[]}`). delete_all_data's confirm adds "This can't be undone."; this one doesn't, and it doesn't say what the backup holds.
@@ -170,10 +164,10 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Fix:** `.catch(() => {})` on that open, with a comment that the diagram went away underneath.
 
 - **In Settings, Escape doesn't collapse a CSS editor's selection.**
-  - **What:** inside a dialog, `onEscape` (a window capture handler) calls `preventDefault()` so that Radix doesn't close Settings. CodeMirror then ignores the event, so its own Escape (`simplifySelection`) never runs. The selection stays, in all three engines.
-  - **Where:** `apps/web/src/components/code-editor.tsx`, `onEscape`.
+  - **What:** inside a dialog, the Escape keymap entry handles the key, so it stops there and the dialog stays open. CodeMirror's own Escape (`simplifySelection`) then never runs. The selection stays, in all three engines.
+  - **Where:** `apps/web/src/components/code-editor.tsx`, the Escape keymap entry.
   - **Why low:** cosmetic. Escape then Tab still leaves the editor, and Settings stays open. Round 16 corrected the comment that claimed it collapses.
-  - **Fix:** call `simplifySelection(v)` (from `@codemirror/commands`) in `onEscape` before arming the exit. Add an e2e: select text in the Diagram theme CSS editor, press Escape, and expect the selection to be empty and the dialog open.
+  - **Fix:** call `simplifySelection(v)` (from `@codemirror/commands`) in that entry when it's in a dialog. Add an e2e: select text in the Diagram theme CSS editor, press Escape, and expect the selection to be empty and the dialog open.
 
 - **A word inside a dictionary compound can't be found, and which words can differs by browser.**
   - **What:** Chromium and WebKit segment `東京タワーの夜景` as `東京タワー|の|夜景`, so "タワー" finds nothing ("東京" does, as a prefix). Firefox splits it as `東京|タワー|の|夜景`. The same title gives different results by browser.
@@ -199,14 +193,6 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
     - Add an explicit map for ø ł đ æ → o l d ae, strip U+064B–065F and U+0591–05C7, and apply NFKC for fullwidth.
     - Add the three scripts to `UNSPACED`.
     - Keep the English equivalence test green.
-
-- **In Settings, Safari's default Tab can't leave the last CSS editor, and WebKit's ⌥Tab doesn't wrap.**
-  - **What:**
-    - **The editor:** in WebKit, Escape then Tab in the Diagram theme CSS editor moves to the next text field. There is none, so Radix's trap sends focus back into the editor.
-    - **⌥Tab:** on Close it doesn't wrap to the top, because Radix's loop ignores Tab with Alt held.
-  - **Where:** `apps/web/src/components/settings-dialog.tsx` (DialogContent's focus scope).
-  - **Why low:** it isn't a trap. Shift+Tab and ⌥Tab, Safari's standard key for every control, both work, and Escape closes Settings once focus is out of the editor.
-  - **Fix:** none cheap. Wrapping on ⌥Tab would need a keydown handler on DialogContent that moves focus to the first or last tabbable when Alt+Tab leaves the ends.
 
 - **A confirm focus-timing e2e test can fail under heavy parallel load.**
   - **What:** `e2e/confirm.spec.ts` "opened 50ms after the last confirm was answered, answered by Escape: focus goes back to the first one's opener" failed once in Firefox (1 of 1160 tests, 8 workers, all three engines at once). Run 5× on its own, it passed 110/110.
@@ -285,10 +271,10 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Fix:** a one-line status under the buttons ("Imported 12 diagrams." / "Deleted all diagrams.") in a `role="status"` region.
 
 - **Dialog, sheet and menu animations ignore reduced motion.**
-  - **What:** the Radix plus tw-animate enter and exit animations (100–200 ms fades, zoom-95, a 10-unit slide) run under `prefers-reduced-motion: reduce`. The app's own sidebar and preview animations respect it.
-  - **Where:** `packages/ui` components (dialog, sheet, popover, dropdown).
+  - **What:** the dialog transitions (150 ms fades, the drawer's 200 ms slide) and the Radix plus tw-animate menu animations (fades, zoom-95) run under `prefers-reduced-motion: reduce`. The app's own sidebar and preview animations respect it.
+  - **Where:** `packages/ui`: the dialog rules in `globals.css`, popover, dropdown.
   - **Why low:** they're short and small. This is WCAG 2.3.3, which is AAA.
-  - **Fix:** add `motion-reduce:animate-none` (or a global `@media (prefers-reduced-motion: reduce)` rule zeroing `animation-duration`) to those components.
+  - **Fix:** add `motion-reduce:animate-none` to the menus and a `@media (prefers-reduced-motion: reduce)` rule that drops the dialog transitions (or one global rule zeroing both durations).
 
 - **Destructive buttons have a faint focus ring.**
   - **What:** Delete all diagrams and the confirm's Delete show focus as `ring-destructive/20` plus a 1 px red border. It's visible, but fainter than other buttons' rings.
@@ -364,15 +350,6 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `packages/core/src/store.ts` (`flushIndex`).
   - **Why low:** no live bug. It's one method on the public surface.
   - **Fix:** make it `private` the next time store.ts is touched.
-
-- **Escape's tab-focus arming lives in two places.**
-  - **What:** the Escape keymap entry and the dialog-only window handler `onEscape` both call `setTabFocusMode(2000)`.
-  - **Where:** `apps/web/src/components/code-editor.tsx`.
-  - **Why low:** both are correct. Merging them saves about 3 lines.
-  - **Fix:** the next time Escape handling changes (for example the selection-collapse fix above):
-    - let `onEscape` arm the exit whenever the editor has focus, and keep `preventDefault()` (plus `simplifySelection`) only in a dialog;
-    - drop the keymap entry;
-    - run the two Escape tests and accessibility.spec in all three browsers.
 
 - **caret.spec.ts reaches CodeMirror through an internal.**
   - **What:** `insertAt` finds the view through `.cm-content`'s `cmTile.root.view`, which `@codemirror/view` doesn't document (it's at `^6.43`). A minor update that renames it would fail about 50 caret tests on Chromium, and the 2 or 3 of the five every-engine checks that use it on Firefox and WebKit.

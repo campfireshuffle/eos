@@ -275,7 +275,7 @@ test("in the narrow window's drawer, Escape cancels a keyboard tag drag and leav
   await page.keyboard.press("Escape")
   await expect(drag).toBeFocused()
   // Not visibility: a closing drawer stays visible while it slides out.
-  await expect(drawer).toHaveAttribute("data-state", "open")
+  await expect(drawer).toHaveAttribute("open")
   const library = await tool<{ diagrams: { title: string; tags: string[] }[] }>(page, "get_library")
   expect(library.diagrams.find((d) => d.title === "alpha")?.tags).toEqual(["alpha"])
 })
