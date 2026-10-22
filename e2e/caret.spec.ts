@@ -93,6 +93,8 @@ const EVERY_ENGINE = new Set([
   "an agent: text then a line (…\\n…) at the caret at the end of a line",
   "own redo: a line after (\\n…) at the caret at the end of a line",
   'merge: the person types at the end of a line while an agent changes it to "A --> B2" and adds a line below',
+  "rotating a phone keeps the caret, the scroll and focus",
+  "resizing a window across 768px keeps the caret, the scroll and focus",
 ])
 test.beforeEach(({ browserName }, info) => test.skip(browserName !== "chromium" && !EVERY_ENGINE.has(info.title)))
 test.beforeEach(async ({ context }) => withAgentTools(context))
@@ -290,3 +292,40 @@ for (const base of [false, true]) {
     })
   }
 }
+
+// On every phone portrait is under 768px wide and landscape over it, so each rotation switches the layout. The editor
+// stays mounted through it, so the person keeps their place in a long source, and focus (and a phone's keyboard) stays.
+for (const [title, start, other] of [
+  ["rotating a phone", { width: 390, height: 844 }, { width: 844, height: 390 }],
+  ["resizing a window across 768px", { width: 1024, height: 700 }, { width: 700, height: 1024 }],
+] as const) {
+  test(`${title} keeps the caret, the scroll and focus`, async ({ context }) => {
+    const page = await context.newPage()
+    await page.setViewportSize(start)
+    const id = await newDiagram(page, ["graph TD", ...Array.from({ length: 199 }, (_, i) => `  n${i + 1} --> n${i + 2}`)].join("\n"))
+    await openEditor(page, id)
+    // The end of line 150, scrolled to as a click there would.
+    await page.evaluate(() => {
+      const view = (document.querySelector(".cm-content") as unknown as { cmTile: { root: { view: EditorView } } }).cmTile.root.view
+      view.focus()
+      view.dispatch({ selection: { anchor: view.state.doc.line(150).to }, scrollIntoView: true })
+    })
+    await page.keyboard.type("A")
+    const kept = async () => {
+      await expect(page.locator(".cm-content")).toBeFocused()
+      await expect(page.locator(".cm-line", { hasText: /^ {2}n149 --> n150A/ })).toBeInViewport()
+      await expect(page.locator(".cm-cursor-primary")).toBeInViewport()
+    }
+    await kept()
+    await page.setViewportSize(other)
+    await kept()
+    await page.keyboard.type("B")
+    await page.setViewportSize(start)
+    await kept()
+    await page.keyboard.type("C")
+    await expect.poll(async () => (await storedText(page, id)).split("\n")[149]).toBe("  n149 --> n150ABC")
+  })
+}
+
+/** As much of CodeMirror's view as these tests use. */
+type EditorView = { focus(): void; dispatch(spec: unknown): void; state: { doc: { line(n: number): { to: number } } } }

@@ -26,7 +26,7 @@ import {
 } from "@workspace/ui/components/dropdown-menu"
 import { ResizablePanel, ResizablePanelGroup } from "@workspace/ui/components/resizable"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@workspace/ui/components/tooltip"
-import { useDefaultLayout } from "react-resizable-panels"
+import { useDefaultLayout, useGroupRef } from "react-resizable-panels"
 
 import { useDiagram, useEos } from "@/lib/eos"
 import { useCopy } from "@/lib/use-copy"
@@ -162,6 +162,15 @@ export function Editor({ id }: { id: string }) {
     id: `eos-editor-${orientation}`,
     storage: localStorage,
   })
+  // Each orientation keeps its own split. The group isn't remounted for the other one (that would lose the source's
+  // caret, scroll and focus mid-edit, as a phone rotates), so it's given that one's split here. The source pane
+  // changes shape, so the caret someone is typing at is brought back into view.
+  const group = useGroupRef()
+  useEffect(() => {
+    group.current?.setLayout(layout.defaultLayout ?? { source: 42, preview: 58 })
+    for (const editor of [editorRef, pastRef]) editor.current?.keepCaretInView()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orientation])
 
   if (diagram === null) {
     return (
@@ -219,7 +228,7 @@ export function Editor({ id }: { id: string }) {
           </Button>
         </Banner>
       )}
-      <ResizablePanelGroup key={orientation} orientation={orientation} className="min-h-0 flex-1" {...layout}>
+      <ResizablePanelGroup groupRef={group} orientation={orientation} className="min-h-0 flex-1" {...layout}>
         <ResizablePanel id="source" defaultSize="42%" minSize={mobile ? "120px" : "280px"} className="flex">
           <Panel as="section" split="start" className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <PanelHeader title="Source">

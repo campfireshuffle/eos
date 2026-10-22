@@ -75,6 +75,21 @@ test.describe("selecting", () => {
   }
   const card = (page: Page, title: string) => page.locator("[data-card-id]", { hasText: title })
 
+  test("the selection survives resizing across 768px (the library stays mounted)", async ({ context }) => {
+    const page = await library(context)
+    await page.setViewportSize({ width: 1024, height: 700 })
+    await card(page, "Apple pie").click({ button: "right" })
+    await card(page, "Pear crumble").click()
+    await expect(selectionCount(page)).toHaveText("2 selected")
+    for (const viewport of [
+      { width: 700, height: 1024 },
+      { width: 1024, height: 700 },
+    ]) {
+      await page.setViewportSize(viewport)
+      await expect(selectionCount(page)).toHaveText("2 selected")
+    }
+  })
+
   test("a right-click starts selecting, and then clicks add and remove cards instead of opening them", async ({ context }) => {
     const page = await library(context)
     await card(page, "Apple pie").click({ button: "right" })
