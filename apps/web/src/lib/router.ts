@@ -1,8 +1,6 @@
-import { useSyncExternalStore } from "react"
-
 import { tagMatches, type LibrarySort, type TagPath } from "@eos/core"
 
-import { onNavigate } from "./history"
+import { useHash } from "./history"
 
 export type LibraryGroup = "date" | "subtag" | "none"
 
@@ -73,8 +71,4 @@ export function followTag(from: TagPath, to: TagPath | null) {
   navigate(homeHref({ ...route, tag: to && to + route.tag.slice(from.length) }), { replace: true })
 }
 
-export function useRoute(): Route {
-  // History tells us of each navigation, so the route and the history entry change together.
-  const hash = useSyncExternalStore(onNavigate, () => location.hash)
-  return parseRoute(hash)
-}
+export const useRoute = (): Route => parseRoute(useHash())
