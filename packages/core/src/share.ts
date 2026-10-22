@@ -55,5 +55,5 @@ async function pipe(input: Uint8Array, stream: CompressionStream | Decompression
     }
     chunks.push(read.value)
   }
-  return new Uint8Array(await new Blob(chunks as BlobPart[]).arrayBuffer())
+  return new Blob(chunks as BlobPart[]).bytes()
 }
