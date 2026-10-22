@@ -268,9 +268,9 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
 
 - **A person's edit that deletes the line break an agent's edit is anchored on can join the agent's line onto theirs.**
   - **What:** with `baseVersion`, the person replaces the last line by deleting from the line break before it (`"\nL341"` becomes `"\nL342 …"`), and the agent adds a line above that last line. The agent's `"L343\n"` is anchored after the deleted line break, so the result is `"…L342 …L343\n"`. The r17 `r17merge` fuzzer at GAP=1 gives 14 of 452 such cases. They're identical before and after round 18.
-  - **Where:** `packages/core/src/store.ts`, `editsFromBase` (`insertAt` on a deleted character).
+  - **Where:** `packages/core/src/store.ts`, `editsFromBase` (a whole-line insertion after a deleted line break).
   - **Why low:** the person's edit removed the agent's anchor, so the two edits overlap. The editor rarely selects across the previous line break to retype a line, and nothing is lost.
-  - **Fix:** when `insertAt`'s character was deleted since the base and the insertion is whole lines (it ends with `"\n"`), insert at the start of the line now at that spot.
+  - **Fix:** when the line break before a whole-line insertion (one ending with `"\n"`) was deleted since the base, insert at the start of the line now at that spot.
 
 - **Rewriting a very large source with an unrelated text freezes the tab.**
   - **What:** an agent replacing a 69 KB, 2,500-line diagram with a 2,200-line unrelated one spends about 46 s in Loro's character diff, on the main thread. That was the same before round 18. Round 18's line diff made deleting or reordering lines fast (3.3 s → 17 ms, 8.7 s → 62 ms). A rewrite that changes every line keeps one big changed hunk.
@@ -295,6 +295,18 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `packages/ui/src/components/button.tsx` (the `destructive` variant), stock shadcn.
   - **Why low:** the indicator is visible, and the border meets non-text contrast.
   - **Fix:** use `focus-visible:ring-destructive/50`, or the shared `ring-ring`.
+
+- **In WebKit, ⌥Tab stops twice on every tag row.**
+  - **What:** since round 18 each tag row has a drag button ("Drag ‹tag›") as well as its Change icon button. In Safari, ⌥Tab (which reaches every control) stops on both for every row, so going through a long tag tree takes twice as many presses. Chromium and Firefox reach the row's buttons only with the arrow keys.
+  - **Where:** `apps/web/src/components/tag-tree.tsx`, the row's drag `Button` and its Change icon button.
+  - **Why low:** every stop is labelled and works, and plain Tab skips them in Safari's default mode. It's only extra presses.
+  - **Fix:** give the row's inner buttons `tabIndex={-1}` outside React Aria's own focus management, so the row is the only Tab stop and → reaches its buttons. Check that VoiceOver's drag path still works.
+
+- **update_diagram's description calls the source edit "a minimal diff".**
+  - **What:** the tool description says the source is "applied as a minimal diff". Since round 18 it's a line diff: lines the agent keeps are left alone, lines it adds or removes go in or out whole, and only changed lines get a character diff. So it isn't minimal in the textbook sense.
+  - **Where:** `packages/webmcp/src/index.ts`, `update_diagram`'s description (about line 333).
+  - **Why low:** what an agent relies on still holds: only what differs changes, and the rest of the text (and what the person typed on it) is kept.
+  - **Fix:** say "applied as a line-by-line diff, so unchanged lines are kept as they are".
 
 ## Refactors to consider (from the round 11 cleanup review)
 
@@ -362,3 +374,11 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `e2e/caret.spec.ts`, `insertAt`.
   - **Why low:** it's test-only, and it would fail loudly rather than pass wrongly.
   - **Fix:** dispatch a synthetic paste `ClipboardEvent` on `.cm-content`, which goes through the editor's real paste path, or expose the view on the element in dev builds only.
+
+- **Two branches of diffText are untested.**
+  - **What:** no core test reaches two things:
+    - `lineHunks`'s fallback when the changed lines have more distinct values than its one-character encoding allows (the `ids.size > 0xd800 - 0x100` return);
+    - the `/\S/` check in `diffText` that decides whether an inserted "extends then adds" text is split.
+  - **Where:** `packages/core/src/store.ts` (`lineHunks`, `diffText`) and `packages/core/src/store.test.ts`.
+  - **Why low:** the round 19 auditors tested each branch by hand (a 55k-line fallback run, the exactness fuzz) and they behave correctly. Only regressions would go uncaught.
+  - **Fix:** the next time the merge is touched, add two rows: a two-line change among more than 55,000 distinct lines, and an insertion at the end of a whitespace-only line.
