@@ -224,22 +224,28 @@ test("clicking a link to the page already shown keeps in-app Back inside Eos, an
   await expect(page.getByRole("button", { name: "Forward" })).toBeEnabled()
 })
 
-test("without the Navigation API the app still routes, searches and reloads, with no back/forward", async ({ page }) => {
+test("without the Navigation API the app still routes, searches and reloads, with no back/forward", async ({ context }) => {
   // As in Firefox before 147 and Safari before 26.2.
-  await page.addInitScript(() => delete (window as { navigation?: unknown }).navigation)
+  await context.addInitScript(() => delete (window as { navigation?: unknown }).navigation)
   const errors: string[] = []
-  page.on("pageerror", (e) => errors.push(e.message))
-  await page.goto("/#/")
+  context.on("weberror", (e) => errors.push(e.error().message))
+  const { page, cards, scrollTo, settledTop } = await library(context, "/?sort=title")
   expect(await page.evaluate(() => "navigation" in window)).toBe(false)
+  await expect(cards.first()).toContainText("Diagram 0")
+  await scrollTo(600)
+  // Every entry would share one saved position, so a new view starts at the top.
+  await page.evaluate(() => (location.hash = "/?sort=created"))
+  await expect(cards.first()).toContainText("Diagram 23")
+  expect(await settledTop()).toBe(0)
   await page
     .locator("aside")
     .getByRole("link", { name: /^Starred/ })
     .click()
-  await expect(page).toHaveURL(/#\/\?starred=1$/)
+  await expect(page).toHaveURL(/#\/\?starred=1&sort=created$/)
   await page.getByRole("textbox", { name: "Search diagrams" }).fill("flow")
-  await expect(page).toHaveURL(/#\/\?starred=1&q=flow$/)
+  await expect(page).toHaveURL(/#\/\?starred=1&sort=created&q=flow$/)
   await page.goBack()
-  await expect(page).toHaveURL(/#\/$/)
+  await expect(page).toHaveURL(/#\/\?sort=created$/)
   await page.reload()
   await expect(page.getByRole("textbox", { name: "Search diagrams" })).toHaveValue("")
   await expect(page.getByRole("button", { name: "Back" })).toHaveCount(0)
