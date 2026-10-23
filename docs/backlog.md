@@ -892,6 +892,84 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** it needs a tag name too long for the phone's width; the page still scrolls to it.
   - **Fix:** drop `shrink-0` from the pill (keeping `min-w-0`), so it shrinks and truncates within its row, with `max-w-full` where it sits in a wrapping row.
 
+- **Agents can't permanently delete one diagram.**
+  - **What:** the selection bar's Delete forever (`eos.purge`) has no tool. An agent can move a diagram to Deleted with `update_diagram`, or wipe everything with `delete_all_data`, but can't purge chosen diagrams. `docs/data-model.md` §10 and the README now say so.
+  - **Where:** `packages/webmcp/src/index.ts`, the permanent-delete tools.
+  - **Why it's here:** whether agents should purge at all is the owner's call.
+  - **Fix:** if wanted, add a `purge_diagrams({ ids })` tool beside `delete_all_data`, with `consequentialHint` and `destructiveHint`, that asks "This can't be undone." and then calls `leaveMissingDiagram`.
+
+- **Restore reverts the title and tags too, with no warning.**
+  - **What:** Restore reverts the whole doc, so the title and tags go back to that version's along with the source. The preview banner and header show the current title and tags, so nothing says they'll change.
+  - **Where:** `packages/core/src/store.ts`, `restoreVersion`; `apps/web/src/components/editor.tsx`, the preview banner.
+  - **Why it's here:** the title and tags are in history, so the change can be undone by hand. Which behaviour is right is the owner's call.
+  - **Fix:** either restore only the source (read it with `forkAt(frontiers)` and apply it as an edit), or show that version's title and tags in the preview.
+
+- **Renaming, deleting or bulk-changing a tag re-dates every diagram that has it.**
+  - **What:** a diagram's Modified date is `lastChangeAt`, which counts details commits such as tag changes. One tag rename moves every diagram under it to the top of the Modified sort.
+  - **Where:** `packages/core/src/docs.ts`, `lastChangeAt`; `packages/core/src/store.ts`, where the index row's `updatedAt` is set from it.
+  - **Why low:** nothing is lost, and the diagrams are still found by tag or search.
+  - **Fix:** date a diagram by its last source or title change only, skipping commits that change just its tags.
+
+- **A history entry that folds two tabs' concurrent edits drops one of them on preview or restore.**
+  - **What:** an entry that folds concurrent changes from two tabs uses one change id as its version. Previewing or restoring it reads the doc at that one change, without the other tab's.
+  - **Where:** `packages/core/src/docs.ts`, `historyOf`.
+  - **Why low:** it needs two tabs editing the same diagram inside one entry, and the later entries still hold both edits.
+  - **Fix:** store the entry's full frontier as its version.
+
+- **The title field keeps the typed text after the store normalises it.**
+  - **What:** clearing the title (stored as "Untitled"), or typing " Foo " when the title is already "Foo", leaves the field showing what was typed. `TitleInput` only resets when its `value` prop changes, and here it doesn't.
+  - **Where:** `apps/web/src/components/editor.tsx`, `TitleInput`.
+  - **Why low:** the stored title is right, and the field shows it after the next rename or reload.
+  - **Fix:** reset the field to `value` after every commit, not only when `value` changes.
+
+- **A tag deleted, renamed or moved in another tab leaves this tab on the dead tag.**
+  - **What:** a tab viewing a tag that another tab deletes, renames or moves stays on it and shows "No diagrams match.", because `followTag` only runs in the tab that made the change.
+  - **Where:** `apps/web/src/lib/router.ts`, `followTag`, and its callers. Related to the refactor "Tag moves followed in one place".
+  - **Why low:** the sidebar shows the tag's new name, and one click there fixes it.
+  - **Fix:** when the library changes, if the current tag no longer exists, follow the rename if one is known or go to All.
+
+- **On a touch device with a keyboard, Escape in the selection bar's Tags menu also clears the selection.**
+  - **What:** on touch, focus stays on the Tags button, outside the menu, so the Escape that closes the menu also reaches Marquee's Escape handler, which clears the selection.
+  - **Where:** `apps/web/src/components/marquee.tsx`, the Escape handler; `apps/web/src/components/tag-menu.tsx`.
+  - **Why low:** it needs a hardware keyboard on a touch device, and reselecting is quick.
+  - **Fix:** skip clearing when an open popover handled the key (check `e.defaultPrevented`, or ignore Escape while the Tags menu is open).
+
+- **An agent's set_view right after a search keystroke drops the last keystrokes.**
+  - **What:** `set_view` within about 150 ms of typing in Search drops the throttled keystrokes not yet in the URL, because `setLibraryView` reads `q` from `location.hash`, which lags the box.
+  - **Where:** `apps/web/src/lib/webmcp.ts`, `setLibraryView`.
+  - **Why low:** it needs an agent call inside that window, and the person can type the letters again.
+  - **Fix:** flush the pending search to the URL before reading it, or read the search box's current value.
+
+- **update_diagram({ deleted: true }) on a diagram already in Deleted asks again.**
+  - **What:** the confirm opens even though nothing would change.
+  - **Where:** `packages/webmcp/src/index.ts`, `update_diagram`.
+  - **Why low:** agent-only, and declining or accepting leaves it in Deleted either way.
+  - **Fix:** skip the confirm (and the delete) when `d.deletedAt` is set.
+
+- **create_diagram with fromShareLink ignores title and tags.**
+  - **What:** passing `title` or `tags` with `fromShareLink` does nothing, and the result doesn't say so.
+  - **Where:** `packages/webmcp/src/index.ts`, `create_diagram`.
+  - **Why low:** agent-only; `update_diagram` can set them afterwards.
+  - **Fix:** apply them after `importShare`, or reject them with `invalid_input` when `fromShareLink` is set.
+
+- **A merge import replaces the saved theme, nulls included.**
+  - **What:** `importBackup` spreads the backup's `settings.theme` over the current theme, so a merge import replaces the person's mode and CSS, and a backup with `customCss: null` clears theirs.
+  - **Where:** `packages/core/src/store.ts`, `importBackup`.
+  - **Why low:** the theme is easy to set again, and the diagrams merge as they should.
+  - **Fix:** in merge mode, keep the current theme, or take only the fields the current theme leaves unset.
+
+- **A backup diagram with id "\_\_workspace" is accepted.**
+  - **What:** `BackupSchema` takes any diagram id, including `WORKSPACE_ID`. Delete forever on that diagram then wipes stars and tag emoji.
+  - **Where:** `packages/core/src/store.ts`, `BackupSchema`.
+  - **Why low:** it needs a hand-made backup file; Eos never writes one.
+  - **Fix:** reject `WORKSPACE_ID` (with a refine on the diagram `id`).
+
+- **In forced-colors mode, focus is invisible on most controls, and selected states look the same.**
+  - **What:** controls draw focus as `outline-none` plus a ring box-shadow, and forced colors drops box-shadows. Focus doesn't show on most controls, and selected states lose the shadow that set them apart.
+  - **Where:** `apps/web/src/app.css`, and the shared component classes.
+  - **Why low:** forced colors (Windows High Contrast) is rare among this app's users, and Tab order still works.
+  - **Fix:** add a `@media (forced-colors: active)` rule giving `:focus-visible` an `outline: 2px solid CanvasText`, and a border or `Highlight` colour for selected states.
+
 ## Refactors to consider (from the round 11 cleanup review)
 
 - **What the preview shows, as one pure function.**

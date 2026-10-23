@@ -10,7 +10,7 @@ Eos is a local-first Mermaid editor. All diagrams stay in the browser: there is 
 - **Edits never conflict.** The person, the in-tab WebMCP agent, and other open tabs all write to the same doc, and the CRDT merges them.
 - **Undo is per tab and per actor.** ⌘Z reverts the person's edits made in this tab, never an agent's and never another tab's. An agent has its own undo stack for its edits (§4).
 - **History is shared and attributed.** Every change records who made it (the person, an agent, an import or the app), and the history menu shows that instead of using toasts.
-- **The agent is a first-class editor.** Anything a person can do in the UI, an agent can do through WebMCP (§10), along the same code path.
+- **The agent is a first-class editor.** Nearly anything a person can do in the UI, an agent can do through WebMCP (§10), along the same code path. The exception is Delete forever on chosen diagrams: an agent can only delete everything (§10).
 - **Durable by default.** Request persistent storage once. There is no storage-management UI.
 
 ## Architecture
@@ -406,7 +406,9 @@ Backups carry only the theme. Agent settings are the person's say over what agen
 
 ## 10. WebMCP tools
 
-**Principle:** an agent can do anything a person can do, through a small set of deep tools: one per kind of job, with optional fields rather than extra tools. Agents with tool search and code mode chain calls themselves, so fewer, clearer tools mean fewer wrong picks. Reads, ordinary writes and permanent deletes are separate tools because harnesses approve by annotations, which apply to a whole tool. Reads set `readOnlyHint` (and `untrustedContentHint` when they return people's text); permanent deletes set `consequentialHint`, which Chrome reads, and `destructiveHint`, MCP's name for it. Each tool's input is a Zod (`zod/mini`) schema: it becomes the JSON Schema agents see and checks every call, since browsers pass input through unchecked, so bad input returns `invalid_input` rather than throwing. The browser passes `execute` a `signal` that aborts when the agent cancels the call; a pending confirm then closes as a no.
+**Principle:** an agent can do what a person can do, through a small set of deep tools: one per kind of job, with optional fields rather than extra tools. Agents with tool search and code mode chain calls themselves, so fewer, clearer tools mean fewer wrong picks. Reads, ordinary writes and permanent deletes are separate tools because harnesses approve by annotations, which apply to a whole tool. Reads set `readOnlyHint` (and `untrustedContentHint` when they return people's text); permanent deletes set `consequentialHint`, which Chrome reads, and `destructiveHint`, MCP's name for it. Each tool's input is a Zod (`zod/mini`) schema: it becomes the JSON Schema agents see and checks every call, since browsers pass input through unchecked, so bad input returns `invalid_input` rather than throwing. The browser passes `execute` a `signal` that aborts when the agent cancels the call; a pending confirm then closes as a no.
+
+The exception: no tool permanently deletes chosen diagrams, as Delete forever in the selection bar does (`eos.purge`). An agent can move a diagram to Deleted (`update_diagram`) or wipe every diagram (`delete_all_data`), but not purge one. Agent settings aren't an exception, since the person has no UI for them either; agents can read them but not change them (below).
 
 - **Writes are attributed to the agent** (`{ kind: "agent", tool, changes }`), shown apart from the person's in the history menu, and kept off the person's undo stack (§4).
 - **Results are typed.** `{ ok: true, … }` or `{ ok: false, code, message }` with codes like `not_found`, `invalid_input`, `parse_error`, `stale`, `user_declined`, and `busy` when another dialog is already open, so nothing was asked.
