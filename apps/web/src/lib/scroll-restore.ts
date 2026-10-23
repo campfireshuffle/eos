@@ -26,7 +26,7 @@ export function useScrollRestoration(target: RefObject<HTMLElement | null> | nul
     restore()
     // After typing, WebKit reveals the search box's caret before the next frame, from where the box was before this
     // scroll: in the phone's sticky header, that scrolls the page back down. So a typed search's page goes to the top
-    // again in the next frame.
+    // again in the next frame. Tracked in https://github.com/campfireshuffle/eos/issues/23; delete this once fixed.
     const frame = !el && saved === "typed" ? requestAnimationFrame(restore) : 0
     const save = () => sessionStorage.setItem(storageKey(entry), String(Math.round(el ? el.scrollTop : window.scrollY)))
     scroller.addEventListener("scroll", save, { passive: true })
