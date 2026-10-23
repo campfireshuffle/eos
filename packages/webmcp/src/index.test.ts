@@ -53,8 +53,11 @@ describe("webmcp tools", () => {
     ])
     const ro = list.filter((t) => t.annotations?.readOnlyHint).map((t) => t.name)
     expect(ro).toEqual(["get_library", "get_diagram", "get_view", "get_settings", "export"])
-    // These return text people wrote, which an agent shouldn't take as instructions.
-    expect(list.filter((t) => t.annotations?.untrustedContentHint).map((t) => t.name)).toEqual(["get_library", "get_diagram", "export"])
+    // Every read can return text a person, a backup or a share link wrote, which an agent shouldn't take as instructions.
+    for (const name of ro) {
+      expect(list.find((t) => t.name === name)?.annotations, name).toEqual({ readOnlyHint: true, untrustedContentHint: true })
+    }
+    expect(list.filter((t) => t.annotations?.untrustedContentHint).map((t) => t.name)).toEqual(ro)
     const destructive = list.filter((t) => t.annotations?.destructiveHint).map((t) => t.name)
     expect(destructive).toEqual(["delete_tag", "import_backup", "delete_all_data"])
     // Chrome reads consequentialHint; destructiveHint alone is ignored there.

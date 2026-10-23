@@ -226,7 +226,8 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
       description:
         "What the person is looking at: page, open diagram, library filters, preview zoom, whether Settings and the sidebar are open.",
       input: {},
-      annotations: { readOnlyHint: true },
+      // The route carries the library's search text and tag name, which people type.
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
       execute: async () => ok({ view: await view() }),
     }),
     tool({
@@ -234,7 +235,8 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
       description:
         "Settings, the theme in effect (light or dark, plus the full app --eos-* and diagram --pele-* CSS including defaults; Pele's variables are documented at https://pele.run/theming) and storage used.",
       input: {},
-      annotations: { readOnlyHint: true },
+      // Theme CSS is returned verbatim, as the person wrote it or a backup restored it.
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
       execute: async () => {
         const settings = eos.getSettings()
         return ok({

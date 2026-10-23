@@ -909,9 +909,10 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
 
 - **A history entry that folds two tabs' concurrent edits drops one of them on preview or restore.**
   - **What:** an entry that folds concurrent changes from two tabs uses one change id as its version. Previewing or restoring it reads the doc at that one change, without the other tab's.
-  - **Where:** `packages/core/src/docs.ts`, `historyOf`.
-  - **Why low:** it needs two tabs editing the same diagram inside one entry, and the later entries still hold both edits.
-  - **Fix:** store the entry's full frontier as its version.
+    - Across devices, `historyOf` also folds a newer edit into the entry before it when timestamps go backwards in Lamport order (a clock behind the other device's). The gap is negative, so it counts as "under 2 minutes", and the newer edit vanishes from history.
+  - **Where:** `packages/core/src/docs.ts`, `historyOf` (the fold test, about line 287).
+  - **Why low:** it needs two tabs editing the same diagram inside one entry, or two devices with skewed clocks, and the later entries and the doc itself still hold both edits.
+  - **Fix:** store the entry's full frontier as its version, and fold only when `0 <= entry.at - prev.at < HISTORY_SESSION_MS`.
 
 - **The title field keeps the typed text after the store normalises it.**
   - **What:** clearing the title (stored as "Untitled"), or typing " Foo " when the title is already "Foo", leaves the field showing what was typed. `TitleInput` only resets when its `value` prop changes, and here it doesn't.
@@ -1155,6 +1156,84 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `packages/core/src/docs.ts`, `historyOf` (about lines 287-291); `packages/core/src/store.ts`, `restoreVersion` (about line 422). Related to "A restore in one tab, then ⌘Z in another, duplicates the restored line".
   - **Why low:** the owner chose to keep this behaviour for now. It needs a restore soon after the same actor's own edit, and the restored text itself is kept.
   - **Fix:** the owner's call. Mark the restore commit (e.g. in its actor) and never fold it, and optionally cap an entry's length, since the 2-minute window slides. Clear the other actor's stack only when the restore reverses a step on it.
+
+- **Share links can be made that won't open.**
+  - **What:** `encodeShare` only checks the encoded length. A link whose payload decodes to more than 256 KB, or whose title is over 1000 characters, is made and copied, but `decodeShare` rejects it, so the link opens nothing.
+  - **Where:** `packages/core/src/share.ts`, `encodeShare` (about lines 15-20) against the limits at lines 12-13 and the checks in `decodeShare` (about lines 29-33).
+  - **Why low:** it takes a highly compressible source well past Pele's 50,000-character limit, or a 1000-character title.
+  - **Fix:** apply the decode limits when encoding, and throw the same "too large to share as a link" error.
+
+- **The search panel covers the source pane on a 320×568 phone.**
+  - **What:** CodeMirror's find panel sits at the top of the editor (`search({ top: true })`). On a 320×568 phone it takes most of the source pane's height, so little or none of the text shows while searching.
+  - **Where:** `apps/web/src/components/code-editor.tsx` (about line 154).
+  - **Why low:** only the smallest phones, and closing the panel brings the text back.
+  - **Fix:** a more compact panel on narrow screens (one row, options hidden behind a toggle).
+
+- **The first PNG export of a session draws non-ASCII labels in a narrower face.**
+  - **What:** the first PNG export after a load can render labels with non-ASCII text in a narrower fallback face; later exports look right.
+  - **Where:** `apps/web/src/lib/files.ts`, `svgMarkupToPng`. Possibly Chromium loading the font for the canvas only after first use. Unconfirmed.
+  - **Why low:** only the first export, and only labels with non-ASCII text. Exporting again fixes it.
+  - **Fix:** confirm on a bare page first. If it's Chromium's font loading, track it as `upstream`; in Eos, `await document.fonts.load(...)` for the label text before drawing.
+
+- **With unparsable source, the menu exports the last good diagram but the agent gets parse_error.**
+  - **What:** the Export menu's SVG and PNG use the preview's last good render, while `export` returns `parse_error` for the same diagram.
+  - **Where:** `apps/web/src/components/export-menu.tsx`; `packages/webmcp/src/index.ts`, `export`.
+  - **Why low:** an intended parity gap: the person sees which diagram they're exporting, and the agent is told the source is broken rather than handed a stale image.
+  - **Fix:** none planned. Say so in the tool's description if agents trip on it.
+
+- **export with both id and source ignores id, and names the file "diagram".**
+  - **What:** `export({ id, source })` exports `source` and drops `id` without saying so, so `download: true` saves `diagram.svg` rather than the diagram's title.
+  - **Where:** `packages/webmcp/src/index.ts`, `export`.
+  - **Why low:** the input is contradictory, and the exported content is what was passed.
+  - **Fix:** return `invalid_input` when both are passed, or use the diagram's title for the file name.
+
+- **The find field is 13px on phones, so iOS zooms in on focus.**
+  - **What:** the search panel's text field inherits `--eos-fs-caption` (13px). iOS Safari zooms the page when a field under 16px is focused.
+  - **Where:** `apps/web/src/components/code-editor.tsx`, the `.cm-panel.cm-search` theme (about lines 53-59).
+  - **Why low:** the zoom can be pinched back, and the search still works.
+  - **Fix:** 16px for `.cm-textfield` on coarse pointers.
+
+- **The search panel in the Settings CSS box leaves one line at 375px.**
+  - **What:** opening find in a theme CSS box on a 375px-wide phone leaves one line of CSS visible under the panel.
+  - **Where:** `apps/web/src/components/settings-dialog.tsx`, `CssBox` (about line 211).
+  - **Why low:** the box is read and edited without find on phones, and closing the panel restores it.
+  - **Fix:** the same compact panel as "The search panel covers the source pane on a 320×568 phone", or a taller box while the panel is open.
+
+- **Importing or exporting a large backup has no busy state.**
+  - **What:** Export backup and Import backup show nothing while they work, and stay enabled, so a second click on a large library starts a second export or import.
+  - **Where:** `apps/web/src/components/settings-dialog.tsx` (about lines 338 and 356-369).
+  - **Why low:** only large libraries take long enough to click twice.
+  - **Fix:** disable both buttons and show a spinner while either runs.
+
+- **Copy embed escapes only `"` in the alt text.**
+  - **What:** the embed's `alt` escapes `"` but not `&`, so a title like `A &amp; B` reads back as `A & B` where the snippet is pasted.
+  - **Where:** `apps/web/src/components/export-menu.tsx`, `copyEmbed` (about line 43).
+  - **Why low:** found by reading the code, not run. Inside a double-quoted attribute only `"` and `&` matter, and the result is still a valid tag.
+  - **Fix:** escape `&` first, then `"`.
+
+- **Burst typing then closing the tab can lose the last characters.**
+  - **What:** typing at Playwright speed and closing the tab at once can lose the last few characters. The save queue's IndexedDB write is still pending when the page dies.
+  - **Where:** `packages/core/src/docs.ts`, the save queue (about lines 117-151); `packages/core/src/store.ts`, `saveNow` (about line 843).
+  - **Why low:** seen at Playwright speed only. A person's typing leaves time for the write to land.
+  - **Fix:** none needed unless it shows up at human speed. A page can't hold its close for an IndexedDB write.
+
+- **The colour mode ToggleGroup's arrow keys move focus without selecting.**
+  - **What:** in Settings › Appearance, the arrow keys move focus between Light, Dark and System, and Space or Enter selects. A radio group would select on arrow.
+  - **Where:** `apps/web/src/components/settings-dialog.tsx` (about line 139), Radix ToggleGroup.
+  - **Why low:** it's Radix ToggleGroup's own, documented behaviour, and every option is reachable and selectable.
+  - **Fix:** if wanted, a RadioGroup styled as segments.
+
+- **The sidebar resize separator has no visible focus.**
+  - **What:** Tab reaches the separator between the sidebar and the content, and the arrow keys resize, but nothing shows it has focus.
+  - **Where:** `apps/web/src/components/resize-handle.tsx`.
+  - **Why low:** the sidebar's width can also be changed with the pointer, and the Hide sidebar button works from the keyboard.
+  - **Fix:** a `focus-visible` ring or highlight on the separator.
+
+- **library.spec's "Clear selection by keyboard doesn't scroll the library" is flaky in WebKit under load.**
+  - **What:** it fails now and then in WebKit under the full suite, and passes on its own.
+  - **Where:** `e2e/library.spec.ts` (about line 478).
+  - **Why low:** test timing only, in one engine.
+  - **Fix:** find what it races, or `test.slow()` it in WebKit.
 
 ## Refactors to consider (from the round 11 cleanup review)
 
