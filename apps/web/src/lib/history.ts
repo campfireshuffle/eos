@@ -1,4 +1,4 @@
-import { createContext, useSyncExternalStore } from "react"
+import { useSyncExternalStore } from "react"
 
 // The tab's history, from the Navigation API. Its entries are only this origin's, so back/forward stay inside Eos.
 
@@ -16,33 +16,27 @@ export const useHistoryNav = () => ({
 /** A key unique to the current entry: new for each new navigation, kept when the entry is replaced or gone back to. */
 export const entryKey = () => navigation.currentEntry!.key
 
-/** The `info` an agent's navigation carries, so it leaves the person's focus where it is. */
-export const BY_AGENT = "agent"
+/** The state of an entry an agent pushed. */
+export const BY_AGENT = { byAgent: true }
 
 /**
- * Each history entry is a page. Arriving at another entry (a push, or back/forward) swaps the page, and focus goes to
- * the new page's title (see PageHeader). A replace keeps the entry, so the page is the same one, changed in place (a
- * search typed, a sort, a tag renamed under it), and focus stays. An agent's navigation never moves the person's focus.
- * This is the entry whose title is still to take focus, once it's on screen.
+ * Each history entry is a page, and arriving at one owes it focus: on its heading (PageTitle), once that's on screen
+ * and can take it. Arriving is a push or back/forward by the person; an agent's push owes nothing, as an agent never
+ * moves the person's focus. A replace keeps the entry (a search typed, a sort, a tag renamed under it, an import
+ * opening its diagram), so it leaves what's owed as it was. What's owed is settled by the next focus anywhere: the
+ * heading taking it, the person moving it, or a dialog handing it back to its opener.
  */
-let focusPending: string | null = null
-let byAgent = false
-navigation.addEventListener("navigate", (e) => (byAgent = e.info === BY_AGENT))
+let owed: string | null = null
 navigation.addEventListener("currententrychange", (e) => {
-  focusPending = e.from.key !== entryKey() && !byAgent ? entryKey() : null
+  if (e.from.key === entryKey()) return
+  const byAgent = e.navigationType !== "traverse" && (navigation.currentEntry!.getState() as typeof BY_AGENT | undefined)?.byAgent
+  owed = byAgent ? null : entryKey()
 })
+document.addEventListener("focusin", () => (owed = null))
 
-/**
- * The entry of the page on screen, from the snapshot its route was rendered from. A component reading the entry for
- * itself would subscribe on its own, and a browser can render it, between listeners, ahead of the route.
- */
-export const PageEntry = createContext("")
-
-/** Whether the page at `entry` is to take focus now: true once per arrival. */
-export function takeFocus(entry: string) {
-  if (focusPending !== entry) return false
-  focusPending = null
-  return true
+/** Focuses `heading` if focus is owed to the page at `entry`. Inert under a modal, it can't, and stays owed. */
+export function arrive(entry: string, heading: HTMLElement) {
+  if (owed === entry) heading.focus({ preventScroll: true })
 }
 
 /**

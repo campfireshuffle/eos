@@ -1,8 +1,8 @@
-import { createContext, useContext, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react"
+import { createContext, isValidElement, useContext, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react"
 
 import { cn } from "@workspace/ui/lib/utils"
 
-import { PageEntry, takeFocus } from "@/lib/history"
+import { arrive } from "@/lib/history"
 
 import { HistoryNav } from "./history-nav"
 import { SidebarToggle } from "./sidebar-toggle"
@@ -14,25 +14,19 @@ export function Page({ className, ...props }: ComponentProps<"main">) {
 
 /**
  * A page's header, above its panels: back/forward and the title on the left, the page's own
- * actions on the right. The title is a PageTitle, or a field of its own (the editor's)
- * padded like one so the two line up; it takes the header's type either way.
+ * actions on the right. The title is the page's heading (PageTitle, the default), a field of its
+ * own (the editor's) padded like one so the two line up, or null for none yet; it takes the
+ * header's type either way.
  */
-export function PageHeader({ title, children }: { title?: ReactNode; children?: ReactNode }) {
-  // A page arrived at by navigation names itself by focusing its title (see takeFocus). Not scrolled to: a page
-  // gone back to restores its own scroll.
-  const titleRef = useRef<HTMLDivElement>(null)
-  const entry = useContext(PageEntry)
-  useEffect(() => {
-    const target = titleRef.current?.firstElementChild
-    if (target instanceof HTMLElement && takeFocus(entry)) target.focus({ preventScroll: true })
-  }, [entry])
+export function PageHeader({ title = <PageTitle />, children }: { title?: ReactNode; children?: ReactNode }) {
+  // A title of the page's own (the editor's field) shows its name, so its heading is for screen readers only.
+  const own = isValidElement(title) && title.type !== PageTitle
   return (
     <header className="flex h-10 shrink-0 items-center gap-1.5 pr-2 pl-1.5">
       <SidebarToggle />
       <HistoryNav />
-      <div ref={titleRef} className="contents text-label">
-        {title}
-      </div>
+      {own && <PageTitle visuallyHidden />}
+      <div className="contents text-label">{title}</div>
       <div className="flex-1" />
       {children}
     </header>
@@ -60,23 +54,41 @@ export function PanelHeader({ title, children }: { title?: ReactNode; children?:
   )
 }
 
+/** The page on screen: its history entry, from the snapshot its route was rendered from, and its name (pageName). */
+export const CurrentPage = createContext<{ entry: string; name?: string }>({ entry: "" })
+
 /**
- * The page's heading. It keeps its width, so the header's actions give way instead. Focusable from script only, for
- * the page to take focus on arriving; it's no control, so it draws no ring.
+ * The page's heading, named from its route; nothing until the name is known. It keeps its width, so the header's
+ * actions give way instead. A page arrived at takes focus here (see arrive), as it shows, and as a dialog that was open
+ * over it closes. Not scrolled to: a page gone back to restores its own scroll. It's no control, so it draws no ring.
+ * `children` is ignored: the name comes from the route.
  */
-export function PageTitle({ children }: { children: ReactNode }) {
+export function PageTitle({ visuallyHidden }: { visuallyHidden?: boolean; children?: ReactNode }) {
+  const { entry, name } = useContext(CurrentPage)
+  const ref = useRef<HTMLHeadingElement>(null)
+  useEffect(() => {
+    const take = () => ref.current && arrive(entry, ref.current)
+    take()
+    // `close` doesn't bubble; it's caught on the way down.
+    document.addEventListener("close", take, true)
+    return () => document.removeEventListener("close", take, true)
+  }, [entry, name])
+  if (!name) return null
   return (
-    <h1 tabIndex={-1} className="shrink-0 px-1.5 py-1 whitespace-nowrap outline-none">
-      {children}
+    <h1 ref={ref} tabIndex={-1} className={cn("shrink-0 px-1.5 py-1 whitespace-nowrap outline-none", visuallyHidden && "sr-only")}>
+      {name}
     </h1>
   )
 }
 
-/** A page that has nothing to show yet: its header and an empty panel, where the real ones will be. */
+/**
+ * A page that has nothing to show yet: its header and an empty panel, where the real ones will be. It has no heading
+ * until it has something to say (the diagram doesn't exist), so a page still loading doesn't take focus meant for it.
+ */
 export function EmptyPage({ children }: { children?: ReactNode }) {
   return (
     <Page>
-      <PageHeader />
+      <PageHeader title={children ? undefined : null} />
       <Panel className="flex flex-1 flex-col items-center justify-center gap-3 text-body text-muted-foreground">{children}</Panel>
     </Page>
   )

@@ -53,10 +53,21 @@ export function homeHref(
 
 export const diagramHref = (id: string) => `#/d/${id}`
 
+/**
+ * The page's name, for its heading and the tab's title: the diagram's title (`diagramTitle`, null when there's no such
+ * diagram), or the library's view. Undefined while it isn't known yet, and on a page with nothing to show (an import).
+ */
+export function pageName(route: Route, diagramTitle: string | null | undefined): string | undefined {
+  if (route.name === "diagram") return diagramTitle === null ? "Not found" : diagramTitle
+  if (route.name === "import") return undefined
+  if (route.deleted) return "Deleted"
+  return [route.starred && "Starred", route.tag && `#${route.tag}`].filter(Boolean).join(" ") || "Diagrams"
+}
+
 export function navigate(href: string, { replace = false, agent = false } = {}) {
   // Replacing keeps the history entry with a new URL, so its key, and the scroll position saved under it, carry over.
   // "auto" pushes, except to the URL already shown, which keeps its entry, as a link to it does.
-  navigation.navigate(href, { history: replace ? "replace" : "auto", info: agent ? BY_AGENT : undefined })
+  navigation.navigate(href, { history: replace ? "replace" : "auto", state: agent ? BY_AGENT : undefined })
 }
 
 /**
