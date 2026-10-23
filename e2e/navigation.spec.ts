@@ -1,6 +1,6 @@
 import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test"
 
-import { focusNext, tool, withAgentTools } from "./helpers"
+import { focusNext, seedLibrary, tool, withAgentTools } from "./helpers"
 
 /** Waits out the frame after a search's results show, in which a phone puts the position back again while typing. */
 const searchScrolled = (page: Page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
@@ -298,18 +298,21 @@ for (const [size, viewport] of Object.entries({ desktop: { width: 1280, height: 
       Array.from({ length: n }, (_, i) => ({ title: `${name} ${String(i).padStart(3, "0")}`, starred }))
 
     /** By default 150 cards, sorted so "Login flow" comes last. Desktop scrolls the library's pane; phones scroll the page. */
-    async function longLibrary(context: BrowserContext, diagrams = [...numbered("Diagram", 149), { title: "Login flow", starred: false }]) {
+    async function longLibrary(
+      context: BrowserContext,
+      diagrams: { title: string; starred?: boolean; tags?: string[] }[] = [
+        ...numbered("Diagram", 149),
+        { title: "Login flow", starred: false },
+      ],
+      { hash = "/?sort=title", copies = 1 } = {}
+    ) {
       await withAgentTools(context)
       const page = await context.newPage()
       await page.goto("/#/")
-      await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
-      await page.evaluate(async (diagrams) => {
-        const tools = (window as unknown as { __tools: Record<string, { execute(x: unknown): Promise<unknown> }> }).__tools
-        for (const d of diagrams) await tools.create_diagram.execute({ ...d, open: false })
-      }, diagrams)
-      await page.evaluate(() => (location.hash = "/?sort=title"))
+      await seedLibrary(page, diagrams)
+      await page.evaluate((hash) => (location.hash = hash), hash)
       const cards = page.locator("[data-card-id]")
-      await expect(cards).toHaveCount(diagrams.length + 1) // and the welcome diagram
+      await expect(cards).toHaveCount(diagrams.length * copies + 1) // and the welcome diagram
       const top = () => page.evaluate((phone) => (phone ? scrollY : document.querySelector(".eos-library-scroller")!.scrollTop), phone)
       const scrollTo = async (y: number) => {
         const scrolled = () =>
