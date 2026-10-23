@@ -310,7 +310,7 @@ interface HistoryEntry {
 Changes by the same actor less than 2 min apart fold into one entry. Agent edits fold together whichever tool made them, and never with the person's. The menu shows the latest 100 entries, and `get_diagram({ history: true })` up to 200.
 
 - **Preview a version.** Picking an entry shows that version's source and diagram, read with `doc.forkAt(frontiers)` (`getSource` in `store.ts`). The open doc is never checked out, so it keeps taking in edits from other tabs while the person looks. An agent can open the same preview with `set_view({ previewVersion })`.
-- **Restore this version.** `restoreVersion` calls `doc.revertTo(frontiers)` and commits it as an edit by whoever restored it. That adds new ops that bring the old state back, so history is kept and other tabs converge. An agent restores with `update_diagram({ revert: version })`.
+- **Restore this version.** `restoreVersion` calls `doc.revertTo(frontiers)` and commits it as an edit by whoever restored it. That adds new ops that bring the old state back, so history is kept and other tabs converge. An agent restores with `update_diagram({ revert: version })`. A restore also empties the other actor's undo stack in that tab, since it reverses edits still on that stack: an agent's `revert` to a version clears the person's ⌘Z there, and the person's Restore clears the agent's `revert: "undo"`.
 - A version id the diagram doesn't have fails with `UnknownVersionError`, and nothing changes.
 - Only a whole version can be restored. There is no "revert one change": Loro's `revertTo` goes back to a version, and inverting one past change under later edits has no Loro API.
 

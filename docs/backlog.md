@@ -255,7 +255,8 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **What:** with `baseVersion`, the person replaces the last line by deleting from the line break before it (`"\nL341"` becomes `"\nL342 …"`), and the agent adds a line above that last line. The agent's `"L343\n"` is anchored after the deleted line break, so the result is `"…L342 …L343\n"`. The r17 `r17merge` fuzzer at GAP=1 gives 14 of 452 such cases. They're identical before and after round 18.
   - **Where:** `packages/core/src/store.ts`, `mergeFromBase` (a whole-line insertion after a deleted line break).
   - **Why low:** the person's edit removed the agent's anchor, so the two edits overlap. The editor rarely selects across the previous line break to retype a line, and nothing is lost.
-  - **Fix:** when the line break before a whole-line insertion (one ending with `"\n"`) was deleted since the base, insert at the start of the line now at that spot.
+  - **Also:** a restore since the base removes the agent's anchors the same way. An agent edit whose `baseVersion` is from before a restore is merged onto the restored text, and its insertions can land as a stray fragment that still parses, so nothing flags it.
+  - **Fix:** when the line break before a whole-line insertion (one ending with `"\n"`) was deleted since the base, insert at the start of the line now at that spot. For the restore case, if wanted, refuse a `baseVersion` older than the latest restore (as `expectedVersion` refuses a stale edit), so the agent re-reads.
 
 - **Rewriting a very large source with an unrelated text freezes the tab.**
   - **What:** an agent replacing a 69 KB, 2,500-line diagram with a 2,200-line unrelated one spends about 46 s in Loro's character diff, on the main thread. That was the same before round 18. Round 18's line diff made deleting or reordering lines fast (3.3 s → 17 ms, 8.7 s → 62 ms). A rewrite that changes every line keeps one big changed hunk.
@@ -314,7 +315,8 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **What:** `useScrollRestoration` stores `eos-scroll:<entry key>` in sessionStorage. The Navigation API's `updateCurrentEntry({ state })` and `currentEntry.getState()` would hold the position with the entry itself.
   - **Where:** `apps/web/src/lib/scroll-restore.ts`.
   - **Why low:** keying storage by `currentEntry.key` is what the key is for, and it works in all three engines.
-  - **Fix:** if wanted, store `{ scrollTop }` with `navigation.updateCurrentEntry`, throttled to scrollend, and read `getState()` on restore.
+  - **Also:** every `scroll` event writes to sessionStorage, and `eos-scroll:*` keys are never pruned, so a long session keeps one per entry it visited.
+  - **Fix:** if wanted, store `{ scrollTop }` with `navigation.updateCurrentEntry`, throttled to scrollend, and read `getState()` on restore. That fixes both: entry state goes with the entry, and the write happens once per scroll.
 
 - **The tag menu and the icon picker have no accessible name.**
   - **What:** the `role="menu"` and the picker's popover are unnamed, because their trigger is an `aria-hidden` span. A screen reader announces "menu" with no tag.
@@ -760,12 +762,6 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** the features work today; only regressions would go unnoticed.
   - **Fix:** add one test each: star from the editor and see the card in Starred; star two cards from the bar; open a `#/import` link and see the diagram.
 
-- **Chromium resets the library's scroll position when the window goes from phone width to desktop.**
-  - **What:** crossing 768px from phone to desktop puts the library back at the top in Chromium; Firefox and WebKit keep the position. The page now stays mounted across the breakpoint, so this is the scroller swapping (document on phones, the panel on desktop), not a remount.
-  - **Where:** `apps/web/src/App.tsx` (Shell), `apps/web/src/lib/scroll-restore.ts`.
-  - **Why low:** it needs a resize across the breakpoint while scrolled; nothing is lost.
-  - **Fix:** carry the scroll offset across the scroller change (restore it to the new scroller after the layout switch).
-
 - **On phones, an open drawer comes back after a rotation to landscape and back.**
   - **What:** `mobileNavOpen` is reset only when the URL changes. If the drawer is open and the phone is rotated past 768px (the desktop layout), then rotated back, the drawer reopens. It also happens after resizing a window phone → desktop → phone. Found by A8's library, webmcp and settings audits.
   - **Where:** `apps/web/src/App.tsx` (Shell, `mobileNavOpen`).
@@ -803,8 +799,8 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Fix:** scale down to fit the canvas limit, or say why it failed and suggest SVG.
 
 - **Small landscape phones show only 1–2 lines of source.**
-  - **What:** the stacked editor split (42/58) leaves the Source pane about 30px tall on an iPhone SE in landscape (667×320).
-  - **Where:** `apps/web/src/components/editor.tsx` (the phone split via `setLayout`).
+  - **What:** the stacked editor split (42/58) leaves the Source pane about 30px tall on an iPhone SE in landscape (667×320). At 667×375 with an error showing, it shows no lines at all: the pane's header and error footer fill its 120px `minSize`.
+  - **Where:** `apps/web/src/components/editor.tsx` (the phone split via `setLayout`, and the source panel's `minSize` at about line 201).
   - **Why low:** the splitter can be dragged; portrait works; it predates A7.
   - **Fix:** below about 400px tall, give the source a minimum size (e.g. 50%), or put the panes side by side in landscape.
 
@@ -969,6 +965,94 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `apps/web/src/app.css`, and the shared component classes.
   - **Why low:** forced colors (Windows High Contrast) is rare among this app's users, and Tab order still works.
   - **Fix:** add a `@media (forced-colors: active)` rule giving `:focus-visible` an `outline: 2px solid CanvasText`, and a border or `Highlight` colour for selected states.
+
+- **A merge import of another browser's backup can overwrite this library's tag emoji and stars.**
+  - **What:** a merge import brings in the backup's whole workspace doc, so on keys both libraries have, the backup's tag emoji and stars can win over this library's. The comment above the import says the library keeps those, which overstates it.
+  - **Where:** `packages/core/src/store.ts`, `importBackup` (the `this.workspace.doc.import(workspace)` at about line 588, and the comment at about lines 591–594). Related to "A merge import replaces the saved theme, nulls included".
+  - **Why low:** it needs a backup from another browser with tags or stars on the same keys; the emoji and stars can be set again, and the diagrams merge as they should.
+  - **Fix:** import into the throwaway `backup` doc only, and copy over just the keys the backup brings (stars for new diagrams, emoji for new tags). Correct the comment.
+
+- **The search index is rebuilt on every library event, a star included.**
+  - **What:** `emit("library")` drops the cached rows and searcher, so the next search rebuilds the whole MiniSearch index. At 2000 diagrams of 1000 lines that takes about 6 s.
+  - **Where:** `packages/core/src/store.ts`, `emit` (about line 169).
+  - **Why low:** only very large libraries notice it; the build is sliced, so the page still responds.
+  - **Fix:** keep the index and update it per diagram with MiniSearch's `replace` and `discard`.
+
+- **Opened diagrams are never closed.**
+  - **What:** `getDiagram` and `getSource` open the diagram's doc and its two undo managers and keep them open. Card thumbnails call `getSource` for rows without a full source, so scrolling the library opens every diagram, and the whole library stays in memory (about 80 KB per 300-line diagram).
+  - **Where:** `packages/core/src/store.ts` (`getDiagram` at about line 251, `getSource` at about line 331, both via `openDiagram`); `apps/web/src/components/diagram-card.tsx` (about line 143).
+  - **Why low:** memory only; a reload frees it, and typical libraries are small.
+  - **Fix:** read a closed diagram without opening it (load, read, free), or close docs nothing is editing after a while.
+
+- **Picking or restoring a version isn't announced to screen readers.**
+  - **What:** the version banner appears without a status role, so a screen reader says nothing when a past version opens or is restored.
+  - **Where:** `apps/web/src/components/editor.tsx`, `Banner`.
+  - **Why low:** the focused control still names what it does, and the banner can be read.
+  - **Fix:** a `role="status"` region that says "Viewing the version from …" and "Restored the version from …".
+
+- **The selection bar's Tags menu loads the whole library even while it's closed.**
+  - **What:** `TagMenu` calls `useLibrary({})` whenever the selection bar shows, so every library change re-queries all rows for it.
+  - **Where:** `apps/web/src/components/tag-menu.tsx` (about line 22).
+  - **Why low:** the query is cached and fast at normal sizes; it only adds work while cards are selected.
+  - **Fix:** read the rows only while the menu is open (move the hook into the popover's content).
+
+- **On a phone, set_view with sidebarOpen leaves the drawer closed.**
+  - **What:** `set_view({ page, sidebarOpen: true })` opens the drawer, then the page change updates the hash, and the drawer-close effect runs again and closes it.
+  - **Where:** `apps/web/src/App.tsx` (Shell, the `mobileNavOpen` effect on `hash`, about line 86).
+  - **Why low:** agent-only; a second `set_view({ sidebarOpen: true })` works.
+  - **Fix:** open the drawer after the navigation settles, or close it only for a hash change the drawer didn't ask for.
+
+- **get_view and set_view name the library differently.**
+  - **What:** `get_view` returns `route.name: "home"` where `set_view` takes `page: "library"`, and the library view still carries a `zoom` left from the last diagram.
+  - **Where:** `apps/web/src/lib/webmcp.ts`, `getView` (about lines 14–19).
+  - **Why low:** agent-only, and both work once read.
+  - **Fix:** return `page: "library" | "diagram"` as `set_view` takes it, and leave out `zoom` on the library.
+
+- **set_view silently drops combinations it can't apply.**
+  - **What:** `filters` with `page: "diagram"` are ignored, and `page: "library"` with `previewVersion` shows the library, then opens the diagram, pushing two history entries. Neither says so.
+  - **Where:** `packages/webmcp/src/index.ts`, `set_view` (about lines 441–449).
+  - **Why low:** agent-only; nothing is damaged, and the result shows the view that applied.
+  - **Fix:** reject these combinations with `invalid_input`.
+
+- **A click link in a library thumbnail is an invisible Tab stop.**
+  - **What:** a diagram with a click link renders it as a link in the card's thumbnail. The thumbnail is `aria-hidden` and `pointer-events: none`, but the link still takes keyboard focus.
+  - **Where:** `apps/web/src/components/diagram-card.tsx` (the thumbnail div, about lines 157–162).
+  - **Why low:** only diagrams with click links; one more Tab moves on.
+  - **Fix:** make the thumbnail `inert`.
+
+- **Unsaved theme CSS is lost on switching Settings section or closing.**
+  - **What:** the Theming section unmounts when another section is chosen or Settings closes, so CSS typed and not saved is dropped without a warning.
+  - **Where:** `apps/web/src/components/settings-dialog.tsx` (the section switch at about lines 81–84, and `Theming`'s state at about line 106).
+  - **Why low:** it's only typed CSS, and Save is next to it.
+  - **Fix:** keep the typed CSS in UI state across sections, or ask before discarding it.
+
+- **A click link in the preview opens in the Eos tab.**
+  - **What:** Pele renders a diagram's click link with no `target`, so following it leaves Eos.
+  - **Where:** Pele's SVG output, shown by `apps/web/src/components/preview.tsx`.
+  - **Why low:** Back returns to the diagram, and nothing is lost.
+  - **Fix:** in Pele, add `target="_blank" rel="noopener"` to click links, or set it on the rendered links in the preview.
+
+- **The backup file is always named eos-backup.json.**
+  - **Where:** `apps/web/src/components/settings-dialog.tsx` (Export backup, about line 338).
+  - **Why low:** the browser renames a duplicate; only telling backups apart is harder.
+  - **Fix:** add the date, e.g. `eos-backup-2026-10-22.json`.
+
+- **The library compares filters with JSON.stringify.**
+  - **What:** whether the shown rows are the URL's view is checked by comparing `JSON.stringify` of two filter objects, which depends on their key order.
+  - **Where:** `apps/web/src/components/home.tsx` (about line 46).
+  - **Why low:** both objects are built in the same order today, so it holds.
+  - **Fix:** compare the fields one by one, or with a shared `sameFilter` helper.
+
+- **useUrlSearch doesn't clear its timer on unmount.**
+  - **Where:** `apps/web/src/components/home.tsx`, `useUrlSearch`.
+  - **Why low:** harmless: after the library leaves, `write` refuses (the route isn't home), so the timer stops.
+  - **Fix:** clear `timer.current` in an unmount effect.
+
+- **Library scroll e2e tests wait a fixed 300 ms.**
+  - **What:** `navigation.spec.ts` checks scroll positions after `waitForTimeout(300)` (the `settledTop` helper and several tests), rather than polling until the position holds.
+  - **Where:** `e2e/navigation.spec.ts`.
+  - **Why low:** test timing only; they pass today.
+  - **Fix:** `expect.poll` the position until it's stable, or until the expected value.
 
 ## Refactors to consider (from the round 11 cleanup review)
 
