@@ -1,4 +1,5 @@
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands"
+import { search, searchKeymap } from "@codemirror/search"
 import { Annotation, EditorSelection, EditorState, StateEffect, StateField } from "@codemirror/state"
 import { Decoration, EditorView, keymap, lineNumbers, drawSelection, highlightSpecialChars, type DecorationSet } from "@codemirror/view"
 import { useEffect, useId, useRef } from "react"
@@ -46,6 +47,26 @@ const theme = EditorView.theme(
     ".cm-error-line": { backgroundColor: "color-mix(in srgb, var(--eos-red) 12%, transparent)" },
     // The marker for a stray \r: CodeMirror's own colour is for a dark editor, which `dark: true` claims in both modes.
     ".cm-specialChar": { color: "var(--eos-red)" },
+    // CodeMirror's search panel (Mod-f), in the app's tokens rather than its own greys.
+    ".cm-panels": { backgroundColor: "var(--editor-surface, var(--card))", color: "var(--eos-body)" },
+    ".cm-panels-top": { borderBottom: "1px solid var(--eos-line)" },
+    ".cm-panel.cm-search": { fontFamily: "var(--font-sans)", fontSize: "var(--eos-fs-caption)", padding: "6px 28px 4px 12px" },
+    ".cm-panel.cm-search [name=close]": { color: "var(--eos-muted)", fontSize: "16px", top: "4px", right: "8px" },
+    ".cm-panel.cm-search label": { fontSize: "inherit", color: "var(--eos-muted)" },
+    ".cm-panel.cm-search input[type=checkbox]": { accentColor: "var(--eos-primary)" },
+    ".cm-textfield, .cm-button": {
+      font: "inherit",
+      color: "var(--eos-body)",
+      border: "1px solid var(--eos-line-hover)",
+      borderRadius: "var(--radius-sm)",
+      padding: "2px 8px",
+    },
+    ".cm-textfield": { backgroundColor: "var(--eos-ink)", maxWidth: "100%" },
+    ".cm-button": { backgroundColor: "var(--eos-raised)", backgroundImage: "none" },
+    ".cm-panel.cm-search :focus-visible": { outline: "2px solid var(--ring)", outlineOffset: "1px" },
+    // Outlines, not fills, so the code keeps its contrast; the current match is also the selection.
+    ".cm-searchMatch": { backgroundColor: "transparent", outline: "1px solid var(--eos-line-active)", borderRadius: "2px" },
+    ".cm-searchMatch-selected": { backgroundColor: "transparent", outline: "1px solid var(--eos-champagne)" },
   },
   { dark: true }
 )
@@ -130,6 +151,10 @@ export function CodeEditor({
           // Escape arms CodeMirror's Escape-then-Tab exit (see the hint below). In a dialog it's handled, so the key
           // stops here and the dialog stays open with the unsaved text; elsewhere the default keymap still collapses a selection.
           // Read-only, Tab doesn't indent and there's nothing unsaved, so Escape is left to the dialog.
+          // CodeMirror's search, which finds text on lines that aren't drawn, as the browser's find in page can't.
+          // Read-only, its panel offers no replace. Its Escape comes first: it closes the panel and returns focus to the text.
+          search({ top: true }),
+          keymap.of(searchKeymap),
           readOnly ? [] : keymap.of([{ key: "Escape", run: (v) => (v.setTabFocusMode(2000), !!v.dom.closest("dialog")) }]),
           onUndo
             ? // Undo goes through Loro: the person's own stack, which skips agent edits.
