@@ -705,10 +705,10 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Fix:** none planned; revisit if title edits get a merge.
 
 - **Agent input edge cases are accepted silently.**
-  - **What:** `baseVersion: ""` is treated as no base; `get_diagram` can return version `""`; `set_theme({ appCss: "hello" })` is stored, and the app falls back to defaults while `overridden.app` is true.
+  - **What:** `baseVersion: ""` is treated as no base; `get_diagram({ version: "" })` echoes version `""` (`version ?? current` keeps the empty string); `set_theme({ appCss: "hello" })` is stored, and the app falls back to defaults while `overridden.app` is true.
   - **Where:** `packages/webmcp/src/index.ts`.
   - **Why low:** agent-only; nothing is damaged and a valid call fixes it.
-  - **Fix:** reject an empty `baseVersion`; validate `appCss` parses to at least one declaration before saving.
+  - **Fix:** reject an empty `baseVersion`, and treat an empty `version` as none (`version || current`); validate `appCss` parses to at least one declaration before saving.
 
 - **A broken or truncated share link drops the person into the library with no message.**
   - **Where:** `apps/web/src/App.tsx` (`useShareImport`). docs/data-model.md §6 documents the behaviour.
@@ -956,12 +956,6 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** the query is cached and fast at normal sizes; it only adds work while cards are selected.
   - **Fix:** read the rows only while the menu is open (move the hook into the popover's content).
 
-- **On a phone, set_view with sidebarOpen leaves the drawer closed.**
-  - **What:** `set_view({ page, sidebarOpen: true })` opens the drawer, then the page change updates the hash, and the drawer-close effect runs again and closes it.
-  - **Where:** `apps/web/src/App.tsx` (Shell, the `mobileNavOpen` effect on `hash`, about line 86).
-  - **Why low:** agent-only; a second `set_view({ sidebarOpen: true })` works.
-  - **Fix:** open the drawer after the navigation settles, or close it only for a hash change the drawer didn't ask for.
-
 - **get_view and set_view name the library differently.**
   - **What:** `get_view` returns `route.name: "home"` where `set_view` takes `page: "library"`, and the library view still carries a `zoom` left from the last diagram.
   - **Where:** `apps/web/src/lib/webmcp.ts`, `getView` (about lines 14–19).
@@ -1193,6 +1187,84 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** test timing only, in one engine.
   - **Fix:** find what it races, or `test.slow()` it in WebKit.
 
+- **The tab title flashes "Not found · Eos" while a diagram opens.**
+  - **What:** going from the library to a diagram, `NamedPage` reads `useDiagram(id)`, and `useLive` keeps the previous id's value (`null`, for the library's `""`) until the new load lands. For that moment `pageName` says "Not found", and the tab title shows it.
+  - **Where:** `apps/web/src/App.tsx` (`NamedPage`), `apps/web/src/lib/eos.tsx` (`useLive`), `apps/web/src/lib/router.ts` (`pageName`).
+  - **Why low:** it lasts one load, and then the title is right.
+  - **Fix:** have `useLive` return `undefined` while its value was loaded for other deps (keep the deps with the value, and compare).
+
+- **Enter in the title field drops focus to the page.**
+  - **What:** Enter commits the title by blurring the field, so focus lands on BODY.
+  - **Where:** `apps/web/src/components/editor.tsx`, the title input's `onKeyDown` (Enter calls `blur()`).
+  - **Why low:** the title is saved, and one Tab gets back into the page.
+  - **Fix:** commit on Enter without blurring, or move focus on to the source.
+
+- **Arriving at a diagram focuses a heading that can't be seen.**
+  - **What:** on a diagram's page the `h1` is visually hidden, as the title field shows the name. Arriving there focuses that `h1`, so nothing on screen shows where focus is.
+  - **Where:** `apps/web/src/components/page.tsx` (`PageHeader`'s `<PageTitle visuallyHidden />`).
+  - **Why low:** a screen reader reads the heading, and the next Tab goes to the header's first control, as on any page.
+  - **Fix:** while the hidden heading has focus, show a ring on something visible, such as the header or the title field.
+
+- **After a mouse Clear, the wrong selection is announced.**
+  - **What:** the selection bar's Clear empties the selection, and `focusOffSelection` moves focus onto a card in the same step. React Aria's selection announcement races that focus move, so what's announced doesn't match the cleared selection.
+  - **Where:** `apps/web/src/lib/selection.ts` (`setSelection`, `focusOffSelection`), `apps/web/src/components/selection-bar.tsx` (Clear).
+  - **Why low:** the selection is cleared and focus lands on a card; only the announcement is wrong.
+  - **Fix:** isolate it in a bare GridList. If it reproduces there, it's possibly an upstream React Aria issue; otherwise move focus once the cleared selection has rendered.
+
+- **Some selection changes aren't announced.**
+  - **What:** a marquee selection, Escape outside the grid, and a mouse Clear in WebKit change the selection with no announcement. The bar's count is no longer a live region (the grid announces the changes it makes), so a change made outside the grid is silent.
+  - **Where:** `apps/web/src/components/marquee.tsx` (`setSelection`, and Escape's `clearSelection`), `apps/web/src/components/selection-bar.tsx` (the count, and Clear).
+  - **Why low:** the bar shows the count, and keyboard selection goes through the grid, which announces.
+  - **Fix:** announce changes made outside the grid, for example with React Aria's `announce`.
+
+- **On a touchscreen laptop, a long press toggles a card twice, so nothing ends up selected.**
+  - **What:** the grid's long press selects the card, and the card's context-menu handler toggles it again unless the pointer is coarse and the last pointer was touch. A touchscreen laptop's primary pointer is fine, so `!coarsePointer` is true and the handler toggles it back.
+  - **Where:** `apps/web/src/components/diagram-card.tsx`, the `onContextMenu` check (`!coarsePointer || lastPointer !== "touch"`).
+  - **Why low:** found by reading the code; not run. Only touchscreen laptops are affected, and a click still selects.
+  - **Fix:** test only `lastPointer !== "touch"`.
+
+- **The start-up failure message can end in "..".**
+  - **What:** when Eos can't open, it shows `Eos couldn't open your diagrams: ${message || name}. Try reloading.` An error message that ends in a full stop gives "..".
+  - **Where:** `apps/web/src/main.tsx`, the outer `catch`.
+  - **Why low:** cosmetic, on a rare failure screen.
+  - **Fix:** strip a trailing full stop from the message before adding one.
+
+- **`lastChangeAt` and `historyOf` scan every change.**
+  - **What:** both read `getAllChanges()` (and `historyOf` sorts it all) on every typing pause. At 50k changes that's about 45–56 ms per pause.
+  - **Where:** `packages/core/src/docs.ts`, `lastChangeAt` and `historyOf`.
+  - **Why low:** only diagrams with a very long history notice it.
+  - **Fix:** read the frontier's changes with `getChangeAt`: the latest timestamp is there, and `historyOf` can walk back from there until it has `limit` entries.
+
+- **`renameTag("a", "a/b")` nests again on every call.**
+  - **What:** renaming a tag into its own subtree rewrites `a` to `a/b`, and the existing `a/b` to `a/b/b`. Running it again nests once more, though docs/data-model.md says the rename is idempotent, so running it again after an interruption finishes it.
+  - **Where:** `packages/core/src/store.ts`, `renameTag`; `docs/data-model.md` ("Renaming or moving a tag").
+  - **Why low:** agent-only (`update_tag`'s `moveTo`); found by reading.
+  - **Fix:** reject a `to` under `from`, or a `to` that already exists under `from`.
+
+- **On a full disk, Settings' Save looks saved.**
+  - **What:** `updateSettings` sets its cache before the write. When the write fails the promise rejects, but `getSettings` already returns the new theme, Settings' Save (`void save(...)`) shows nothing, and a reload brings back the old theme.
+  - **Where:** `packages/core/src/store.ts`, `updateSettings`; `apps/web/src/components/settings-dialog.tsx`, `save`. Related to "On a full disk, edits look saved but are lost on reload".
+  - **Why low:** it needs the origin's storage to be full.
+  - **Fix:** write first and update the cache only once the write succeeds; show the failure in Settings.
+
+- **The same tag name can exist twice in different Unicode forms.**
+  - **What:** `normalizeTag` trims, lowercases and joins spaces, but doesn't apply Unicode NFC. "café" typed with a precomposed é and with a combining accent are two tags.
+  - **Where:** `packages/core/src/tags.ts`, `normalizeTag`.
+  - **Why low:** it needs two input methods that produce different forms of one name.
+  - **Fix:** add `.normalize("NFC")`. Tags already stored in the other form need a one-off rename.
+
+- **An agent adding a second copy of a selected diagram loses the Shift-click anchor.**
+  - **What:** grouped by subtag, the grid's own selection, which carries the Shift-click anchor, is kept only while it matches the store. When an agent gives a selected diagram another subtag, the new copy is selected but not in the grid's selection, so `useGridSelection` starts a fresh one and the anchor is gone.
+  - **Where:** `apps/web/src/lib/grid-selection.ts` (`selectedKeys`, the `symmetricDifference` check).
+  - **Why low:** found by reading. It needs an agent edit mid-selection, and the next Shift-click just starts from a new anchor.
+  - **Fix:** when the only difference is new copies of selected diagrams, add them to the grid's selection rather than starting afresh.
+
+- **get_diagram returns `version` beside `diagram`, so agents can skip `baseVersion` (owner's call).**
+  - **What:** `get_diagram` returns `{ diagram, version, … }`. An agent that reads `diagram.version` finds nothing, sends `update_diagram` a source without `baseVersion`, and that source replaces the person's newer typing.
+  - **Where:** `packages/webmcp/src/index.ts`, `get_diagram`'s result and `update_diagram`.
+  - **Why low:** agent-only; the description says where the version is, and the person's typing is still in history.
+  - **Fix:** owner's call: put `version` inside `diagram` too, or have `update_diagram` warn when a source comes without `baseVersion`.
+
 ## Refactors to consider (from the round 11 cleanup review)
 
 - **What the preview shows, as one pure function.**
@@ -1258,3 +1330,33 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **What:** the Thumbnail `sourceText` fallback and `sourceText ?? sourcePreview`, the `sourcePreview` field, the unused `Result`/`ErrorCode` types, the unused `idb` dependency in `apps/web/package.json`, and `parseIds` duplicating `readDraggedIds`.
   - **Why low:** no behaviour; it's clutter.
   - **Fix:** remove them the next time those files are touched.
+
+- **`PageTitle` ignores its children, and PageHeader tells titles apart by type.**
+  - **What:** `PageTitle` accepts `children` and drops them, as its name comes from the route. `PageHeader` adds a hidden heading when `title.type !== PageTitle`, which breaks as soon as a title wraps `PageTitle` in another component.
+  - **Where:** `apps/web/src/components/page.tsx` (`PageTitle`, `PageHeader`).
+  - **Why low:** no live bug; every caller passes a bare `PageTitle`, the editor's field, or null.
+  - **Fix:** drop `children` from `PageTitle`'s props, and have the editor say it brings its own title (a `PageHeader` prop) instead of comparing types.
+
+- **`focusOffSelection` reads the grid's focus from the DOM.**
+  - **What:** it finds the card the grid last focused as the one with `tabIndex === 0`, instead of asking GridList for its `focusedKey`.
+  - **Where:** `apps/web/src/lib/selection.ts`, `focusOffSelection`.
+  - **Why low:** correct today; it relies on React Aria's roving tabindex staying as it is.
+  - **Fix:** hand it the grid's `selectionManager.focusedKey`, and find the card by key.
+
+- **The sidebar's collapsed state is held twice.**
+  - **What:** ui-state's `sidebarCollapsed` and the shell's panel layout both say whether the sidebar is collapsed, kept in step by `setSidebarOpen` and the panel's `onResize`. The editor's source panel reads the panel's own state instead, through `usePanelCollapsed`.
+  - **Where:** `apps/web/src/lib/layout.ts` (`setSidebarOpen`, `isSidebarOpen`, `usePanelCollapsed`), `apps/web/src/lib/ui-state.ts`, `apps/web/src/App.tsx` (Shell), `apps/web/src/components/sidebar-toggle.tsx`.
+  - **Why low:** no live bug.
+  - **Fix:** read the sidebar's state from its panel with `usePanelCollapsed`, as the editor does, and drop `sidebarCollapsed`.
+
+- **The Dialog's opener map decides focus fallback.**
+  - **What:** `packages/ui`'s Dialog tracks which dialog opened which, and exports `openerClosed` so history.ts can tell when a dialog's opener was in a dialog that has since closed.
+  - **Where:** `packages/ui/src/components/dialog.tsx` (`openedFrom`, `openerClosed`), `apps/web/src/lib/history.ts` (the `close` listener).
+  - **Why low:** no live bug.
+  - **Fix:** in history.ts's dialog `close` listener, derive the fallback from where focus actually landed (BODY, or inside the closed dialog), and drop the map and the cross-package export. Catch: a dialog an agent opened while focus was on BODY would then focus the heading on close.
+
+- **The splitter's width is kept in step by hand.**
+  - **What:** `SPLITTER_PX = 8` must match ResizeHandle's 8px gutter (`w-2`/`h-2`); only a comment links them.
+  - **Where:** `apps/web/src/lib/layout.ts` (`SPLITTER_PX`), `apps/web/src/components/resize-handle.tsx`.
+  - **Why low:** they match today.
+  - **Fix:** define the width once and use it in both, for example as a CSS variable the handle reads.
