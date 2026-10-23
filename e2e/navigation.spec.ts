@@ -479,6 +479,32 @@ for (const [size, viewport] of Object.entries({ desktop: { width: 1280, height: 
       expect(await top()).toBe(0)
     })
 
+    // Two views of the same diagrams that differ only in their grouping: under two tags each, Group: Subtag shows every
+    // diagram twice, so its position is past the end of the date-grouped view's. It's put back once the grid draws the
+    // subtag view, not against the date view still on screen.
+    test("back to a view grouped otherwise returns to where it was scrolled, once its own grouping shows", async ({ context }) => {
+      const { page, cards, top, scrollTo } = await longLibrary(
+        context,
+        numbered("Diagram", 120).map((d) => ({ ...d, tags: ["a", "b"] })),
+        { hash: "/?group=subtag", copies: 2 }
+      )
+      const end = await page.evaluate((phone) => {
+        const el = phone ? document.scrollingElement! : document.querySelector(".eos-library-scroller")!
+        return el.scrollHeight - el.clientHeight
+      }, phone)
+      const y = Math.round(end - 200)
+      await scrollTo(y)
+      if (phone) await page.getByRole("button", { name: "Show sidebar" }).click()
+      await page.getByRole("link", { name: "Eos", exact: true }).click()
+      await expect(page).not.toHaveURL(/group=/)
+      await expect(cards).toHaveCount(121)
+      await page.goBack()
+      await expect(page).toHaveURL(/group=subtag/)
+      await expect(cards).toHaveCount(241)
+      await page.waitForTimeout(300)
+      expect(await top()).toBe(y)
+    })
+
     test("back and forward between a search and Starred return to where each was scrolled", async ({ context }) => {
       // Nothing starred matches the search, so neither view's rows hold the other's position.
       const { page, cards, top, scrollTo, search } = await longLibrary(context, [...numbered("Alpha", 120), ...numbered("Beta", 120, true)])

@@ -1,6 +1,6 @@
 import { Plus, Search } from "lucide-react"
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps } from "react"
-import { GridList, GridListHeader, GridListSection, type GridListRenderProps, type Key, type Selection } from "react-aria-components"
+import { useMemo, useRef } from "react"
+import { GridList, GridListHeader, GridListSection } from "react-aria-components"
 
 import { findEmoji, type LibrarySort } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
@@ -9,12 +9,13 @@ import { Input } from "@workspace/ui/components/input"
 import { NativeSelect, NativeSelectOption } from "@workspace/ui/components/native-select"
 
 import { useEos, useLibrary, useTags } from "@/lib/eos"
+import { useGridDrawn } from "@/lib/grid-drawn"
+import { useGridSelection } from "@/lib/grid-selection"
 import { groupRows } from "@/lib/grouping"
-import { entryKey } from "@/lib/history"
-import { diagramHref, homeHref, navigate, parseRoute, type LibraryGroup, type Route } from "@/lib/router"
+import { diagramHref, homeHref, navigate, type LibraryGroup, type Route } from "@/lib/router"
 import { useIsMobile } from "@/lib/layout"
 import { startTypedSearchAtTop, useScrollRestoration } from "@/lib/scroll-restore"
-import { clearSelection, getSelection, setSelection, useSelection } from "@/lib/selection"
+import { useUrlSearch } from "@/lib/url-search"
 
 import { CARD_HINT_ID, CardHint, DiagramCard } from "./diagram-card"
 import { Marquee } from "./marquee"
@@ -32,66 +33,31 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
     if (q.trim() !== query.trim()) startTypedSearchAtTop(entry)
     type(q)
   }
-  const view = { starred: route.starred, deleted: route.deleted, tags: route.tag ? [route.tag] : [], sort: route.sort }
-  const library = useLibrary({ query, ...view })
+  const filter = { query, starred: route.starred, deleted: route.deleted, tags: route.tag ? [route.tag] : [], sort: route.sort }
+  const library = useLibrary(filter)
   const rows = library?.rows
+  const empty = rows?.length === 0
   // Search results are one list, best match first: grouped, the best match could sit under a later date or tag.
   // Decided by the search the shown rows were loaded with, so the view changes with the results, not a keystroke before.
   const searched = !!library?.filter.query?.trim()
-  // Cards are keyed by the search and filter their rows were loaded with, so a new one is a new list: the card the
-  // grid last focused is gone from it, and Tab lands on its first card, the best match (by GridList's convention, on its
-  // first selected card while there is a selection).
-  const scope = JSON.stringify([library?.filter.query?.trim(), library?.filter.tags, library?.filter.starred, library?.filter.deleted])
-  const tags = useTags()
-  // Back/forward returns to where you were. Phones scroll the page; desktop scrolls this pane.
-  const mobile = useIsMobile()
-  const scroller = useRef<HTMLDivElement>(null)
-  const emoji = route.tag ? findEmoji(tags ?? [], route.tag) : null
-  const empty = rows?.length === 0
   const groups = useMemo(
     () => groupRows(rows ?? [], searched ? "none" : route.group, route.sort, route.tag),
     [rows, searched, route.group, route.sort, route.tag]
   )
-  // The grid draws its rows in a render after it's handed them, so it says once it has drawn every card of a search
-  // and filter. Rows changing within one (an edit, another tab) don't take that back.
-  const keys = useMemo(() => groups.flatMap((g) => g.rows.map((r) => copyKey(scope, g.key, r.id))), [groups, scope])
-  const [drawn, setDrawn] = useState<string>()
-  const drawnAll = empty || drawn === scope
-  // Put back once the URL's own rows show: until then, the last view's rows are still on screen, or ones loaded for
-  // typing not yet in the URL.
-  const shown = !!library && JSON.stringify(library.filter) === JSON.stringify({ query: route.q, ...view }) && drawnAll
-  useScrollRestoration(mobile ? null : scroller, entry, shown)
-  // The cards are one grid, which owns focus, the keyboard and the selection. It shows the selection store, by copy: a
-  // diagram under two groups is two copies, selected together.
-  const selection = useSelection()
-  // The grid's last selection is handed back while it holds the store's diagrams: it carries where a Shift-click range
-  // starts (the card last toggled, by click, Space, right-click or long press). One the marquee or the bar made starts
-  // afresh.
-  const [own, setOwn] = useState<Set<Key>>()
-  const selectedKeys = useMemo(() => {
-    const shown = new Set<Key>(keys.filter((k) => selection.has(idOf(k))))
-    return own && shown.symmetricDifference(own).size === 0 ? own : shown
-  }, [keys, selection, own])
-  const select = (picked: Selection) => {
-    if (picked === "all") return setSelection(keys.map(idOf))
-    const next = new Set(selection)
-    for (const k of selectedKeys) if (!picked.has(k)) next.delete(idOf(k))
-    for (const k of picked) if (!selectedKeys.has(k)) next.add(idOf(k))
-    // A diagram's copies go together; the grid's own selection object keeps its range anchor.
-    for (const k of keys) {
-      if (next.has(idOf(k))) picked.add(k)
-      else picked.delete(k)
-    }
-    setOwn(picked)
-    setSelection(next)
-  }
-  useEffect(() => clearSelection(), [route.tag, route.starred, route.deleted])
-  // Cards a search or edit hides leave the selection, so the bar only acts on what's shown.
-  useEffect(() => {
-    if (!rows) return
-    const shown = new Set(rows.map((r) => r.id))
-    setSelection([...getSelection()].filter((id) => shown.has(id)))
-  }, [rows])
+  // The cards are one grid, which owns focus, the keyboard and the selection.
+  const { byGroup, keys, selectedKeys, onSelectionChange } = useGridSelection(
+    groups,
+    JSON.stringify([route.tag, route.starred, route.deleted])
+  )
+  // Back/forward returns to where you were, once the grid shows the URL's own view in full: until then, it shows the
+  // last view's rows, or ones loaded for typing not yet in the URL. Phones scroll the page; desktop scrolls this pane.
+  const urlRows = !!library && JSON.stringify(library.filter) === JSON.stringify({ ...filter, query: route.q })
+  const mobile = useIsMobile()
+  const scroller = useRef<HTMLDivElement>(null)
+  const onDrawn = useScrollRestoration(mobile ? null : scroller, entry, urlRows ? JSON.stringify(route) : null, empty)
+  const render = useGridDrawn(keys, onDrawn)
+  const tags = useTags()
+  const emoji = route.tag ? findEmoji(tags ?? [], route.tag) : null
 
   const create = async () => {
     const id = await eos.createDiagram({ tags: route.tag ? [route.tag] : [] })
@@ -204,13 +170,11 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
               // A press on a selected card selects on release, so dragging the selection doesn't first unselect it.
               shouldSelectOnPressUp
               selectedKeys={selectedKeys}
-              onSelectionChange={select}
+              onSelectionChange={onSelectionChange}
               className={groups[0]?.label ? "flex flex-col gap-7" : CARD_GRID}
-              render={(props, { state }) => (
-                <DrawnGrid {...props} collection={state.collection} scope={scope} keys={keys} onDrawn={setDrawn} />
-              )}
+              render={render}
             >
-              {groups.map((g) =>
+              {groups.map((g, i) =>
                 g.label ? (
                   <GridListSection key={g.key} id={g.key} className={CARD_GRID}>
                     <GridListHeader className="col-span-full -mb-1">
@@ -219,12 +183,12 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
                         <span className="text-caption tabular-nums">{g.rows.length}</span>
                       </h2>
                     </GridListHeader>
-                    {g.rows.map((row) => (
-                      <DiagramCard key={copyKey(scope, g.key, row.id)} id={copyKey(scope, g.key, row.id)} row={row} />
+                    {g.rows.map((row, j) => (
+                      <DiagramCard key={byGroup[i][j]} id={byGroup[i][j]} row={row} />
                     ))}
                   </GridListSection>
                 ) : (
-                  g.rows.map((row) => <DiagramCard key={copyKey(scope, g.key, row.id)} id={copyKey(scope, g.key, row.id)} row={row} />)
+                  g.rows.map((row, j) => <DiagramCard key={byGroup[i][j]} id={byGroup[i][j]} row={row} />)
                 )
               )}
             </GridList>
@@ -238,62 +202,3 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
 }
 
 const CARD_GRID = "grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4"
-
-type Drawn = GridListRenderProps["state"]["collection"]
-
-/**
- * The grid's element. Once a commit has drawn a row for each of `keys`, hands their `scope` to `onDrawn`; once it's
- * gone (an empty view shows none), takes that back, so a grid drawn afresh is waited for again.
- */
-function DrawnGrid({
-  collection,
-  scope,
-  keys,
-  onDrawn,
-  ...props
-}: ComponentProps<"div"> & { collection: Drawn; scope: string; keys: Key[]; onDrawn: (scope: string | undefined) => void }) {
-  useLayoutEffect(() => {
-    if (keys.every((k) => collection.getItem(k))) onDrawn(scope)
-  }, [collection, scope, keys, onDrawn])
-  useLayoutEffect(() => () => onDrawn(undefined), [onDrawn])
-  return <div {...props} />
-}
-
-/** A card's key in the grid: one per copy, as a diagram shows under each of its groups. */
-const copyKey = (scope: string, group: string, id: string) => `${scope}${group}/${id}`
-const idOf = (key: Key) => String(key).slice(String(key).lastIndexOf("/") + 1)
-
-/**
- * The search box: the URL's search, with what the person has typed on top until it's written. Typing replaces the
- * history entry rather than adding one, at most every 150ms, as Safari throws once a page rewrites its URL more than
- * 100 times in 10 seconds.
- */
-function useUrlSearch(entry: string, q: string) {
-  // Typing, with the entry and the URL's search it was typed over. It shows only while both still hold, so a search set
-  // elsewhere (back/forward, an agent, a link) shows at once, and isn't written over.
-  const [draft, setDraft] = useState<{ entry: string; base: string; q: string }>()
-  const latest = useRef(draft)
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  const write = () => {
-    const d = latest.current
-    const now = parseRoute(location.hash)
-    if (!d || d.q === d.base || d.entry !== entryKey() || now.name !== "home" || now.q !== d.base) return false
-    navigate(homeHref({ ...now, q: d.q }), { replace: true })
-    return true
-  }
-  // Writes now, then once more at the end of each 150ms that brought more typing. Once there's nothing left to write,
-  // the typing is either in the URL or was typed over a URL since left, so it's dropped.
-  const tick = () => {
-    timer.current = write() ? setTimeout(tick, 150) : undefined
-    if (!timer.current) setDraft((latest.current = undefined))
-  }
-  return {
-    query: draft && draft.entry === entry && draft.base === q ? draft.q : q,
-    type: (text: string) => {
-      setDraft((latest.current = { entry, base: q, q: text }))
-      if (!timer.current) tick()
-    },
-    // Leaving the box, e.g. to open a result, writes typing still due, so Back returns to it.
-    flush: () => void write(),
-  }
-}
