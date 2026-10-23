@@ -14,7 +14,7 @@ async function library(context: BrowserContext, hash: string) {
   for (let i = 0; i < 24; i++) await tool(page, "create_diagram", { title: `Diagram ${i}`, open: false })
   await page.evaluate((h) => (location.hash = h), hash)
   const scroller = page.locator(".eos-library-scroller")
-  const cards = scroller.locator("a")
+  const cards = scroller.locator("[data-card-id]")
   const scrollTo = async (y: number) => {
     await expect.poll(() => scroller.evaluate((el, top) => (el.scrollTo({ top }), el.scrollTop), y)).toBe(y)
     // The scroll event for getting there fires with the next frame; wait it out, so it's saved and not mistaken for a later scroll.

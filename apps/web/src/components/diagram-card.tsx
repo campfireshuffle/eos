@@ -1,101 +1,72 @@
 import { Check, Star } from "lucide-react"
 import { memo, useEffect, useMemo, useRef, useState } from "react"
-import { mergeProps, useLongPress } from "react-aria"
+import { GridListItem } from "react-aria-components"
 
 import { renderSvg, type DiagramIndexRow } from "@eos/core"
 
 import { useEos } from "@/lib/eos"
 import { relativeTime } from "@/lib/grouping"
 import { diagramHref } from "@/lib/router"
-import { getSelection, startCardDrag, toggleSelected, useSelected } from "@/lib/selection"
+import { startCardDrag, toggleSelected } from "@/lib/selection"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { Pill } from "./pill"
 
-/** Hold this long on a card (touch) to start selecting, like Photos and Files. */
-const LONG_PRESS_MS = 450
 const coarsePointer = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches
-const CARD_HINT_ID = "eos-card-hint"
+export const CARD_HINT_ID = "eos-card-hint"
 
-/** How to select, which every card is described by. Render it once wherever cards are. */
+/** How to select, which describes the cards' grid. Render it once wherever cards are. */
 export function CardHint() {
   return (
     <span id={CARD_HINT_ID} hidden>
-      Press Space, right-click or long-press to select. While selecting, clicking a diagram adds or removes it. The left and right arrow
-      keys move between diagrams.
+      Press Space, right-click or long-press to select. While selecting, clicking a diagram adds or removes it, and Shift-clicking adds the
+      ones between. The arrow keys move between diagrams.
     </span>
   )
 }
 
-/** `tabbable`: the cards' one Tab stop, so Tab leaves the cards in one press however many there are. */
-export const DiagramCard = memo(function DiagramCard({ row, tabbable }: { row: DiagramIndexRow; tabbable: boolean }) {
-  const selected = useSelected(row.id)
-  const longPressed = useRef(false)
-  const lastPointer = useRef<string>("mouse")
-  // Touch only: on desktop the card drags natively and a right-click selects.
-  const { longPressProps } = useLongPress({
-    threshold: LONG_PRESS_MS,
-    onLongPress: (e) => {
-      if (e.pointerType !== "touch") return
-      longPressed.current = true
-      toggleSelected(row.id)
-      navigator.vibrate?.(10)
-    },
-  })
-
+/**
+ * One copy of a diagram in the library's grid; `id` is the copy's key, as a diagram under two groups shows twice.
+ * The grid owns focus, the keyboard, clicks and long presses: a click or Enter opens the diagram (⌘-click in a new tab)
+ * until something is selected, then adds or removes it. Right-click is the desktop's way in to selecting.
+ */
+export const DiagramCard = memo(function DiagramCard({ id, row }: { id: string; row: DiagramIndexRow }) {
   return (
-    <a
+    <GridListItem
+      id={id}
       href={diagramHref(row.id)}
+      textValue={row.title}
       data-card-id={row.id}
-      tabIndex={tabbable ? 0 : -1}
-      aria-describedby={CARD_HINT_ID}
-      // On touch, a long press selects instead of starting a native drag.
-      draggable={!coarsePointer}
-      // Merged so React Aria's handlers don't replace ours. Left out on desktop, where a disabled press cancels every click.
-      {...mergeProps(coarsePointer ? longPressProps : {}, {
-        onDragStart: (e: React.DragEvent) => startCardDrag(e, row.id),
-        // Runs before React Aria's handler (capture), so a long press always starts fresh.
-        onPointerDownCapture: (e: React.PointerEvent) => {
-          lastPointer.current = e.pointerType
-          longPressed.current = false
-        },
-        // A right-click is the desktop's long press. Where the long press itself selects (a touch press on a phone
-        // or tablet), only the menu is stopped; a touchscreen laptop has only this.
-        onContextMenu: (e: React.MouseEvent) => {
-          e.preventDefault()
-          if (lastPointer.current !== "touch" || !coarsePointer) toggleSelected(row.id)
-        },
-        onKeyDown: (e: React.KeyboardEvent) => {
-          // Space selects from the keyboard; Enter opens, or toggles while selecting, as a click does.
-          if (e.key !== " " || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return
-          e.preventDefault()
-          toggleSelected(row.id)
-        },
-        onClick: (e: React.MouseEvent) => {
-          if (longPressed.current) {
-            // The long press already selected the card; don't also open it.
-            e.preventDefault()
-            longPressed.current = false
-            return
-          }
-          // ⌘/Ctrl/⇧-click is the browser's (a new tab or window), selecting or not. Otherwise, while
-          // selecting, a click or tap adds or removes the card instead of opening it.
-          if (e.metaKey || e.ctrlKey || e.shiftKey || getSelection().size === 0) return
-          e.preventDefault()
-          toggleSelected(row.id)
-        },
-      })}
-      className={cn(
-        "group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors select-none [-webkit-touch-callout:none] hover:border-[var(--eos-line-active)]",
-        selected && "border-[var(--eos-champagne)] ring-1 ring-[var(--eos-champagne)] hover:border-[var(--eos-champagne)]"
-      )}
+      // On a touchscreen the grid's long press selects, so only the menu is stopped.
+      onContextMenu={(e) => {
+        e.preventDefault()
+        if (!coarsePointer || (e.nativeEvent as PointerEvent).pointerType !== "touch") toggleSelected(row.id)
+      }}
+      className={({ isSelected }) =>
+        cn(
+          "group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors select-none [-webkit-touch-callout:none] hover:border-[var(--eos-line-active)]",
+          isSelected && "border-[var(--eos-champagne)] ring-1 ring-[var(--eos-champagne)] hover:border-[var(--eos-champagne)]"
+        )
+      }
     >
-      {selected && (
-        <span className="absolute top-2.5 right-2.5 z-10 flex size-6 items-center justify-center rounded-full bg-[var(--eos-champagne)] text-[var(--eos-ink)] shadow-sm">
-          <Check className="size-3.5" strokeWidth={3} />
-          <span className="sr-only">Selected</span>
-        </span>
+      {({ isSelected }) => (
+        <>
+          {isSelected && (
+            <span className="absolute top-2.5 right-2.5 z-10 flex size-6 items-center justify-center rounded-full bg-[var(--eos-champagne)] text-[var(--eos-ink)] shadow-sm">
+              <Check className="size-3.5" strokeWidth={3} />
+            </span>
+          )}
+          <CardBody row={row} />
+        </>
       )}
+    </GridListItem>
+  )
+})
+
+/** What a card shows. It drags natively, as the grid's rows don't, except on touch, where a long press selects. */
+const CardBody = memo(function CardBody({ row }: { row: DiagramIndexRow }) {
+  return (
+    <div draggable={!coarsePointer} onDragStart={(e) => startCardDrag(e, row.id)} className="flex flex-1 flex-col">
       <Thumbnail id={row.id} source={row.sourceText} updatedAt={row.updatedAt} />
       <div className="flex flex-col gap-1.5 border-t border-border px-3.5 pt-3 pb-3.5">
         <div className="flex items-center gap-2">
@@ -113,7 +84,7 @@ export const DiagramCard = memo(function DiagramCard({ row, tabbable }: { row: D
           <span className="shrink-0">{relativeTime(row.updatedAt)}</span>
         </div>
       </div>
-    </a>
+    </div>
   )
 })
 

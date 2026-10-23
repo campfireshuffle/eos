@@ -60,3 +60,11 @@ export async function tabTo(page: Page, target: Locator, max = 5) {
   for (let i = 0; i < max && !(await target.evaluate((el) => el === document.activeElement)); i++) await focusNext(page)
   await expect(target).toBeFocused()
 }
+
+/** Presses ⌘A as React Aria reads it: ⌘ on a Mac, Ctrl elsewhere, by the platform the page reports (an emulated one in tests). */
+export async function selectAll(page: Page) {
+  const mac = await page.evaluate(() =>
+    /^Mac/i.test((navigator as { userAgentData?: { platform: string } }).userAgentData?.platform ?? navigator.platform)
+  )
+  await page.keyboard.press(mac ? "Meta+a" : "Control+a")
+}

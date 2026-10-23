@@ -1,20 +1,17 @@
 import { useSyncExternalStore } from "react"
 
-/** Library card selection (right-click or long press, then clicks; marquee; ⌘A) and the drag payload. */
+/**
+ * The library's selected diagrams, by id, and the drag payload. The library's grid shows and changes it (Space,
+ * clicks while selecting, Shift-click, ⌘A, Esc, long press), as do right-click, the marquee and the selection bar.
+ */
 export const DIAGRAM_MIME = "application/x-eos-diagrams"
 
 let selected = new Set<string>()
-let lastToggled: string | undefined
 const listeners = new Set<() => void>()
 const subscribe = (cb: () => void) => (listeners.add(cb), () => listeners.delete(cb))
 
 export function useSelection(): Set<string> {
   return useSyncExternalStore(subscribe, () => selected)
-}
-
-/** Whether `id` is selected; re-renders only when that flips, not on every selection change. */
-export function useSelected(id: string): boolean {
-  return useSyncExternalStore(subscribe, () => selected.has(id))
 }
 
 /**
@@ -33,7 +30,6 @@ export function setSelection(ids: Iterable<string>, { removing = true } = {}) {
 }
 
 export function toggleSelected(id: string) {
-  lastToggled = id
   const next = new Set(selected)
   if (next.has(id)) next.delete(id)
   else next.add(id)
@@ -49,9 +45,9 @@ export function getSelection() {
 }
 
 /**
- * `removing`: the next unselected card, else the one before. Otherwise the card last toggled if it's still
- * selected, else the first selected one. Focus never scrolls the library: a target out of view gives way to a
- * card in view (one that stays), else to the library itself.
+ * `removing`: the next unselected card, else the one before. Otherwise the card the grid last focused if it's
+ * selected, else the first selected one. Focus never scrolls the library: a target out of view gives way to a card in
+ * view (one that stays), else to the library itself. Focusing a card makes it the grid's.
  */
 function focusOffSelection(removing: boolean) {
   const focus = document.activeElement
@@ -72,7 +68,8 @@ function focusOffSelection(removing: boolean) {
     const last = cards.findLastIndex(isSelected)
     target = cards.slice(last + 1).find(stays) ?? cards.slice(0, Math.max(last, 0)).findLast(stays)
   } else {
-    target = cards.find((c) => c.dataset.cardId === lastToggled && isSelected(c)) ?? cards.find(isSelected)
+    // The grid's Tab stop is the card it last focused.
+    target = cards.find((c) => c.tabIndex === 0 && isSelected(c)) ?? cards.find(isSelected)
   }
   if (target && !inView(target)) target = cards.find((c) => stays(c) && inView(c))
   ;(target ?? scroller)?.focus({ preventScroll: true })

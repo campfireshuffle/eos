@@ -174,7 +174,7 @@ test("the Tags menu closes once its change takes the selected cards out of view"
   // The next selection brings the bar back without the menu: that waits for Tags to be pressed.
   await page.evaluate(() => (location.hash = "/"))
   await cards.first().click({ button: "right" })
-  await expect(page.getByText("1 selected")).toBeVisible()
+  await expect(page.getByText("1 selected", { exact: true })).toBeVisible()
   await expect(page.getByPlaceholder("Find or create a tag")).toBeHidden()
   expect(await page.evaluate(() => document.activeElement?.matches("input[placeholder='Find or create a tag']"))).toBe(false)
 })
@@ -197,7 +197,7 @@ for (const by of ["keyboard", "mouse"]) {
       await page.getByRole("checkbox", { name: "x", exact: true }).click()
     }
     await expect(cards).toHaveCount(1)
-    await expect(page.getByText("0 selected")).toBeAttached()
+    await expect(page.getByText("0 selected", { exact: true })).toBeAttached()
     await expect(page.getByPlaceholder("Find or create a tag")).toBeHidden()
     // Not dropped to the page with the menu, nor left on the bar's inert Tags button.
     await expect(cards.first()).toBeFocused()

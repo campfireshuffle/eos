@@ -1,6 +1,6 @@
 import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test"
 
-import { focusNext, focusPrevious, newDiagram, openEditor, tabTo, tool, withAgentTools } from "./helpers"
+import { focusNext, focusPrevious, newDiagram, openEditor, selectAll, tabTo, tool, withAgentTools } from "./helpers"
 
 test("Esc cancels a confirm without dropping the selection", async ({ context }) => {
   await withAgentTools(context)
@@ -10,15 +10,15 @@ test("Esc cancels a confirm without dropping the selection", async ({ context })
   await tool(page, "create_diagram", { title: "Keep me", open: false })
 
   await page.locator("[data-card-id]").first().click({ button: "right" })
-  await expect(page.getByText("1 selected")).toBeVisible()
+  await expect(page.getByText("1 selected", { exact: true })).toBeVisible()
   await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Delete" }).click()
   await expect(page.getByRole("alertdialog")).toBeVisible()
   await page.keyboard.press("Escape")
   await expect(page.getByRole("alertdialog")).toBeHidden()
-  await expect(page.getByText("1 selected")).toBeVisible()
+  await expect(page.getByText("1 selected", { exact: true })).toBeVisible()
 
   await page.keyboard.press("Escape")
-  await expect(page.getByText("1 selected")).toBeHidden()
+  await expect(page.getByText("1 selected", { exact: true })).toBeHidden()
 })
 
 test("an agent's confirm doesn't replace one the person has open", async ({ context }) => {
@@ -93,18 +93,18 @@ test.describe("selecting", () => {
   test("a right-click starts selecting, and then clicks add and remove cards instead of opening them", async ({ context }) => {
     const page = await library(context)
     await card(page, "Apple pie").click({ button: "right" })
-    await expect(page.getByText("1 selected")).toBeVisible()
+    await expect(page.getByText("1 selected", { exact: true })).toBeVisible()
     await expect(page).toHaveURL(/#\/$/)
 
     await card(page, "Pear crumble").click()
-    await expect(page.getByText("2 selected")).toBeVisible()
+    await expect(page.getByText("2 selected", { exact: true })).toBeVisible()
     // A right-click while selecting toggles too, as a long press does.
     await card(page, "Apple crumble").click({ button: "right" })
-    await expect(page.getByText("3 selected")).toBeVisible()
+    await expect(page.getByText("3 selected", { exact: true })).toBeVisible()
     await card(page, "Apple crumble").click()
     // ⌥-click isn't the browser's (WebKit would open the card in place), so it toggles like a plain click.
     await card(page, "Pear crumble").click({ modifiers: ["Alt"] })
-    await expect(page.getByText("1 selected")).toBeVisible()
+    await expect(page.getByText("1 selected", { exact: true })).toBeVisible()
     await expect(page).toHaveURL(/#\/$/)
 
     // Unselecting the last card leaves selecting, so the next click opens.
@@ -114,32 +114,48 @@ test.describe("selecting", () => {
     await expect(page).toHaveURL(/#\/d\//)
   })
 
-  test("⌘-click opens a new tab, selecting or not, and leaves the selection alone", async ({ context }) => {
+  test("⌘-click opens a new tab and leaves the selection alone", async ({ context, browserName }) => {
+    test.fail(
+      browserName === "webkit",
+      "React Aria opens a link row's ⌘-click in the same tab in WebKit: https://github.com/campfireshuffle/eos/issues/27"
+    )
     const page = await library(context)
-    const opened = context.waitForEvent("page")
+    const opened = context.waitForEvent("page", { timeout: 5000 })
     await card(page, "Apple pie").click({ modifiers: ["ControlOrMeta"] })
     await opened
     await expect(selectionCount(page)).toHaveText("0 selected")
-
-    await card(page, "Apple pie").click({ button: "right" })
-    const again = context.waitForEvent("page")
-    await card(page, "Pear crumble").click({ modifiers: ["ControlOrMeta"] })
-    await again
-    await expect(page.getByText("1 selected")).toBeVisible()
     await expect(page).toHaveURL(/#\/$/)
   })
 
-  test("⌘A selects every card shown, after the tag filter and search", async ({ context }) => {
+  test("while selecting, ⌘-click adds or removes a card, and Shift-click adds the ones between", async ({ context }) => {
+    const page = await library(context)
+    await page.getByLabel("Sort").selectOption("title")
+    await expect(page.locator("[data-card-id]").first()).toContainText("Apple crumble")
+    await card(page, "Apple crumble").click({ button: "right" })
+    await card(page, "Apple pie").click({ modifiers: ["ControlOrMeta"] })
+    await expect(selectionCount(page)).toHaveText("2 selected")
+    await card(page, "Apple pie").click({ modifiers: ["ControlOrMeta"] })
+    await expect(selectionCount(page)).toHaveText("1 selected")
+    // From the card last selected to the one clicked.
+    await card(page, "Pear crumble").click({ modifiers: ["Shift"] })
+    await expect(selectionCount(page)).toHaveText("3 selected")
+    expect(context.pages()).toHaveLength(1)
+    await expect(page).toHaveURL(/#\/\?sort=title$/)
+  })
+
+  test("⌘A on a card selects every card shown, after the tag filter and search", async ({ context }) => {
     const page = await library(context)
     const all = await page.locator("[data-card-id]").count()
-    await page.keyboard.press("ControlOrMeta+a")
-    await expect(page.getByText(`${all} selected`)).toBeVisible()
+    await page.locator("[data-card-id]").first().focus()
+    await selectAll(page)
+    await expect(page.getByText(`${all} selected`, { exact: true })).toBeVisible()
     await page.keyboard.press("Escape")
 
     await page.evaluate(() => (location.hash = "/?tag=apple"))
     await expect(page.locator("[data-card-id]")).toHaveCount(2)
-    await page.keyboard.press("ControlOrMeta+a")
-    await expect(page.getByText("2 selected")).toBeVisible()
+    await page.locator("[data-card-id]").first().focus()
+    await selectAll(page)
+    await expect(page.getByText("2 selected", { exact: true })).toBeVisible()
     await page.keyboard.press("Escape")
 
     await page.evaluate(() => (location.hash = "/?q=crumble"))
@@ -147,17 +163,19 @@ test.describe("selecting", () => {
     await expect(card(page, "Apple pie")).toBeHidden()
     await expect(card(page, "Pear crumble")).toBeVisible()
     await expect(page.locator("[data-card-id]")).toHaveCount(2)
-    await page.keyboard.press("ControlOrMeta+a")
-    await expect(page.getByText("2 selected")).toBeVisible()
-    await expect(card(page, "Apple crumble").getByText("Selected", { exact: true })).toBeAttached()
-    await expect(card(page, "Pear crumble").getByText("Selected", { exact: true })).toBeAttached()
+    await page.locator("[data-card-id]").first().focus()
+    await selectAll(page)
+    await expect(page.getByText("2 selected", { exact: true })).toBeVisible()
+    await expect(card(page, "Apple crumble")).toHaveAttribute("aria-selected", "true")
+    await expect(card(page, "Pear crumble")).toHaveAttribute("aria-selected", "true")
   })
 
   test("a search drops the cards it hides from the selection", async ({ context }) => {
     const page = await library(context)
     const all = await page.locator("[data-card-id]").count()
-    await page.keyboard.press("ControlOrMeta+a")
-    await expect(page.getByText(`${all} selected`)).toBeVisible()
+    await page.locator("[data-card-id]").first().focus()
+    await selectAll(page)
+    await expect(page.getByText(`${all} selected`, { exact: true })).toBeVisible()
     await page.getByRole("textbox", { name: "Search diagrams" }).first().fill("pear")
     await expect(page.locator("[data-card-id]")).toHaveCount(1)
     await expect(selectionCount(page)).toHaveText("1 selected")
@@ -174,7 +192,7 @@ test.describe("selecting", () => {
     await page.evaluate(() => (location.hash = "/?tag=apple"))
     await expect(page.locator("[data-card-id]")).toHaveCount(2)
     await card(page, "Apple pie").click({ button: "right" })
-    await expect(page.getByText("1 selected")).toBeVisible()
+    await expect(page.getByText("1 selected", { exact: true })).toBeVisible()
     await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Tags" }).click()
     await page.getByRole("checkbox", { name: "apple" }).click()
     await expect(page.locator("[data-card-id]")).toHaveCount(1)
@@ -195,7 +213,7 @@ test.describe("selecting", () => {
   async function selectAndPress(page: Page, target: Locator, action: string) {
     await target.focus()
     await page.keyboard.press(" ")
-    await expect(page.getByText("1 selected")).toBeVisible()
+    await expect(page.getByText("1 selected", { exact: true })).toBeVisible()
     await tabTo(page, bar(page).getByRole("button", { name: action, exact: true }))
     await page.keyboard.press("Enter")
   }
@@ -282,14 +300,14 @@ test.describe("selecting", () => {
       for (let i = 0; i < 300; i++) await create.execute({ title: `Card ${i}`, open: false })
     })
     const cards = page.locator("[data-card-id]")
-    await expect(page.getByRole("link", { name: /^Card 299 / })).toBeAttached()
+    await expect(page.getByRole("row", { name: "Card 299", exact: true })).toBeAttached()
     const total = await cards.count()
     const star = bar(page).getByRole("button", { name: "Star" })
     for (const n of [0, total >> 1, total - 1]) {
       const target = page.locator(`[data-card-id="${await cards.nth(n).getAttribute("data-card-id")}"]`)
       await target.focus()
       await page.keyboard.press(" ")
-      await expect(page.getByText("1 selected")).toBeVisible()
+      await expect(page.getByText("1 selected", { exact: true })).toBeVisible()
       await focusNext(page)
       await expect(star).toBeFocused()
       await focusPrevious(page)
@@ -299,13 +317,13 @@ test.describe("selecting", () => {
     }
   })
 
-  test("the left and right arrow keys move between cards in reading order, and the card last focused is the Tab stop", async ({
+  test("the arrow keys move between cards, left and right in reading order, up and down by column, and the card last focused is the Tab stop", async ({
     context,
   }) => {
     const page = await library(context)
-    for (let i = 0; i < 6; i++) await tool(page, "create_diagram", { title: `More ${i}`, open: false })
+    for (let i = 0; i < 12; i++) await tool(page, "create_diagram", { title: `More ${i}`, open: false })
     const cards = page.locator("[data-card-id]")
-    await expect(page.getByRole("link", { name: /^More 5 / })).toBeVisible()
+    await expect(page.getByRole("row", { name: "More 11", exact: true })).toBeVisible()
     const tops = await cards.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().top))
     const perRow = tops.filter((t) => t === tops[0]).length
     expect(perRow).toBeLessThan(tops.length)
@@ -317,8 +335,10 @@ test.describe("selecting", () => {
     await expect(await nth(perRow)).toBeFocused()
     await page.keyboard.press("ArrowLeft")
     await expect(await nth(perRow - 1)).toBeFocused()
-    // Up and down are the page's: they scroll, and leave focus on the card.
+    // Down and up move to the card below and back, in the same column.
     await page.keyboard.press("ArrowDown")
+    await expect(await nth(2 * perRow - 1)).toBeFocused()
+    await page.keyboard.press("ArrowUp")
     await expect(await nth(perRow - 1)).toBeFocused()
     await page.keyboard.press("ArrowRight")
     await focusPrevious(page)
@@ -347,12 +367,12 @@ test.describe("selecting on touch", () => {
     await one.dispatchEvent("pointerdown", { ...at, buttons: 1 })
     await page.waitForTimeout(600)
     await one.dispatchEvent("pointerup", at)
-    await one.dispatchEvent("click", at)
-    await expect(page.getByText("1 selected")).toBeVisible()
+    await one.dispatchEvent("click", { ...at, detail: 1 })
+    await expect(page.getByText("1 selected", { exact: true })).toBeVisible()
     await expect(page).toHaveURL(/#\/$/)
 
     await two.tap()
-    await expect(page.getByText("2 selected")).toBeVisible()
+    await expect(page.getByText("2 selected", { exact: true })).toBeVisible()
     await one.tap()
     await two.tap()
     await expect(selectionCount(page)).toHaveText("0 selected")
@@ -385,15 +405,12 @@ test.describe("marquee", () => {
 
   const count = async (page: Page) => Number((await page.getByText(/^\d+ selected$/).textContent())?.split(" ")[0])
   const selectedIds = (page: Page) =>
-    page
-      .locator("[data-card-id]")
-      .filter({ has: page.getByText("Selected", { exact: true }) })
-      .evaluateAll((els) => els.map((el) => el.getAttribute("data-card-id")))
+    page.locator("[data-card-id][aria-selected=true]").evaluateAll((els) => els.map((el) => el.getAttribute("data-card-id")))
 
   test("selects the cards it covers, including ones scrolled into it mid-drag", async ({ context }) => {
     const { page, cards } = await library(context)
     await dragFrom(page, (await cards.nth(0).boundingBox())!, (await cards.nth(1).boundingBox())!)
-    await expect(page.getByText("2 selected")).toBeVisible()
+    await expect(page.getByText("2 selected", { exact: true })).toBeVisible()
 
     // Scrolling while the button is held stretches the box down through more rows.
     await page.locator(".eos-library-scroller").evaluate((el) => (el.scrollTop += 600))
@@ -408,7 +425,7 @@ test.describe("marquee", () => {
     const first = (await cards.nth(0).boundingBox())!
     await dragFrom(page, first, (await cards.nth(1).boundingBox())!)
     await page.mouse.up()
-    await expect(page.getByText("2 selected")).toBeVisible()
+    await expect(page.getByText("2 selected", { exact: true })).toBeVisible()
 
     // The first card of the next row, on its own.
     const boxes = await cards.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().toJSON() as DOMRect))
@@ -417,7 +434,7 @@ test.describe("marquee", () => {
     await dragFrom(page, below, below)
     await page.mouse.up()
     await page.keyboard.up("Shift")
-    await expect(page.getByText("3 selected")).toBeVisible()
+    await expect(page.getByText("3 selected", { exact: true })).toBeVisible()
   })
 
   test("follows the cards when the library changes mid-drag", async ({ context }) => {
@@ -464,7 +481,7 @@ test.describe("marquee", () => {
     const second = page.locator(`[data-card-id="${await cards.nth(1).getAttribute("data-card-id")}"]`)
     await dragFrom(page, (await cards.nth(1).boundingBox())!, (await cards.nth(2).boundingBox())!)
     await page.mouse.up()
-    await expect(page.getByText("2 selected")).toBeVisible()
+    await expect(page.getByText("2 selected", { exact: true })).toBeVisible()
     await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Clear selection" }).focus()
     await page.keyboard.press("Enter")
     await expect(selectionCount(page)).toHaveText("0 selected")
@@ -486,7 +503,7 @@ test.describe("focus after a selection-bar action", () => {
         await expect(cards.filter({ hasText: "Card 59" })).toBeVisible()
 
         await cards.first().click({ button: "right" })
-        await expect(page.getByText("1 selected")).toBeVisible()
+        await expect(page.getByText("1 selected", { exact: true })).toBeVisible()
         const scroller = page.locator(".eos-library-scroller")
         const scrollTop = () => scroller.evaluate((el) => el.scrollTop)
         // Far down, but short of the end, which a Delete pulls up by the row it empties.
@@ -651,7 +668,7 @@ for (const viewport of [
     await expect(cards.filter({ hasText: "Diagram number 12" })).toBeVisible()
 
     await cards.first().click({ button: "right" })
-    await expect(page.getByText("1 selected")).toBeVisible()
+    await expect(page.getByText("1 selected", { exact: true })).toBeVisible()
     const bar = page.getByRole("toolbar", { name: "Selection" })
     // Measure once the bar has slid in.
     await bar.evaluate((el) => Promise.all(el.parentElement!.getAnimations().map((a) => a.finished)))
@@ -792,3 +809,119 @@ for (const how of ["reload", "close"] as const)
       const found = async () => JSON.stringify(await tool(later, "get_library", { query: "Zebra42" })).includes(id)
       await expect.poll(found).toBe(true)
     })
+
+test.describe("the cards' Tab stop", () => {
+  /** A library of `n` diagrams titled `Card i`, made in one go, open at `hash`. `both` of them are tagged a and b, the rest a. */
+  async function library(context: BrowserContext, n: number, hash: string, both: number[] = []) {
+    await withAgentTools(context)
+    const page = await context.newPage()
+    await page.goto("/#/")
+    await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+    await page.evaluate(
+      async ([n, both]) => {
+        const create = (window as unknown as { __tools: Record<string, { execute(x: unknown): Promise<unknown> }> }).__tools.create_diagram
+        for (let i = 0; i < n; i++) await create.execute({ title: `Card ${i}`, tags: both.includes(i) ? ["a", "b"] : ["a"], open: false })
+      },
+      [n, both] as const
+    )
+    await page.evaluate((h) => (location.hash = h), hash)
+    await expect(byTitle(page, `Card ${n - 1}`).first()).toBeAttached()
+    return page
+  }
+  /** The cards, every copy, of the diagram titled exactly `title`. */
+  const byTitle = (page: Page, title: string) =>
+    page.locator("[data-card-id]").filter({ has: page.locator(".text-label").getByText(title, { exact: true }) })
+  const bar = (page: Page) => page.getByRole("toolbar", { name: "Selection" })
+  const leftCards = (page: Page) => page.evaluate(() => !document.activeElement?.closest("[data-card-id]"))
+
+  test("after a new search, Tab lands on its best match, not the card focused before it", async ({ context }) => {
+    const page = await library(context, 3, "/?sort=title")
+    for (const title of ["Pear", "Pear tart"]) await tool(page, "create_diagram", { title, open: false })
+    const tart = page.locator("[data-card-id]", { hasText: "Pear tart" })
+    await tart.focus()
+    const search = page.getByRole("textbox", { name: "Search diagrams" }).first()
+    await search.fill("pear")
+    await expect(page.locator("[data-card-id]")).toHaveCount(2)
+    const best = page.locator("[data-card-id]").first()
+    await expect(best.locator(".text-label")).toHaveText("Pear")
+    await page.getByLabel("Sort").focus()
+    await focusNext(page)
+    await expect(best).toBeFocused()
+    const id = await best.getAttribute("data-card-id")
+    await page.keyboard.press("Enter")
+    await expect(page).toHaveURL(new RegExp(`#/d/${id}`))
+  })
+
+  // Shift+Tab leaves in one press too, but React Aria focuses the grid on the way out, which can scroll the library.
+  test("a diagram under two groups is two copies: one press leaves the cards from either, Tab without scrolling, and they select together", async ({
+    context,
+  }) => {
+    const page = await library(context, 30, "/?group=subtag&sort=title", [0])
+    const copies = byTitle(page, "Card 0")
+    await expect(copies).toHaveCount(2)
+    const scroller = page.locator(".eos-library-scroller")
+    await scroller.evaluate((el) => (el.scrollTop = el.scrollHeight))
+    const second = copies.nth(1)
+    await second.evaluate((el) => el.focus({ preventScroll: true }))
+    expect(await scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+
+    await focusPrevious(page)
+    expect(await leftCards(page)).toBe(true)
+    await focusNext(page)
+    await expect(second).toBeFocused()
+    const top = await scroller.evaluate((el) => el.scrollTop)
+    await page.keyboard.press("Space")
+    await expect(copies.nth(0)).toHaveAttribute("aria-selected", "true")
+    await expect(second).toHaveAttribute("aria-selected", "true")
+    await expect(page.getByText("1 selected", { exact: true })).toBeVisible()
+    await focusNext(page)
+    await expect(bar(page).getByRole("button", { name: "Star" })).toBeFocused()
+    expect(await scroller.evaluate((el) => el.scrollTop)).toBe(top)
+  })
+
+  test("in a library of 300 grouped diagrams, the selection bar is one Tab from any card or copy, and Shift+Tab comes back to it", async ({
+    context,
+  }) => {
+    test.setTimeout(120_000)
+    const page = await library(context, 300, "/?group=subtag", [10, 150, 290])
+    const star = bar(page).getByRole("button", { name: "Star" })
+    for (const n of [0, 10, 150, 290, 299]) {
+      const copy = byTitle(page, `Card ${n}`).last()
+      await copy.focus()
+      await page.keyboard.press(" ")
+      await expect(page.getByText("1 selected", { exact: true })).toBeVisible()
+      await focusNext(page)
+      await expect(star).toBeFocused()
+      await focusPrevious(page)
+      await expect(copy).toBeFocused()
+      await page.keyboard.press("Escape")
+      await expect(page.getByText(/^\d+ selected$/)).toHaveText("0 selected")
+    }
+  })
+
+  test("a card deleted in another tab hands focus, and the Tab stop, to its neighbour", async ({ context }) => {
+    const page = await library(context, 6, "/?sort=title")
+    const card = (n: number) => byTitle(page, `Card ${n}`)
+    const remove = async (n: number) => {
+      const other = await context.newPage()
+      await other.goto("/#/?sort=title")
+      const target = byTitle(other, `Card ${n}`)
+      await target.click({ button: "right" })
+      await bar(other).getByRole("button", { name: "Delete", exact: true }).click()
+      await other.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click()
+      await expect(card(n)).toHaveCount(0)
+      await other.close()
+    }
+
+    // Focused when it goes: focus moves to the next card.
+    await card(2).focus()
+    await remove(2)
+    await expect(card(3)).toBeFocused()
+
+    // Focused before it goes: Tab comes back to the next card, not the first.
+    await page.getByLabel("Sort").focus()
+    await remove(3)
+    await focusNext(page)
+    await expect(card(4)).toBeFocused()
+  })
+})

@@ -1,5 +1,6 @@
 import { Plus, Search } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
+import { GridList, GridListHeader, GridListSection, type Key, type Selection } from "react-aria-components"
 
 import { findEmoji, type LibrarySort } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
@@ -13,9 +14,9 @@ import { entryKey } from "@/lib/history"
 import { diagramHref, homeHref, navigate, parseRoute, type LibraryGroup, type Route } from "@/lib/router"
 import { useIsMobile } from "@/lib/layout"
 import { startTypedSearchAtTop, useScrollRestoration } from "@/lib/scroll-restore"
-import { clearSelection, getSelection, setSelection } from "@/lib/selection"
+import { clearSelection, getSelection, setSelection, useSelection } from "@/lib/selection"
 
-import { CardHint, DiagramCard } from "./diagram-card"
+import { CARD_HINT_ID, CardHint, DiagramCard } from "./diagram-card"
 import { Marquee } from "./marquee"
 import { SelectionBar } from "./selection-bar"
 import { Pill } from "./pill"
@@ -37,6 +38,9 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
   // Search results are one list, best match first: grouped, the best match could sit under a later date or tag.
   // Decided by the search the shown rows were loaded with, so the view changes with the results, not a keystroke before.
   const searched = !!library?.filter.query?.trim()
+  // Cards are keyed by the search and filter their rows were loaded with, so a new one is a new list: the card the
+  // grid last focused is gone from it, and Tab lands on its first card, the best match.
+  const scope = JSON.stringify([library?.filter.query?.trim(), library?.filter.tags, library?.filter.starred, library?.filter.deleted])
   const tags = useTags()
   // Back/forward returns to where you were. Phones scroll the page; desktop scrolls this pane.
   const mobile = useIsMobile()
@@ -51,12 +55,24 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
     () => groupRows(rows ?? [], searched ? "none" : route.group, route.sort, route.tag),
     [rows, searched, route.group, route.sort, route.tag]
   )
-  // The cards are one Tab stop, so Tab reaches the selection bar after them in one press however many there are; the
-  // left and right arrows move between them. The stop is the card last focused while it's shown, else the first, and where a card
-  // shows under several groups, its first.
-  const [focused, setFocused] = useState<string>()
-  const stop = groups.flatMap((g) => g.rows).find((r) => r.id === focused)?.id ?? groups[0]?.rows[0]?.id
-  const stopGroup = groups.find((g) => g.rows.some((r) => r.id === stop))?.key
+  // The cards are one grid, which owns focus, the keyboard and the selection. It shows the selection store, by copy: a
+  // diagram under two groups is two copies, selected together.
+  const selection = useSelection()
+  // The grid's own last selection carries where a Shift-click range starts, so it's handed back while it still
+  // matches the store; a selection made elsewhere (right-click, the marquee, the bar) starts afresh.
+  const [own, setOwn] = useState<Set<Key>>()
+  const selectedKeys = useMemo(() => {
+    const keys = new Set<Key>(groups.flatMap((g) => g.rows.filter((r) => selection.has(r.id)).map((r) => copyKey(scope, g.key, r.id))))
+    return own && own.size === keys.size && keys.isSubsetOf(own) ? own : keys
+  }, [groups, selection, own, scope])
+  const select = (keys: Selection) => {
+    if (keys === "all") return setSelection(groups.flatMap((g) => g.rows.map((r) => r.id)))
+    setOwn(keys)
+    const next = new Set(selection)
+    for (const k of selectedKeys) if (!keys.has(k)) next.delete(idOf(k))
+    for (const k of keys) if (!selectedKeys.has(k)) next.add(idOf(k))
+    setSelection(next)
+  }
   useEffect(() => clearSelection(), [route.tag, route.starred, route.deleted])
   // Cards a search or edit hides leave the selection, so the bar only acts on what's shown.
   useEffect(() => {
@@ -167,27 +183,36 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
               </Button>
             )
           ) : (
-            <div
-              className="flex flex-col gap-7"
-              onFocus={(e) => e.target.dataset.cardId && setFocused(e.target.dataset.cardId)}
-              onKeyDown={moveBetweenCards}
+            <GridList
+              aria-label={route.deleted ? "Deleted diagrams" : "Diagrams"}
+              aria-describedby={CARD_HINT_ID}
+              layout="grid"
+              selectionMode="multiple"
+              selectionBehavior="toggle"
+              // A press on a selected card selects on release, so dragging the selection doesn't first unselect it.
+              shouldSelectOnPressUp
+              selectedKeys={selectedKeys}
+              onSelectionChange={select}
+              className={groups[0]?.label ? "flex flex-col gap-7" : CARD_GRID}
             >
-              {groups.map((g) => (
-                <section key={g.key} className="flex flex-col gap-3">
-                  {g.label && (
-                    <h2 className="flex items-baseline gap-2 text-caption font-medium text-muted-foreground">
-                      {g.label}
-                      <span className="text-caption tabular-nums">{g.rows.length}</span>
-                    </h2>
-                  )}
-                  <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
+              {groups.map((g) =>
+                g.label ? (
+                  <GridListSection key={g.key} id={g.key} className={CARD_GRID}>
+                    <GridListHeader className="col-span-full -mb-1">
+                      <h2 className="flex items-baseline gap-2 text-caption font-medium text-muted-foreground">
+                        {g.label}
+                        <span className="text-caption tabular-nums">{g.rows.length}</span>
+                      </h2>
+                    </GridListHeader>
                     {g.rows.map((row) => (
-                      <DiagramCard key={row.id} row={row} tabbable={g.key === stopGroup && row.id === stop} />
+                      <DiagramCard key={copyKey(scope, g.key, row.id)} id={copyKey(scope, g.key, row.id)} row={row} />
                     ))}
-                  </div>
-                </section>
-              ))}
-            </div>
+                  </GridListSection>
+                ) : (
+                  g.rows.map((row) => <DiagramCard key={copyKey(scope, g.key, row.id)} id={copyKey(scope, g.key, row.id)} row={row} />)
+                )
+              )}
+            </GridList>
           )}
         </Marquee>
       </Panel>
@@ -197,17 +222,11 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
   )
 }
 
-/** Left and right arrows on a card move to the card before or after it. */
-function moveBetweenCards(e: React.KeyboardEvent<HTMLElement>) {
-  const card = e.target as HTMLElement
-  const step = { ArrowLeft: -1, ArrowRight: 1 }[e.key]
-  if (!step || !card.dataset.cardId || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
-  const cards = [...e.currentTarget.querySelectorAll<HTMLElement>("[data-card-id]")]
-  const next = cards[cards.indexOf(card) + step]
-  if (!next) return
-  e.preventDefault()
-  next.focus()
-}
+const CARD_GRID = "grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4"
+
+/** A card's key in the grid: one per copy, as a diagram shows under each of its groups. */
+const copyKey = (scope: string, group: string, id: string) => `${scope}${group}/${id}`
+const idOf = (key: Key) => String(key).slice(String(key).lastIndexOf("/") + 1)
 
 /**
  * The search box: the URL's search, with what the person has typed on top until it's written. Typing replaces the

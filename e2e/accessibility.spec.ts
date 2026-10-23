@@ -70,7 +70,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       const cards = page.locator("[data-card-id]")
       await cards.nth(0).click({ button: "right" })
       await cards.nth(1).click()
-      await expect(page.getByText("2 selected")).toBeVisible()
+      await expect(page.getByText("2 selected", { exact: true })).toBeVisible()
       await audit(page)
 
       await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Tags" }).click()
@@ -190,9 +190,11 @@ test.describe("keyboard", () => {
 
   test("cards are named by their title, and the selection bar is out of the tab order until something is selected", async ({ page }) => {
     await library(page)
-    await expect(page.getByRole("link", { name: /^Release flow/ })).toBeVisible()
+    await expect(page.getByRole("row", { name: /^Release flow/ })).toBeVisible()
     const card = page.locator("[data-card-id]").last()
-    await expect(card).toHaveAccessibleDescription(/^Press Space, right-click or long-press to select\./)
+    await expect(page.getByRole("grid", { name: "Diagrams" })).toHaveAccessibleDescription(
+      /^Press Space, right-click or long-press to select\./
+    )
     const star = page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Star" })
     await card.focus()
     await focusNext(page)
@@ -200,21 +202,22 @@ test.describe("keyboard", () => {
 
     await card.focus()
     await page.keyboard.press("Space")
-    await expect(page.getByText("1 selected")).toBeVisible()
+    await expect(page.getByText("1 selected", { exact: true })).toBeVisible()
     await focusNext(page)
     await expect(star).toBeFocused()
   })
 
-  // A link can't be aria-selected or aria-pressed, so a selected card says so in its name, and the count announces the change.
-  test("a selected card says so in the accessibility tree, and is still a link", async ({ page }) => {
+  test("a card is a row of the cards' grid, which says whether it's selected", async ({ page }) => {
     await library(page)
     const card = page.locator("[data-card-id]", { hasText: "Release flow" })
-    await expect(card).toMatchAriaSnapshot(`- link /^Release flow/`)
+    await expect(page.getByRole("grid", { name: "Diagrams" })).toHaveAttribute("aria-multiselectable", "true")
+    await expect(card).toMatchAriaSnapshot(`- row /^Release flow/`)
+    await expect(card).toHaveAttribute("aria-selected", "false")
     await card.focus()
     await page.keyboard.press("Space")
-    await expect(card).toMatchAriaSnapshot(`- link /^Selected Release flow/`)
+    await expect(card).toHaveAttribute("aria-selected", "true")
     await page.keyboard.press("Space")
-    await expect(card).toMatchAriaSnapshot(`- link /^Release flow/`)
+    await expect(card).toHaveAttribute("aria-selected", "false")
   })
 
   test("the selection count and an empty search are announced, from live regions there before they change", async ({ page }) => {

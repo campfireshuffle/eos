@@ -4,7 +4,7 @@ import { clearSelection, getSelection, setSelection } from "@/lib/selection"
 
 /**
  * Drag on empty space to rubber-band select cards ([data-card-id]).
- * Hold ⇧ or ⌘ to add to the current selection. ⌘A selects every card shown, and Esc clears it.
+ * Hold ⇧ or ⌘ to add to the current selection. It sets the selection the cards' grid shows.
  */
 export function Marquee({
   children,
@@ -24,25 +24,15 @@ export function Marquee({
   const layout = useRef(0)
   useLayoutEffect(() => void layout.current++)
 
+  // The cards' grid owns ⌘A and Esc while it has focus. Esc anywhere else on the page (the selection bar, the
+  // library after a drag) also clears, except in a dialog or menu, where Esc closes it.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement
-      // Keys in a dialog or menu are its own (Esc closes it), and leave the selection alone.
-      if (target.closest?.("dialog, [role=dialog], [role=menu]")) return
-      if (e.key === "Escape") clearSelection()
-      // ⌘A in a text field selects its text.
-      const typing = target.isContentEditable || target.closest?.("input, textarea, select")
-      // By the letter typed (A sits elsewhere on AZERTY), or by the key's place on a non-Latin layout.
-      const a = /^[a-z]$/i.test(e.key) ? e.key.toLowerCase() === "a" : e.code === "KeyA"
-      if (a && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && !typing) {
-        e.preventDefault()
-        // Every card rendered, scrolled into view or not; one row can show under several groups.
-        setSelection([...root.current!.querySelectorAll<HTMLElement>("[data-card-id]")].map((card) => card.dataset.cardId!))
-      }
+      if (e.key === "Escape" && !(e.target as HTMLElement).closest?.("dialog, [role=dialog], [role=menu]")) clearSelection()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [root])
+  }, [])
 
   const onPointerDown = (e: React.PointerEvent) => {
     // On touch, dragging empty space scrolls; selection starts with a long press on a card.
