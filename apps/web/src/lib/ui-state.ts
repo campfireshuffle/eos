@@ -19,14 +19,18 @@ interface UiState {
     resolve: (ok: boolean) => void
   } | null
   sidebarCollapsed: boolean
-  mobileNavOpen: boolean
+  /**
+   * The history entry (its id) the phone's drawer was opened on. The drawer belongs to that page: it's open only while
+   * that entry is current, so a navigation that changes the entry closes it, and one that doesn't (a download) can't.
+   */
+  drawerOn: string | null
   /** A past version being previewed read-only in the editor. */
   preview: { id: string; version: string; at: number; label: string } | null
 }
 
 let state: UiState = {
   sidebarCollapsed: false,
-  mobileNavOpen: false,
+  drawerOn: null,
   preview: null,
   settingsOpen: false,
   settingsTab: "theming",

@@ -1,6 +1,7 @@
 import { useCallback, useRef, useSyncExternalStore, type RefObject } from "react"
 import type { PanelImperativeHandle } from "react-resizable-panels"
 
+import { entryId } from "./history"
 import { setUi, getUi } from "./ui-state"
 
 const MOBILE_QUERY = "(max-width: 767px)"
@@ -37,7 +38,7 @@ export const sidebarPanel: { current: PanelImperativeHandle | null } = { current
 
 /** Whether the sidebar shows: the drawer on phones, the panel on desktop. */
 export function isSidebarOpen(): boolean {
-  return matchMedia(MOBILE_QUERY).matches ? getUi().mobileNavOpen : !getUi().sidebarCollapsed
+  return matchMedia(MOBILE_QUERY).matches ? getUi().drawerOn === entryId() : !getUi().sidebarCollapsed
 }
 
 export function toggleSidebar() {
@@ -46,7 +47,7 @@ export function toggleSidebar() {
 
 export function setSidebarOpen(open: boolean) {
   if (matchMedia(MOBILE_QUERY).matches) {
-    setUi({ mobileNavOpen: open })
+    setUi({ drawerOn: open ? entryId() : null })
     return
   }
   const panel = sidebarPanel.current

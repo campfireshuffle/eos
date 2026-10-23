@@ -100,6 +100,47 @@ test("a view chosen in the phone's drawer focuses its heading, from the library 
   }
 })
 
+// The drawer is open only for the page it was opened on: it closes when the history entry changes, and not for
+// anything else that starts a navigation, such as a download.
+test("on a phone, a backup exported from Settings over the drawer leaves the drawer open, and Escape returns to its Settings", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto("/#/")
+  await page.getByRole("button", { name: "Show sidebar" }).click()
+  const drawer = page.getByRole("dialog", { name: "Navigation" })
+  // From the keyboard, so the button has focus to return to: Safari doesn't focus a button it clicks.
+  await drawer.getByRole("button", { name: "Settings" }).focus()
+  await page.keyboard.press("Enter")
+  const settings = page.getByRole("dialog", { name: "Settings" })
+  await settings.getByRole("button", { name: "Storage" }).click()
+  const download = page.waitForEvent("download")
+  await settings.getByRole("button", { name: "Export backup" }).click()
+  await download
+  await page.keyboard.press("Escape")
+  await expect(settings).toBeHidden()
+  await expect(drawer.getByRole("button", { name: "Settings" })).toBeFocused()
+  await expect(drawer).toHaveAttribute("open")
+})
+
+test("on a phone, closing Settings opened from the drawer after an agent changed the page doesn't lose focus", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.setViewportSize({ width: 390, height: 844 })
+  const id = await newDiagram(page, "flowchart LR\n  A --> B")
+  await openEditor(page, id)
+  await page.getByRole("button", { name: "Show sidebar" }).click()
+  await page.getByRole("dialog", { name: "Navigation" }).getByRole("button", { name: "Settings" }).focus()
+  await page.keyboard.press("Enter")
+  const settings = page.getByRole("dialog", { name: "Settings" })
+  await expect(settings).toBeVisible()
+  await tool(page, "set_view", { page: "library" })
+  await expect(page).toHaveTitle("Diagrams · Eos")
+  await page.keyboard.press("Escape")
+  await expect(settings).toBeHidden()
+  await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).not.toBe("BODY")
+})
+
 test("focus the person moves while a diagram is still loading stays where they put it", async ({ context }) => {
   await withAgentTools(context)
   const page = await context.newPage()
