@@ -21,12 +21,14 @@ const CARD_HINT_ID = "eos-card-hint"
 export function CardHint() {
   return (
     <span id={CARD_HINT_ID} hidden>
-      Press Space, right-click or long-press to select. While selecting, clicking a diagram adds or removes it.
+      Press Space, right-click or long-press to select. While selecting, clicking a diagram adds or removes it. The arrow keys move between
+      diagrams.
     </span>
   )
 }
 
-export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramIndexRow }) {
+/** `tabbable`: the cards' one Tab stop, so Tab leaves the cards in one press however many there are. */
+export const DiagramCard = memo(function DiagramCard({ row, tabbable }: { row: DiagramIndexRow; tabbable: boolean }) {
   const selected = useSelected(row.id)
   const longPressed = useRef(false)
   const lastPointer = useRef<string>("mouse")
@@ -45,6 +47,7 @@ export const DiagramCard = memo(function DiagramCard({ row }: { row: DiagramInde
     <a
       href={diagramHref(row.id)}
       data-card-id={row.id}
+      tabIndex={tabbable ? 0 : -1}
       aria-describedby={CARD_HINT_ID}
       // On touch, a long press selects instead of starting a native drag.
       draggable={!coarsePointer}
