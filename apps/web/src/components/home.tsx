@@ -39,7 +39,8 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
   // Decided by the search the shown rows were loaded with, so the view changes with the results, not a keystroke before.
   const searched = !!library?.filter.query?.trim()
   // Cards are keyed by the search and filter their rows were loaded with, so a new one is a new list: the card the
-  // grid last focused is gone from it, and Tab lands on its first card, the best match.
+  // grid last focused is gone from it, and Tab lands on its first card, the best match (by GridList's convention, on its
+  // first selected card while there is a selection).
   const scope = JSON.stringify([library?.filter.query?.trim(), library?.filter.tags, library?.filter.starred, library?.filter.deleted])
   const tags = useTags()
   // Back/forward returns to where you were. Phones scroll the page; desktop scrolls this pane.
@@ -51,10 +52,11 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
     () => groupRows(rows ?? [], searched ? "none" : route.group, route.sort, route.tag),
     [rows, searched, route.group, route.sort, route.tag]
   )
-  // The grid draws its rows in a render after it's handed them, so it says once it has drawn every one of these.
+  // The grid draws its rows in a render after it's handed them, so it says once it has drawn every card of a search
+  // and filter. Rows changing within one (an edit, another tab) don't take that back.
   const keys = useMemo(() => groups.flatMap((g) => g.rows.map((r) => copyKey(scope, g.key, r.id))), [groups, scope])
-  const [drawn, setDrawn] = useState<Key[]>()
-  const drawnAll = empty || drawn === keys
+  const [drawn, setDrawn] = useState<string>()
+  const drawnAll = empty || drawn === scope
   // Put back once the URL's own rows show: until then, the last view's rows are still on screen, or ones loaded for
   // typing not yet in the URL.
   const shown = !!library && JSON.stringify(library.filter) === JSON.stringify({ query: route.q, ...view }) && drawnAll
@@ -62,19 +64,25 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
   // The cards are one grid, which owns focus, the keyboard and the selection. It shows the selection store, by copy: a
   // diagram under two groups is two copies, selected together.
   const selection = useSelection()
-  // The grid's own last selection carries where a Shift-click range starts, so it's handed back while it still
-  // matches the store; a selection made elsewhere (right-click, the marquee, the bar) starts afresh.
+  // The grid's last selection is handed back while it holds the store's diagrams: it carries where a Shift-click range
+  // starts (the card last toggled, by click, Space, right-click or long press). One the marquee or the bar made starts
+  // afresh.
   const [own, setOwn] = useState<Set<Key>>()
   const selectedKeys = useMemo(() => {
-    const keys = new Set<Key>(groups.flatMap((g) => g.rows.filter((r) => selection.has(r.id)).map((r) => copyKey(scope, g.key, r.id))))
-    return own && own.size === keys.size && keys.isSubsetOf(own) ? own : keys
-  }, [groups, selection, own, scope])
-  const select = (keys: Selection) => {
-    if (keys === "all") return setSelection(groups.flatMap((g) => g.rows.map((r) => r.id)))
-    setOwn(keys)
+    const shown = new Set<Key>(keys.filter((k) => selection.has(idOf(k))))
+    return own && shown.symmetricDifference(own).size === 0 ? own : shown
+  }, [keys, selection, own])
+  const select = (picked: Selection) => {
+    if (picked === "all") return setSelection(keys.map(idOf))
     const next = new Set(selection)
-    for (const k of selectedKeys) if (!keys.has(k)) next.delete(idOf(k))
-    for (const k of keys) if (!selectedKeys.has(k)) next.add(idOf(k))
+    for (const k of selectedKeys) if (!picked.has(k)) next.delete(idOf(k))
+    for (const k of picked) if (!selectedKeys.has(k)) next.add(idOf(k))
+    // A diagram's copies go together; the grid's own selection object keeps its range anchor.
+    for (const k of keys) {
+      if (next.has(idOf(k))) picked.add(k)
+      else picked.delete(k)
+    }
+    setOwn(picked)
     setSelection(next)
   }
   useEffect(() => clearSelection(), [route.tag, route.starred, route.deleted])
@@ -198,7 +206,9 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
               selectedKeys={selectedKeys}
               onSelectionChange={select}
               className={groups[0]?.label ? "flex flex-col gap-7" : CARD_GRID}
-              render={(props, { state }) => <DrawnGrid {...props} collection={state.collection} keys={keys} onDrawn={setDrawn} />}
+              render={(props, { state }) => (
+                <DrawnGrid {...props} collection={state.collection} scope={scope} keys={keys} onDrawn={setDrawn} />
+              )}
             >
               {groups.map((g) =>
                 g.label ? (
@@ -231,16 +241,21 @@ const CARD_GRID = "grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4"
 
 type Drawn = GridListRenderProps["state"]["collection"]
 
-/** The grid's element. Once a commit has drawn a row for each of `keys`, hands `keys` to `onDrawn`. */
+/**
+ * The grid's element. Once a commit has drawn a row for each of `keys`, hands their `scope` to `onDrawn`; once it's
+ * gone (an empty view shows none), takes that back, so a grid drawn afresh is waited for again.
+ */
 function DrawnGrid({
   collection,
+  scope,
   keys,
   onDrawn,
   ...props
-}: ComponentProps<"div"> & { collection: Drawn; keys: Key[]; onDrawn: (keys: Key[]) => void }) {
+}: ComponentProps<"div"> & { collection: Drawn; scope: string; keys: Key[]; onDrawn: (scope: string | undefined) => void }) {
   useLayoutEffect(() => {
-    if (keys.every((k) => collection.getItem(k))) onDrawn(keys)
-  }, [collection, keys, onDrawn])
+    if (keys.every((k) => collection.getItem(k))) onDrawn(scope)
+  }, [collection, scope, keys, onDrawn])
+  useLayoutEffect(() => () => onDrawn(undefined), [onDrawn])
   return <div {...props} />
 }
 

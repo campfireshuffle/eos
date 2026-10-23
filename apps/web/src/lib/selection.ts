@@ -19,7 +19,7 @@ export function useSelection(): Set<string> {
  * Invariant: emptying the selection never drops focus to the page. The bar's actions go inert when nothing is
  * selected (and its Tags menu closes), so focus inside them moves off first, while the old selection is known.
  * `removing`: the selected cards are leaving the view. It's the default for the implicit emptyings: home's prune
- * (of cards already gone), `toggleSelected` (un-toggling the last card) and the marquee (selecting nothing).
+ * (of cards already gone), the grid (un-toggling the last card) and the marquee (selecting nothing).
  */
 export function setSelection(ids: Iterable<string>, { removing = true } = {}) {
   const next = new Set(ids)
@@ -27,13 +27,6 @@ export function setSelection(ids: Iterable<string>, { removing = true } = {}) {
   if (!next.size) focusOffSelection(removing)
   selected = next
   listeners.forEach((l) => l())
-}
-
-export function toggleSelected(id: string) {
-  const next = new Set(selected)
-  if (next.has(id)) next.delete(id)
-  else next.add(id)
-  setSelection(next)
 }
 
 export function clearSelection(removing = false) {

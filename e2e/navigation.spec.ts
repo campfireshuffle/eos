@@ -81,6 +81,27 @@ test("back returns to where the library was scrolled after searching", async ({ 
   expect(await settledTop()).toBe(500)
 })
 
+test("an agent's edits while the library scrolls leave the scroll alone", async ({ context }) => {
+  const { page, cards } = await library(context, "/?sort=title")
+  await expect(cards.first()).toContainText("Diagram 0")
+  const ids = await cards.evaluateAll((els) => els.slice(0, 3).map((el) => el.getAttribute("data-card-id")!))
+  const scroller = page.locator(".eos-library-scroller")
+  const end = await scroller.evaluate((el) => el.scrollHeight - el.clientHeight)
+  expect(end).toBeGreaterThan(600)
+  await scroller.evaluate((el) => {
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
+    // Counts the library putting a position back from here on.
+    const restores: unknown[] = []
+    Object.assign(window, { __restores: restores })
+    const scrollTo = el.scrollTo.bind(el)
+    el.scrollTo = ((options: ScrollToOptions) => (restores.push(options), scrollTo(options))) as Element["scrollTo"]
+  })
+  // Edits that bump each diagram's Modified time, landing while the scroll is under way.
+  for (const id of ids) await tool(page, "update_diagram", { id, source: `flowchart TD\n  A --> ${id.slice(0, 4)}` })
+  await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBe(end)
+  expect(await page.evaluate(() => (window as unknown as { __restores: unknown[] }).__restores)).toEqual([])
+})
+
 test("opening a diagram leaves the library where it was scrolled", async ({ context }) => {
   const { page, cards, scrollTo } = await library(context, "/?sort=title")
   await expect(cards.first()).toContainText("Diagram 0")

@@ -220,12 +220,19 @@ test.describe("keyboard", () => {
     await expect(card).toHaveAttribute("aria-selected", "false")
   })
 
-  test("the selection count and an empty search are announced, from live regions there before they change", async ({ page }) => {
+  // The cards' grid announces a change to the selection and the count, through React Aria's announcer, which is the only
+  // voice for it: the selection bar's count isn't a live region, so it isn't heard twice.
+  test("the selection is announced once, by the cards' grid, and an empty search from a live region there before it changes", async ({
+    page,
+  }) => {
     await library(page)
     // Marks the live regions there now, so the ones speaking later can be told apart from ones added with their text.
     await page.locator("[role=status]").evaluateAll((els) => els.forEach((el) => el.setAttribute("data-was-there", "")))
-    await page.locator("[data-card-id]").first().click({ button: "right" })
-    await expect(page.locator("[role=status][data-was-there]", { hasText: "1 selected" })).toBeAttached()
+    const card = page.locator("[data-card-id]").first()
+    await card.click({ button: "right" })
+    await expect(page.getByText("1 selected", { exact: true })).toBeVisible()
+    await expect(page.locator("[data-live-announcer]")).toContainText(`${await card.locator(".text-label").textContent()} selected.`)
+    await expect(page.locator("[role=status], [aria-live=polite], [aria-live=assertive]", { hasText: /^\d+ selected$/ })).toHaveCount(0)
     await audit(page)
     await page.keyboard.press("Escape")
 

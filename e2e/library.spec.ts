@@ -143,6 +143,7 @@ test.describe("selecting", () => {
     await expect(page).toHaveURL(/#\/\?sort=title$/)
   })
 
+  // A GridList convention: ⌘A selects every card while focus is in the grid, and is the page's anywhere else.
   test("⌘A on a card selects every card shown, after the tag filter and search", async ({ context }) => {
     const page = await library(context)
     const all = await page.locator("[data-card-id]").count()
@@ -898,6 +899,39 @@ test.describe("the cards' Tab stop", () => {
       await page.keyboard.press("Escape")
       await expect(page.getByText(/^\d+ selected$/)).toHaveText("0 selected")
     }
+  })
+
+  test("Shift-click selects the range from the card last right-clicked", async ({ context }) => {
+    const page = await library(context, 6, "/?sort=title&group=none")
+    await byTitle(page, "Card 0").click({ button: "right" })
+    await byTitle(page, "Card 3").click({ modifiers: ["Shift"] })
+    await expect(page.getByText("4 selected", { exact: true })).toBeVisible()
+    for (const n of [0, 1, 2, 3]) await expect(byTitle(page, `Card ${n}`)).toHaveAttribute("aria-selected", "true")
+  })
+
+  test("Shift-click selects the range from a copy last toggled, under its own group", async ({ context }) => {
+    const page = await library(context, 6, "/?sort=title&group=subtag", [0, 1, 2])
+    // Group b, after group a, holds the second copy of each of the first three.
+    await byTitle(page, "Card 0").nth(1).focus()
+    await page.keyboard.press(" ")
+    await byTitle(page, "Card 2")
+      .nth(1)
+      .click({ modifiers: ["Shift"] })
+    await expect(page.getByText("3 selected", { exact: true })).toBeVisible()
+    for (const n of [0, 1, 2])
+      for (const copy of [0, 1]) await expect(byTitle(page, `Card ${n}`).nth(copy)).toHaveAttribute("aria-selected", "true")
+  })
+
+  // A GridList convention: Tab enters a list on its first selected card, else its first card.
+  test("after a search that keeps the selection, Tab enters on the first selected card", async ({ context }) => {
+    const page = await library(context, 6, "/?sort=title&group=none")
+    await byTitle(page, "Card 3").focus()
+    await page.keyboard.press(" ")
+    await page.getByRole("textbox", { name: "Search diagrams" }).first().fill("Card")
+    await expect(page.getByText("1 selected", { exact: true })).toBeVisible()
+    await page.getByLabel("Sort").focus()
+    await focusNext(page)
+    await expect(byTitle(page, "Card 3")).toBeFocused()
   })
 
   test("a card deleted in another tab hands focus, and the Tab stop, to its neighbour", async ({ context }) => {

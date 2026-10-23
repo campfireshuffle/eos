@@ -33,10 +33,8 @@ export function SelectionBar({ deleted = false }: { deleted?: boolean }) {
           count && "pointer-events-auto"
         )}
       >
-        {/* Outside the inert part, so the count is announced however the selection changes, from none too. */}
-        <span role="status" className="pr-2 whitespace-nowrap tabular-nums">
-          {count} selected
-        </span>
+        {/* Not a live region: the cards' grid announces each change to the selection, and the count. */}
+        <span className="pr-2 whitespace-nowrap tabular-nums">{count} selected</span>
         <div inert={!count} className="contents">
           <div className="mx-1 h-4 w-px bg-[var(--eos-line-hover)]" />
           {deleted ? (

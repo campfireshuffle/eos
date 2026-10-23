@@ -7,7 +7,7 @@ import { renderSvg, type DiagramIndexRow } from "@eos/core"
 import { useEos } from "@/lib/eos"
 import { relativeTime } from "@/lib/grouping"
 import { diagramHref } from "@/lib/router"
-import { startCardDrag, toggleSelected } from "@/lib/selection"
+import { startCardDrag } from "@/lib/selection"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { Pill } from "./pill"
@@ -25,10 +25,14 @@ export function CardHint() {
   )
 }
 
+/** The kind of pointer last pressed on a card: not every browser's contextmenu event says. */
+let lastPointer = "mouse"
+
 /**
  * One copy of a diagram in the library's grid; `id` is the copy's key, as a diagram under two groups shows twice.
  * The grid owns focus, the keyboard, clicks and long presses: a click or Enter opens the diagram (⌘-click in a new tab)
- * until something is selected, then adds or removes it. Right-click is the desktop's way in to selecting.
+ * until something is selected, then adds or removes it. Right-click is the desktop's way in to selecting; it toggles
+ * the card through the grid, so a Shift-click range starts from it.
  */
 export const DiagramCard = memo(function DiagramCard({ id, row }: { id: string; row: DiagramIndexRow }) {
   return (
@@ -37,11 +41,7 @@ export const DiagramCard = memo(function DiagramCard({ id, row }: { id: string; 
       href={diagramHref(row.id)}
       textValue={row.title}
       data-card-id={row.id}
-      // On a touchscreen the grid's long press selects, so only the menu is stopped.
-      onContextMenu={(e) => {
-        e.preventDefault()
-        if (!coarsePointer || (e.nativeEvent as PointerEvent).pointerType !== "touch") toggleSelected(row.id)
-      }}
+      onPointerDownCapture={(e) => (lastPointer = e.pointerType)}
       className={({ isSelected }) =>
         cn(
           "group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors select-none [-webkit-touch-callout:none] hover:border-[var(--eos-line-active)]",
@@ -49,15 +49,22 @@ export const DiagramCard = memo(function DiagramCard({ id, row }: { id: string; 
         )
       }
     >
-      {({ isSelected }) => (
-        <>
+      {({ isSelected, state }) => (
+        <div
+          className="contents"
+          // On a touchscreen the grid's long press selects, so only the menu is stopped.
+          onContextMenu={(e) => {
+            e.preventDefault()
+            if (!coarsePointer || lastPointer !== "touch") state.selectionManager.toggleSelection(id)
+          }}
+        >
           {isSelected && (
             <span className="absolute top-2.5 right-2.5 z-10 flex size-6 items-center justify-center rounded-full bg-[var(--eos-champagne)] text-[var(--eos-ink)] shadow-sm">
               <Check className="size-3.5" strokeWidth={3} />
             </span>
           )}
           <CardBody row={row} />
-        </>
+        </div>
       )}
     </GridListItem>
   )
