@@ -180,3 +180,45 @@ test("an agent opening a diagram doesn't move the person's focus to it", async (
   await expect(page).toHaveTitle("Test · Eos")
   await expect(heading(page)).not.toBeFocused()
 })
+
+// Whose navigation it is comes from the navigation itself: nothing an agent did earlier carries over to the person's.
+test.describe("the person's navigation after an agent's still focuses the page", () => {
+  test("Enter on a card, after an agent showed Starred", async ({ context }) => {
+    await withAgentTools(context)
+    const page = await context.newPage()
+    const id = await newDiagram(page, "flowchart LR\n  A --> B")
+    await tool(page, "update_diagram", { id, starred: true })
+    await tool(page, "set_view", { filters: { starred: true } })
+    await expect(heading(page)).toHaveText("Starred")
+    await page.locator(`[data-card-id="${id}"]`).focus()
+    await page.keyboard.press("Enter")
+    await expect(heading(page)).toBeFocused()
+    await expect(heading(page)).toHaveText("Test")
+  })
+
+  test("the Starred link, after an agent opened a diagram", async ({ context }) => {
+    await withAgentTools(context)
+    const page = await context.newPage()
+    const id = await newDiagram(page, "flowchart LR\n  A --> B")
+    await tool(page, "set_view", { page: "diagram", diagramId: id })
+    await expect(heading(page)).toHaveText("Test")
+    await page
+      .locator("aside")
+      .getByRole("link", { name: /^Starred/ })
+      .click()
+    await expect(heading(page)).toBeFocused()
+    await expect(heading(page)).toHaveText("Starred")
+  })
+
+  test("Enter on a card, after an agent's navigation and a reload", async ({ context }) => {
+    await withAgentTools(context)
+    const page = await context.newPage()
+    const id = await newDiagram(page, "flowchart LR\n  A --> B")
+    await tool(page, "set_view", { filters: { sort: "title" } })
+    await page.reload()
+    await page.locator(`[data-card-id="${id}"]`).focus()
+    await page.keyboard.press("Enter")
+    await expect(heading(page)).toBeFocused()
+    await expect(heading(page)).toHaveText("Test")
+  })
+})

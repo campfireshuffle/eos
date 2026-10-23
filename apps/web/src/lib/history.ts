@@ -16,21 +16,22 @@ export const useHistoryNav = () => ({
 /** A key unique to the current entry: new for each new navigation, kept when the entry is replaced or gone back to. */
 export const entryKey = () => navigation.currentEntry!.key
 
-/** The state of an entry an agent pushed. */
-export const BY_AGENT = { byAgent: true }
+/** The `info` an agent's navigation carries. Not entry state: browsers copy that onto the next push. */
+export const BY_AGENT = "agent"
 
 /**
  * Each history entry is a page, and arriving at one owes it focus: on its heading (PageTitle), once that's on screen
- * and can take it. Arriving is a push or back/forward by the person; an agent's push owes nothing, as an agent never
- * moves the person's focus. A replace keeps the entry (a search typed, a sort, a tag renamed under it, an import
+ * and can take it. Arriving is a push or back/forward by the person; an agent's navigation owes nothing, as an agent
+ * never moves the person's focus. A replace keeps the entry (a search typed, a sort, a tag renamed under it, an import
  * opening its diagram), so it leaves what's owed as it was. What's owed is settled by the next focus anywhere: the
  * heading taking it, the person moving it, or a dialog handing it back to its opener.
  */
 let owed: string | null = null
+// Whose navigation this is, from its navigate event, which comes just before the entry changes.
+let byAgent = false
+navigation.addEventListener("navigate", (e) => (byAgent = e.info === BY_AGENT))
 navigation.addEventListener("currententrychange", (e) => {
-  if (e.from.key === entryKey()) return
-  const byAgent = e.navigationType !== "traverse" && (navigation.currentEntry!.getState() as typeof BY_AGENT | undefined)?.byAgent
-  owed = byAgent ? null : entryKey()
+  if (e.from.key !== entryKey()) owed = byAgent ? null : entryKey()
 })
 document.addEventListener("focusin", () => (owed = null))
 

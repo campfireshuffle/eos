@@ -67,7 +67,7 @@ export function pageName(route: Route, diagramTitle: string | null | undefined):
 export function navigate(href: string, { replace = false, agent = false } = {}) {
   // Replacing keeps the history entry with a new URL, so its key, and the scroll position saved under it, carry over.
   // "auto" pushes, except to the URL already shown, which keeps its entry, as a link to it does.
-  navigation.navigate(href, { history: replace ? "replace" : "auto", state: agent ? BY_AGENT : undefined })
+  navigation.navigate(href, { history: replace ? "replace" : "auto", info: agent ? BY_AGENT : undefined })
 }
 
 /**
