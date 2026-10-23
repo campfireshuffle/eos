@@ -852,7 +852,8 @@ test.describe("the cards' Tab stop", () => {
     await expect(page).toHaveURL(new RegExp(`#/d/${id}`))
   })
 
-  // Shift+Tab leaves in one press too, but React Aria focuses the grid on the way out, which can scroll the library.
+  // Shift+Tab leaves in one press too, but React Aria focuses the grid on the way out, which can scroll the library:
+  // https://github.com/campfireshuffle/eos/issues/29
   test("a diagram under two groups is two copies: one press leaves the cards from either, Tab without scrolling, and they select together", async ({
     context,
   }) => {

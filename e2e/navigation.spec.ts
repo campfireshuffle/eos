@@ -1,9 +1,15 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test"
+import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test"
 
 import { focusNext, tool, withAgentTools } from "./helpers"
 
 /** Waits out the frame after a search's results show, in which a phone puts the position back again while typing. */
 const searchScrolled = (page: Page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+
+/** Clicks a card where it sits, with the mouse: Playwright's own click would first scroll it into view. */
+async function clickWhereItSits(page: Page, card: Locator) {
+  const box = (await card.boundingBox())!
+  await page.mouse.click(box.x + box.width / 2, box.y + Math.min(20, box.height / 2))
+}
 
 /** A library long enough to scroll, open at `hash`. */
 async function library(context: BrowserContext, hash: string) {
@@ -68,8 +74,7 @@ test("back returns to where the library was scrolled after searching", async ({ 
   // A new search's results scroll the library to the top once they arrive; scroll after that.
   expect(await settledTop()).toBe(0)
   await scrollTo(500)
-  // Clicked where it sits: Playwright's own click would first scroll it into view.
-  await cards.nth(12).evaluate((a: HTMLElement) => a.click())
+  await clickWhereItSits(page, cards.nth(12))
   await page.locator(".cm-content").waitFor()
   await page.goBack()
   await expect(cards).toHaveCount(24)
@@ -80,16 +85,17 @@ test("opening a diagram leaves the library where it was scrolled", async ({ cont
   const { page, cards, scrollTo } = await library(context, "/?sort=title")
   await expect(cards.first()).toContainText("Diagram 0")
   await scrollTo(500)
-  const scrolls = await cards.nth(12).evaluate(async (a: HTMLElement) => {
-    const scroller = a.closest(".eos-library-scroller")!
+  await page.locator(".eos-library-scroller").evaluate((scroller) => {
     const seen: number[] = []
+    Object.assign(window, { __seen: seen })
     scroller.addEventListener("scroll", () => seen.push(scroller.scrollTop))
-    a.click()
-    await new Promise((r) => setTimeout(r, 300))
-    return seen
   })
+  const inView = await cards.evaluateAll((all) =>
+    all.findIndex((c) => c.getBoundingClientRect().top > 100 && c.getBoundingClientRect().top + 40 < innerHeight)
+  )
+  await clickWhereItSits(page, cards.nth(inView))
   await page.locator(".cm-content").waitFor()
-  expect(scrolls).toEqual([])
+  expect(await page.evaluate(() => (window as unknown as { __seen: number[] }).__seen)).toEqual([])
 })
 
 test("the library's view controls stay put while the cards scroll", async ({ context }) => {
@@ -344,9 +350,8 @@ for (const [size, viewport] of Object.entries({ desktop: { width: 1280, height: 
       await expect(cards.filter({ hasText: "Login flow" })).toHaveCount(0)
       await searchScrolled(page)
       await scrollTo(1500)
-      // Clicked where it sits: Playwright's own click would first scroll it into view.
       const shown = await cards.evaluateAll((all) => all.findIndex((c) => c.getBoundingClientRect().top > 200))
-      await cards.nth(shown).evaluate((a: HTMLElement) => a.click())
+      await clickWhereItSits(page, cards.nth(shown))
       await page.locator(".cm-content").waitFor()
       await page.goBack()
       await expect(cards.filter({ hasText: "Diagram 148" })).toHaveCount(1)

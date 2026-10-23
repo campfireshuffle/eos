@@ -1,6 +1,6 @@
 import { Plus, Search } from "lucide-react"
-import { useEffect, useMemo, useRef, useState } from "react"
-import { GridList, GridListHeader, GridListSection, type Key, type Selection } from "react-aria-components"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps } from "react"
+import { GridList, GridListHeader, GridListSection, type GridListRenderProps, type Key, type Selection } from "react-aria-components"
 
 import { findEmoji, type LibrarySort } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
@@ -45,16 +45,20 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
   // Back/forward returns to where you were. Phones scroll the page; desktop scrolls this pane.
   const mobile = useIsMobile()
   const scroller = useRef<HTMLDivElement>(null)
-  // Put back once the URL's own rows show: until then, the last view's rows are still on screen, or ones loaded for
-  // typing not yet in the URL.
-  const shown = !!library && JSON.stringify(library.filter) === JSON.stringify({ query: route.q, ...view })
-  useScrollRestoration(mobile ? null : scroller, entry, shown)
   const emoji = route.tag ? findEmoji(tags ?? [], route.tag) : null
   const empty = rows?.length === 0
   const groups = useMemo(
     () => groupRows(rows ?? [], searched ? "none" : route.group, route.sort, route.tag),
     [rows, searched, route.group, route.sort, route.tag]
   )
+  // The grid draws its rows in a render after it's handed them, so it says once it has drawn every one of these.
+  const keys = useMemo(() => groups.flatMap((g) => g.rows.map((r) => copyKey(scope, g.key, r.id))), [groups, scope])
+  const [drawn, setDrawn] = useState<Key[]>()
+  const drawnAll = empty || drawn === keys
+  // Put back once the URL's own rows show: until then, the last view's rows are still on screen, or ones loaded for
+  // typing not yet in the URL.
+  const shown = !!library && JSON.stringify(library.filter) === JSON.stringify({ query: route.q, ...view }) && drawnAll
+  useScrollRestoration(mobile ? null : scroller, entry, shown)
   // The cards are one grid, which owns focus, the keyboard and the selection. It shows the selection store, by copy: a
   // diagram under two groups is two copies, selected together.
   const selection = useSelection()
@@ -194,6 +198,7 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
               selectedKeys={selectedKeys}
               onSelectionChange={select}
               className={groups[0]?.label ? "flex flex-col gap-7" : CARD_GRID}
+              render={(props, { state }) => <DrawnGrid {...props} collection={state.collection} keys={keys} onDrawn={setDrawn} />}
             >
               {groups.map((g) =>
                 g.label ? (
@@ -223,6 +228,21 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
 }
 
 const CARD_GRID = "grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4"
+
+type Drawn = GridListRenderProps["state"]["collection"]
+
+/** The grid's element. Once a commit has drawn a row for each of `keys`, hands `keys` to `onDrawn`. */
+function DrawnGrid({
+  collection,
+  keys,
+  onDrawn,
+  ...props
+}: ComponentProps<"div"> & { collection: Drawn; keys: Key[]; onDrawn: (keys: Key[]) => void }) {
+  useLayoutEffect(() => {
+    if (keys.every((k) => collection.getItem(k))) onDrawn(keys)
+  }, [collection, keys, onDrawn])
+  return <div {...props} />
+}
 
 /** A card's key in the grid: one per copy, as a diagram shows under each of its groups. */
 const copyKey = (scope: string, group: string, id: string) => `${scope}${group}/${id}`
