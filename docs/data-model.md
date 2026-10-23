@@ -2,7 +2,7 @@
 
 Status: describes the code as built · Target: `loro-crdt@^1.16` (checked against 1.16.4 type defs and a node smoke test, 2026-10-20)
 
-Eos is a local-first Mermaid editor. All diagrams stay in the browser: there is no server and no account. This doc covers how a diagram is represented (Loro), how it is stored (IndexedDB), how tabs and the WebMCP agent share edits, and how undo, history, and share links work.
+Eos is a local-first Mermaid editor. All diagrams stay in the browser: there is no server and no account. The app itself loads from the network, so reloading or opening it offline doesn't work, though your diagrams stay on the device. This doc covers how a diagram is represented (Loro), how it is stored (IndexedDB), how tabs and the WebMCP agent share edits, and how undo, history, and share links work.
 
 ## Goals
 
@@ -11,7 +11,7 @@ Eos is a local-first Mermaid editor. All diagrams stay in the browser: there is 
 - **Undo is per tab and per actor.** ⌘Z reverts the person's edits made in this tab, never an agent's and never another tab's. An agent has its own undo stack for its edits (§4).
 - **History is shared and attributed.** Every change records who made it (the person, an agent, an import or the app), and the history menu shows that instead of using toasts.
 - **The agent is a first-class editor.** Nearly anything a person can do in the UI, an agent can do through WebMCP (§10), along the same code path. The exception is Delete forever on chosen diagrams: an agent can only delete everything (§10).
-- **Durable by default.** Request persistent storage once. There is no storage-management UI.
+- **Durable by default.** Request persistent storage once. Settings has a Storage section with usage, export, import and Delete all.
 
 ## Architecture
 
@@ -334,7 +334,7 @@ interface SyncMessage {
 
 ## 6. Share links
 
-A share link carries a **copy of the source**, not the CRDT history. Opening one creates a brand-new diagram with fresh history.
+A share link carries a **copy of the source**, not the CRDT history. Opening one creates a new diagram with fresh history, unless an identical one (same title and source, not deleted) already exists, which is opened instead (see below).
 
 ```
 https://eos.lil.run/#/import?d=<base64url(deflate-raw(utf8(JSON payload)))>
@@ -360,7 +360,7 @@ interface SharePayload {
 ## 7. Storage persistence
 
 - `Eos.requestPersistence()` calls `navigator.storage.persist()`. The app calls it once per page load, on the first change to the library (`main.tsx`), whether made in this tab or heard from another. The sample diagrams are seeded before it starts listening, so they don't count. Browsers grant this more readily once the person has used the page (Firefox shows a prompt, while Chromium decides heuristically, and refuses early requests).
-- The result isn't stored or shown anywhere. `Eos.storageUsage()` reports whether storage is persisted, but there is no storage-management UI.
+- The result isn't stored or shown anywhere. `Eos.storageUsage()` reports whether storage is persisted, and Settings' Storage section shows usage, with export, import and Delete all.
 
 ## 8. Settings record
 

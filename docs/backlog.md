@@ -379,11 +379,11 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** it isn't verified on a device, and the keyboard can be dismissed.
   - **Fix:** focus the source only on keyboard activation (`e.detail === 0`), or not at all on `(pointer: coarse)`.
 
-- **With nothing selected, an invisible "Selection" toolbar reads "0 selected".**
-  - **What:** since A1, the count's `role=status` sits outside the bar's inert part, so the accessibility tree exposes a hidden toolbar holding only "0 selected".
+- **With nothing selected, an invisible "Selection" toolbar still shows "0 selected" to the accessibility tree.**
+  - **What:** the count is no longer a `role=status` (the cards' grid announces selection changes), but it still sits outside the bar's inert part, so the accessibility tree exposes a hidden toolbar holding only "0 selected".
   - **Where:** `apps/web/src/components/selection-bar.tsx`.
-  - **Why low:** it's announced only when the selection changes, and reads correctly. The hidden toolbar is noise for anyone browsing by landmarks or roles.
-  - **Fix:** render the status text empty at 0. Or move the status out of the toolbar and make the whole toolbar `inert` at 0.
+  - **Why low:** nothing is announced for it, so only someone browsing by landmarks or roles meets the hidden toolbar.
+  - **Fix:** render the count text empty at 0, or make the whole toolbar `inert` at 0.
 
 - **get_view never says a past version is showing.**
   - **What:** `get_view` leaves out `ui.preview`, so an agent can't tell that the person is looking at a past version rather than the latest.
@@ -481,12 +481,6 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `e2e/preview.spec.ts` (about line 553).
   - **Why low:** test timing only.
   - **Fix:** `test.slow()`, or a longer timeout on that one assertion.
-
-- **Clear or Escape can focus another copy of the card, when grouped by subtag.**
-  - **What:** grouped by subtag, one diagram shows once per group. `focusOffSelection` remembers the last-toggled card by id, so it focuses the first copy, not the one the person toggled.
-  - **Where:** `apps/web/src/lib/selection.ts` (`lastToggled`), `components/diagram-card.tsx` (`toggleSelected` callers).
-  - **Why low:** focus lands on the same diagram, in view, and nothing scrolls.
-  - **Fix:** remember the toggled card element (or its group key with the id), and prefer it when it's still connected.
 
 - **On phones, focus moved off the selection bar can land on a card hidden under the sticky header.**
   - **What:** when no better target is in view, the fallback takes the topmost card in view. On a phone, where the page scrolls under a sticky header, that card can be all but covered.
@@ -1253,11 +1247,12 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** it needs two input methods that produce different forms of one name.
   - **Fix:** add `.normalize("NFC")`. Tags already stored in the other form need a one-off rename.
 
-- **An agent adding a second copy of a selected diagram loses the Shift-click anchor.**
+- **An agent adding a second copy of a selected diagram, or removing a selected card, loses the Shift-click anchor.**
   - **What:** grouped by subtag, the grid's own selection, which carries the Shift-click anchor, is kept only while it matches the store. When an agent gives a selected diagram another subtag, the new copy is selected but not in the grid's selection, so `useGridSelection` starts a fresh one and the anchor is gone.
   - **Where:** `apps/web/src/lib/grid-selection.ts` (`selectedKeys`, the `symmetricDifference` check).
+  - **Also:** an agent removing a selected card drops the anchor the same way. It has the same root cause.
   - **Why low:** found by reading. It needs an agent edit mid-selection, and the next Shift-click just starts from a new anchor.
-  - **Fix:** when the only difference is new copies of selected diagrams, add them to the grid's selection rather than starting afresh.
+  - **Fix:** when the only difference is new copies of selected diagrams, add them to the grid's selection rather than starting afresh. Handle a removed card the same way, by dropping only it.
 
 - **get_diagram returns `version` beside `diagram`, so agents can skip `baseVersion` (owner's call).**
   - **What:** `get_diagram` returns `{ diagram, version, … }`. An agent that reads `diagram.version` finds nothing, sends `update_diagram` a source without `baseVersion`, and that source replaces the person's newer typing.
@@ -1276,6 +1271,60 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `apps/web/src/components/history-menu.tsx`.
   - **Why low:** its focused items name themselves, and the trigger says "History".
   - **Fix:** `aria-label="Version history"` on the popover content.
+
+- **A keystroke from another tab during a purge leaves an orphan update.**
+  - **What:** if another tab writes an edit while a purge is running, the update is stored for a diagram that is gone. It costs a few bytes, and it replays if a pre-purge backup is merged.
+  - **Where:** `packages/core/src/docs.ts:136-140, 250-264`, `packages/core/src/store.ts:898-907`.
+  - **Why low:** it needs a keystroke in a second tab at the moment of a purge, and the effect is a few bytes.
+  - **Fix:** have the purge refuse or discard writes for ids it is removing, and drop any update that arrives for a deleted id.
+
+- **History credits agent changes as just "Agent".**
+  - **What:** the history menu says "Agent" for every agent change, not which tool made it or what changed.
+  - **Where:** `apps/web/src/components/history-menu.tsx:87` (`actorLabel`).
+  - **Why low:** the version is still attributed to an agent, and its source is there to read.
+  - **Fix:** the actor message already carries `tool` and `changes`; show them, for example "Agent: update_diagram (source)".
+
+- **The open history menu doesn't refresh when an agent renames a tag.**
+  - **What:** a history menu that is open keeps the old tag name when an agent renames the tag.
+  - **Where:** `apps/web/src/components/history-menu.tsx`.
+  - **Why low:** found by reading the code, not reproduced. Closing and reopening the menu shows the new name.
+  - **Fix:** subscribe the menu to the same tag-rename event the rest of the app uses.
+
+- **Copy share link gives no confirmation.**
+  - **What:** the link is copied without any sign that it worked. `await encodeShare` runs before `writeText`, which may lose iOS's user gesture, so the copy could fail silently there.
+  - **Where:** the export menu's Copy share link, `packages/core` `encodeShare`.
+  - **Why low:** unverified on a device, and the link can be had from the export tool or the URL.
+  - **Fix:** show a toast on success and on failure. Start `writeText` inside the gesture, for example with a `ClipboardItem` that resolves to the link.
+
+- **At the layout.ts minimums, panel headers wrap.**
+  - **What:** at the smallest panel sizes, headers wrap onto several lines; the preview at 192px takes 3 rows. The minimums ignore what the headers hold.
+  - **Where:** `apps/web/src/lib/layout.ts` (the minimums), the editor and preview headers.
+  - **Why low:** cosmetic, and only at the extreme minimums.
+  - **Fix:** raise the minimums to fit the headers, or let the headers truncate or drop labels.
+
+- **WebKit: clicking the banner's Restore or Back to latest with a mouse leaves focus on BODY.**
+  - **What:** after the click, focus is on BODY, so the next key press goes nowhere.
+  - **Where:** `apps/web/src/components/editor.tsx:246-257`. `SourceToggle` already handles this.
+  - **Why low:** the mouse user doesn't need focus, and Tab restarts from the top.
+  - **Fix:** handle it as `SourceToggle` does.
+
+- **Copies under subtag grouping share SVG id prefixes.**
+  - **What:** a diagram shown once per subtag group renders its SVG more than once with the same `t-${id}` prefix, so ids repeat in the page.
+  - **Where:** `apps/web/src/components/diagram-card.tsx:159`.
+  - **Why low:** nothing seen breaking.
+  - **Fix:** add the group key to the prefix.
+
+- **set_view's tag filter isn't normalised.**
+  - **What:** the URL, the heading and the title show the raw text an agent sent, not the normalised tag.
+  - **Where:** `apps/web/src/lib/webmcp.ts:29`.
+  - **Why low:** agent-only, and the filter still matches.
+  - **Fix:** run the tag through `normalizeTag` before it goes to the router.
+
+- **Offline reopen doesn't work: there is no service worker.**
+  - **What:** a reload or a new tab while offline shows the browser's offline page, even for an installed app. The manifest says `display: standalone`. Diagrams stay on the device, but the app itself loads from the network.
+  - **Where:** `apps/web` (no service worker anywhere; the manifest).
+  - **Why low:** out of scope, by the owner's call (decision 013, A16). The docs promise local-first, never offline, and now say a reload needs the network.
+  - **Fix:** if it comes into scope, precache the built app shell with a library (vite-plugin-pwa or Workbox), with no custom service worker logic, and add an e2e check that reloads offline.
 
 ## Refactors to consider (from the round 11 cleanup review)
 
@@ -1372,3 +1421,15 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `apps/web/src/lib/layout.ts` (`SPLITTER_PX`), `apps/web/src/components/resize-handle.tsx`.
   - **Why low:** they match today.
   - **Fix:** define the width once and use it in both, for example as a CSS variable the handle reads.
+
+- **The page focus cluster could move onto Navigation API `intercept()`.**
+  - **What:** history.ts, page.tsx, dialog.tsx (`openerClosed`) and App.tsx manage page focus after navigation by hand. `intercept()` could own that. It is no drop-in: `focusReset` fires once, when the handler settles, and `PageTitle` renders only once the route's name is known, so both still need code of our own. A dialog closing with its opener gone is outside navigation. `closedby` is blocked by upstream #15 (Safari 26.2).
+  - **Where:** `apps/web/src/lib/history.ts`, `page.tsx`, `App.tsx`, `packages/ui/src/components/dialog.tsx`.
+  - **Why low:** no defect behind it. Four finders probed it in three engines and found it clean, and it has churned (41dfa32, 23f0c1b, 11428da, 02e325c), so a fix would be a redesign.
+  - **Fix:** the redesign must keep this invariant: every person-initiated push or back/forward owes focus to that entry's heading until any focus lands; a replace or an agent's navigation never moves focus; a dialog that can't return focus to its opener returns it to the page.
+
+- **home.tsx compares `JSON.stringify` of two filter objects.**
+  - **What:** it decides "the shown rows are the URL's" by comparing the serialised filters. That is correct today, but it is an implicit contract: it relies on `library.filter` being the object `useLibrary` was given, on core's `listDiagrams` not mutating it, and on key order being kept. The prune effect also lost its loading guard, with no visible effect.
+  - **Where:** `apps/web/src/components/home.tsx` (the comparison and the prune effect), `eos.tsx:43`.
+  - **Why low:** checked in A16 with 8 filter and query combinations, all equal.
+  - **Fix:** compare the fields, or carry the filter's identity with the rows. Restore the prune effect's loading guard.

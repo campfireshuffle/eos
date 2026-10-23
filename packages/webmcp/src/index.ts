@@ -253,7 +253,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
     tool({
       name: "export",
       description:
-        "Export a diagram (id) or raw Mermaid (source). Formats: svg, png (data URL), mmd (with the version id it's at, for a diagram), link (a share link that opens a copy in anyone's Eos), backup (the whole library as JSON; no id needed). For invalid Mermaid, svg and png return parse_error with line and column, and mmd returns ok with valid: false and the error, so either works as a dry-run check. link doesn't check the source. download: true also saves the file like the Export menu.",
+        "Export a diagram (id) or raw Mermaid (source). Formats: svg, png (data URL), mmd (with the version id it's at, for a diagram), link (a share link that opens a copy in another browser, or the original in a browser that already has it), backup (the whole library as JSON; no id needed). For invalid Mermaid, svg and png return parse_error with line and column, and mmd returns ok with valid: false and the error, so either works as a dry-run check. link doesn't check the source. download: true also saves the file like the Export menu.",
       input: {
         format: z.enum(["svg", "png", "mmd", "link", "backup"]),
         id: z.optional(z.string()),

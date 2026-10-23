@@ -16,7 +16,7 @@
 
 Write Mermaid and the preview updates as you type, rendered by [Pele](https://pele.run), a fast Mermaid
 renderer. Every diagram stays in your browser, so you don't need an account. Organise diagrams with nested tags and stars, fuzzy-search their titles and contents, roll back to any version, and share a
-diagram as a link.
+diagram as a link. The app itself loads from the network, so reloading or opening it offline doesn't work, though your diagrams stay on the device.
 
 An agent in your browser can do nearly anything you can in the app: create, edit, organise, theme and export
 diagrams. It can't permanently delete chosen diagrams, only all of them. Eos offers it a small set of tools through [WebMCP](https://github.com/webmachinelearning/webmcp),
