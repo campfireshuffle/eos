@@ -133,10 +133,10 @@ for (const colorScheme of ["light", "dark"] as const) {
         await openEditor(page, id)
         await expect(page.locator(".pele-preview svg")).toBeVisible()
         await page.getByRole("button", { name: "Hide source" }).click()
-        await expect(page.getByRole("button", { name: "Show source" })).toBeFocused()
+        await expect(page.getByRole("button", { name: "Show source" })).toHaveAttribute("aria-expanded", "false")
         await audit(page)
         await page.getByRole("button", { name: "Show source" }).click()
-        await expect(page.getByRole("textbox", { name: "Mermaid source" })).toBeFocused()
+        await expect(page.getByRole("button", { name: "Hide source" })).toHaveAttribute("aria-expanded", "true")
         await audit(page)
       })
     }

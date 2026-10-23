@@ -15,7 +15,7 @@ import {
   RotateCcw,
   Trash2,
 } from "lucide-react"
-import { useEffect, useMemo, useRef, useState, type ComponentProps } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { flushSync } from "react-dom"
 
 import { validate, type SourceBinding } from "@eos/core"
@@ -100,10 +100,18 @@ export function Editor({ id }: { id: string }) {
     }
   }, [eos, id, binding, source])
 
-  // Whether the source pane is collapsed, as the panel reports it after any resize: by its button, a drag, the keyboard
-  // on the splitter, or a saved layout.
+  const mobile = useIsMobile()
+  const orientation = mobile ? "vertical" : "horizontal"
+  const layout = useDefaultLayout({
+    id: `eos-editor-${orientation}`,
+    storage: localStorage,
+  })
+  // Whether the source pane is collapsed, as the panel reports it after any resize: by its toggle, a drag, the keyboard
+  // on the splitter, or a saved layout. It starts as the saved layout has it where that says (collapsed to nothing, on
+  // desktop); a phone's collapsed size is in pixels, which the saved percentages can't say until the panel measures.
   const sourcePanel = usePanelRef()
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(() => layout.defaultLayout?.source === 0)
+  const toggleSource = () => (collapsed ? sourcePanel.current?.expand() : sourcePanel.current?.collapse())
 
   // Previewing a past version shows its source read-only in both panes.
   const preview = useUi((s) => s.preview)
@@ -166,12 +174,6 @@ export function Editor({ id }: { id: string }) {
   const actions = useExportActions(title, shown ?? source ?? "", drawn)
 
   useShortcuts(actions)
-  const mobile = useIsMobile()
-  const orientation = mobile ? "vertical" : "horizontal"
-  const layout = useDefaultLayout({
-    id: `eos-editor-${orientation}`,
-    storage: localStorage,
-  })
   // Each orientation keeps its own split. The group isn't remounted for the other one (that would lose the source's
   // caret, scroll and focus mid-edit, as a phone rotates), so it's given that one's split here. The source pane
   // changes shape, so the caret someone is typing at is brought back into view. Whether the source is hidden is the
@@ -184,23 +186,6 @@ export function Editor({ id }: { id: string }) {
     for (const editor of [editorRef, pastRef]) editor.current?.keepCaretInView()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orientation])
-
-  // Hiding the source by its button moves focus to the button that shows it again (on phones, the same one); showing
-  // it moves focus into the editor. Only once the panel has reported the change, when that button exists.
-  const sourceToggle = useRef<HTMLButtonElement>(null)
-  const toggled = useRef(false)
-  const toggleSource = () => {
-    toggled.current = true
-    if (collapsed) sourcePanel.current?.expand()
-    else sourcePanel.current?.collapse()
-  }
-  useEffect(() => {
-    if (!toggled.current) return
-    toggled.current = false
-    if (collapsed) sourceToggle.current?.focus()
-    else (previewing ? pastRef : editorRef).current?.focus()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collapsed])
 
   if (diagram === null) {
     return (
@@ -290,16 +275,10 @@ export function Editor({ id }: { id: string }) {
               <IconButton label={copied ? "Copied" : "Copy source"} onClick={() => copy(shown ?? "")}>
                 {copied ? <Check className="text-[var(--eos-green)]" /> : <Copy />}
               </IconButton>
-              {(mobile || !collapsed) && (
-                <IconButton
-                  label={collapsed ? "Show source" : "Hide source"}
-                  onClick={toggleSource}
-                  aria-expanded={!collapsed}
-                  aria-controls="source"
-                  ref={sourceToggle}
-                >
-                  {mobile ? collapsed ? <PanelTopOpen /> : <PanelTopClose /> : <PanelLeftClose />}
-                </IconButton>
+              {mobile && (
+                <SourceToggle collapsed={collapsed} onToggle={toggleSource}>
+                  {collapsed ? <PanelTopOpen /> : <PanelTopClose />}
+                </SourceToggle>
               )}
             </PanelHeader>
             <div inert={collapsed} className="flex min-h-0 flex-1 flex-col">
@@ -356,15 +335,15 @@ export function Editor({ id }: { id: string }) {
           <Panel as="section" split="end" className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
             <PanelHeader
               title={
-                collapsed && !mobile ? (
+                mobile ? (
+                  "Preview"
+                ) : (
                   <>
-                    <IconButton label="Show source" onClick={toggleSource} aria-expanded={false} aria-controls="source" ref={sourceToggle}>
-                      <PanelLeftOpen />
-                    </IconButton>
+                    <SourceToggle collapsed={collapsed} onToggle={toggleSource}>
+                      {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+                    </SourceToggle>
                     <span className="ml-1.5">Preview</span>
                   </>
-                ) : (
-                  "Preview"
                 )
               }
             >
@@ -457,25 +436,23 @@ function TitleInput({ value, onCommit }: { value: string; onCommit: (v: string) 
   )
 }
 
-/** A quiet icon button with its label as a tooltip; anything else a button takes passes through. */
 function IconButton({
   label,
   shortcut,
+  onClick,
+  disabled,
   children,
-  ...props
-}: { label: string; shortcut?: string } & Omit<ComponentProps<typeof Button>, "aria-label" | "className">) {
+}: {
+  label: string
+  shortcut?: string
+  onClick: () => void
+  disabled?: boolean
+  children: React.ReactNode
+}) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label={label}
-          {...props}
-          // A ghost button reads as pressed while aria-expanded, as a menu's trigger is while its menu is open. The source
-          // toggle is expanded whenever the source shows, so it keeps the quiet look of the buttons beside it.
-          className="text-muted-foreground aria-expanded:bg-transparent aria-expanded:text-muted-foreground aria-expanded:hover:bg-muted aria-expanded:hover:text-foreground dark:aria-expanded:hover:bg-muted/50"
-        >
+        <Button variant="ghost" size="icon-sm" aria-label={label} onClick={onClick} disabled={disabled} className="text-muted-foreground">
           {children}
         </Button>
       </TooltipTrigger>
@@ -483,6 +460,32 @@ function IconButton({
         {label}
         {shortcut && <span className="ml-2 text-background/70">{shortcut}</span>}
       </TooltipContent>
+    </Tooltip>
+  )
+}
+
+/**
+ * Hides and shows the source pane, and stays where it is either way, so focus stays on it. It's a disclosure, expanded
+ * whenever the source shows, so unlike a menu's trigger it doesn't look pressed then.
+ */
+function SourceToggle({ collapsed, onToggle, children }: { collapsed: boolean; onToggle: () => void; children: React.ReactNode }) {
+  const label = collapsed ? "Show source" : "Hide source"
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={label}
+          aria-expanded={!collapsed}
+          aria-controls="source"
+          onClick={onToggle}
+          className="text-muted-foreground aria-expanded:bg-transparent aria-expanded:text-muted-foreground aria-expanded:hover:bg-muted aria-expanded:hover:text-foreground dark:aria-expanded:hover:bg-muted/50"
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
     </Tooltip>
   )
 }

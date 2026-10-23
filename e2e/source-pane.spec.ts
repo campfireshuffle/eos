@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
 
-import { editorText, expectEditor, newDiagram, openEditor, tool, withAgentTools } from "./helpers"
+import { expectEditor, newDiagram, openEditor, tool, withAgentTools } from "./helpers"
 
 const SOURCE = "flowchart TD\n  A --> B"
 
@@ -27,7 +27,6 @@ for (const { viewport, axis } of [
     await expect(hide).toHaveAttribute("aria-controls", "source")
     await hide.click()
     const show = page.getByRole("button", { name: "Show source" })
-    await expect(show).toBeFocused()
     await expect(show).toHaveAttribute("aria-expanded", "false")
     await expect(show).toHaveAttribute("aria-controls", "source")
     // Desktop: the preview takes the whole width. Phone: the source keeps just its header bar.
@@ -38,32 +37,40 @@ for (const { viewport, axis } of [
     await expect(editor).not.toBeInViewport()
 
     await show.click()
-    await expect(editor).toBeFocused()
-    await expect(page.getByRole("button", { name: "Hide source" })).toHaveAttribute("aria-expanded", "true")
+    await expect(hide).toHaveAttribute("aria-expanded", "true")
     await expect.poll(() => size(page, "source", axis)).toBeCloseTo(before.source, 0)
     expect(await size(page, "preview", axis)).toBeCloseTo(before.preview, 0)
 
+    await editor.click()
     await page.keyboard.press("ControlOrMeta+End")
     await page.keyboard.type("\nB --> C")
     await expectEditor(page, `${SOURCE}\n  B --> C`)
   })
 }
 
-test("the toggle works from the keyboard, and focus follows it", async ({ page }) => {
+test("the toggle works from the keyboard, focus stays on it, and nothing hidden is a Tab stop", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   await openEditor(page, await newDiagram(page, SOURCE))
   await page.getByRole("button", { name: "Hide source" }).focus()
   await page.keyboard.press("Enter")
-  await expect(page.getByRole("button", { name: "Show source" })).toBeFocused()
-  // Nothing in the hidden pane is a Tab stop.
+  const show = page.getByRole("button", { name: "Show source" })
+  await expect(show).toBeFocused()
   for (const key of ["Shift+Tab", "Shift+Tab", "Tab", "Tab", "Tab"]) {
     await page.keyboard.press(key)
     expect(await page.evaluate(() => document.getElementById("source")!.contains(document.activeElement))).toBe(false)
   }
-  await page.getByRole("button", { name: "Show source" }).focus()
+  await show.focus()
   await page.keyboard.press("Space")
-  await expect(page.getByRole("textbox", { name: "Mermaid source" })).toBeFocused()
-  await expect(page.getByRole("button", { name: "Hide source" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Hide source" })).toBeFocused()
+
+  // On a phone too: showing the source doesn't put focus in the editor, which would raise the keyboard.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole("button", { name: "Hide source" }).focus()
+  await page.keyboard.press("Enter")
+  await expect(show).toBeFocused()
+  await page.keyboard.press("Enter")
+  await expect(page.getByRole("button", { name: "Hide source" })).toBeFocused()
+  await expect(page.getByRole("textbox", { name: "Mermaid source" })).not.toBeFocused()
 })
 
 test("an agent's edit made while the source is hidden is there when it's shown", async ({ page }) => {
@@ -93,8 +100,20 @@ test("the source stays hidden after a reload, and across the switch to the stack
   await page.setViewportSize({ width: 1280, height: 800 })
   await expect.poll(() => size(page, "source", "width")).toBe(0)
   await page.getByRole("button", { name: "Show source" }).click()
-  await expect.poll(() => size(page, "source", "width")).toBeGreaterThanOrEqual(280)
-  expect(await editorText(page)).toBe(SOURCE)
+  await expect.poll(() => size(page, "source", "width")).toBeGreaterThan(0)
+  await expectEditor(page, SOURCE)
+})
+
+test("after a reload, showing the source brings back the split it had before it was hidden", async ({ page }) => {
+  test.fail(true, "react-resizable-panels keeps the size to expand to only in memory: campfireshuffle/eos#24")
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await openEditor(page, await newDiagram(page, SOURCE))
+  const before = await size(page, "source", "width")
+  await page.getByRole("button", { name: "Hide source" }).click()
+  await expect.poll(() => size(page, "source", "width")).toBe(0)
+  await page.reload()
+  await page.getByRole("button", { name: "Show source" }).click()
+  await expect.poll(() => size(page, "source", "width"), { timeout: 2000 }).toBeCloseTo(before, 0)
 })
 
 test("dragging the splitter to the edge hides the source", async ({ page }) => {
