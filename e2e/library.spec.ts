@@ -499,6 +499,86 @@ test("going back right after typing leaves the search in the entry it was typed 
   await expect(search).toHaveValue(q!)
 })
 
+/** Types each of `values` into the search box within one task, so no write of the typing comes due in between. */
+const typeAtOnce = (search: Locator, values: string[], then?: "blur") =>
+  search.evaluate(
+    (el: HTMLInputElement, [values, then]) => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!
+      el.focus()
+      for (const v of values) {
+        set.call(el, v)
+        el.dispatchEvent(new Event("input", { bubbles: true }))
+      }
+      const typed = location.hash
+      if (then === "blur") el.blur()
+      return [typed, location.hash]
+    },
+    [values, then] as const
+  )
+
+test("leaving the search box writes the typing still due, so Back returns to it", async ({ page }) => {
+  await page.goto("/#/")
+  const search = page.getByRole("textbox", { name: "Search diagrams" }).first()
+  // Only the first keystroke is written at once; leaving the box writes the rest.
+  expect(await typeAtOnce(search, ["W", "We", "Wel"], "blur")).toEqual(["#/?q=W", "#/?q=Wel"])
+  await search.click()
+  await page.keyboard.type("come")
+  await page.keyboard.press("Escape")
+  await expect(search).toHaveValue("Welcome")
+  await expect(page).toHaveURL(/#\/\?q=Welcome$/)
+  await page.locator("[data-card-id]").first().click()
+  await page.locator(".cm-content").waitFor()
+  await page.goBack()
+  await expect(search).toHaveValue("Welcome")
+  await expect(page).toHaveURL(/#\/\?q=Welcome$/)
+})
+
+test("a search set elsewhere shows in the box at once, and typing still due isn't written over it", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  await page.goto("/#/?tag=fruit")
+  await page.waitForFunction(() => "__tools" in window && "set_view" in (window as unknown as { __tools: object }).__tools)
+  const search = page.getByRole("textbox", { name: "Search diagrams" }).first()
+  const q = () => new URLSearchParams(new URL(page.url()).hash.split("?")[1]).get("q")
+
+  // The entry's URL replaced by something else, as a link to it or the person's Move tag can.
+  expect(await typeAtOnce(search, ["a", "ap"])).toEqual(["#/?tag=fruit&q=a", "#/?tag=fruit&q=a"])
+  await page.evaluate(() => navigation.navigate("#/?tag=fruit&q=pear", { history: "replace" }))
+  await expect(search).toHaveValue("pear")
+  // Past any write still due from the typing.
+  await page.waitForTimeout(400)
+  expect(q()).toBe("pear")
+  await expect(search).toHaveValue("pear")
+
+  // An agent's set_view opens a new entry, which shows the URL's search, not the typing.
+  expect(await typeAtOnce(search, ["pearl", "pearls"])).toEqual(["#/?tag=fruit&q=pearl", "#/?tag=fruit&q=pearl"])
+  await tool(page, "set_view", { filters: { starred: true } })
+  await expect(page).toHaveURL(/starred=1/)
+  await expect(search).toHaveValue("pearl")
+  await page.waitForTimeout(400)
+  expect(q()).toBe("pearl")
+  await expect(search).toHaveValue("pearl")
+  await page.goBack()
+  await expect(search).toHaveValue("pearl")
+  expect(q()).toBe("pearl")
+})
+
+test("a search composed with an IME reaches the box and the URL as committed", async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "only Chromium's IME can be driven")
+  await page.goto("/#/")
+  const search = page.getByRole("textbox", { name: "Search diagrams" }).first()
+  await search.click()
+  const cdp = await page.context().newCDPSession(page)
+  for (const text of ["n", "ni", "nih", "niha", "nihao"])
+    await cdp.send("Input.imeSetComposition", { text, selectionStart: text.length, selectionEnd: text.length })
+  await cdp.send("Input.insertText", { text: "你好" })
+  await page.keyboard.type("吗")
+  await expect(search).toHaveValue("你好吗")
+  await expect.poll(() => new URLSearchParams(new URL(page.url()).hash.split("?")[1]).get("q")).toBe("你好吗")
+  await page.waitForTimeout(400)
+  await expect(search).toHaveValue("你好吗")
+})
+
 for (const viewport of [
   { width: 1280, height: 800 },
   { width: 390, height: 844 },

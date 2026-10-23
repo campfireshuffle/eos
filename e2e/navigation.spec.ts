@@ -2,7 +2,7 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test"
 
 import { focusNext, tool, withAgentTools } from "./helpers"
 
-/** Waits out the scroll to the top that a new search's results make, in the frame after they show. */
+/** Waits out the frame after a search's results show, in which a phone puts the position back again while typing. */
 const searchScrolled = (page: Page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
 
 /** A library long enough to scroll, open at `hash`. */
@@ -20,7 +20,7 @@ async function library(context: BrowserContext, hash: string) {
     // The scroll event for getting there fires with the next frame; wait it out, so it's saved and not mistaken for a later scroll.
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
   }
-  // Past the frames a scroll restore takes to settle.
+  // Past any scroll still to come, so a position that holds is the one kept.
   const settledTop = async () => (await page.waitForTimeout(300), scroller.evaluate((el) => el.scrollTop))
   return { page, cards, scrollTo, settledTop }
 }
@@ -46,6 +46,17 @@ test("changing the sort keeps the scroll position, however the page was reached"
   await page.getByLabel("Sort").selectOption("created")
   await expect(cards.first()).toContainText("Diagram 23")
   expect(await settledTop()).toBe(500)
+})
+
+test("crossing 768px puts the library's scroll position in the scroller it moves to, and back", async ({ context }) => {
+  const { page, cards, scrollTo, settledTop } = await library(context, "/?sort=title")
+  await expect(cards.first()).toContainText("Diagram 0")
+  await scrollTo(400)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect.poll(() => page.evaluate(() => scrollY)).toBe(400)
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await expect.poll(() => page.locator(".eos-library-scroller").evaluate((el) => el.scrollTop)).toBe(400)
+  expect(await settledTop()).toBe(400)
 })
 
 test("back returns to where the library was scrolled after searching", async ({ context }) => {
@@ -362,6 +373,65 @@ for (const [size, viewport] of Object.entries({ desktop: { width: 1280, height: 
       await expect(search).toHaveValue("Diagram 0")
       await page.waitForTimeout(300)
       expect(await top()).toBe(800)
+    })
+
+    test("reload returns to where a search's results were scrolled", async ({ context }) => {
+      const { page, cards, top, scrollTo, search } = await longLibrary(context)
+      await search.fill("Diagram")
+      await expect(page).toHaveURL(/q=Diagram/)
+      await expect(cards.filter({ hasText: "Login flow" })).toHaveCount(0)
+      await searchScrolled(page)
+      await scrollTo(1500)
+      await page.reload()
+      await expect(search).toHaveValue("Diagram")
+      await expect(cards.filter({ hasText: "Diagram 148" })).toHaveCount(1)
+      await page.waitForTimeout(300)
+      expect(await top()).toBe(1500)
+    })
+
+    test("changes from another tab leave the library where it was scrolled", async ({ context }) => {
+      const { page, cards, top, scrollTo } = await longLibrary(context)
+      await scrollTo(1500)
+      const other = await context.newPage()
+      await other.goto("/#/")
+      await other.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+      const { id } = await tool<{ id: string }>(other, "create_diagram", { title: "Zebra", open: false })
+      await expect(cards).toHaveCount(152)
+      expect(await top()).toBe(1500)
+      await tool(other, "update_diagram", { id, starred: true })
+      await expect(cards.filter({ hasText: "Zebra" }).locator(".lucide-star")).toHaveCount(1)
+      expect(await top()).toBe(1500)
+      await other.locator(`[data-card-id="${id}"]`).click({ button: "right" })
+      await other.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Delete" }).click()
+      await other.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click()
+      await expect(cards).toHaveCount(151)
+      await page.waitForTimeout(300)
+      expect(await top()).toBe(1500)
+    })
+
+    test("a search typed right after going back to one whose position no longer fits starts at the top", async ({ context }) => {
+      const { page, cards, top, scrollTo, search } = await longLibrary(context)
+      await search.fill("Diagram")
+      await expect(page).toHaveURL(/q=Diagram/)
+      await expect(cards.filter({ hasText: "Login flow" })).toHaveCount(0)
+      await searchScrolled(page)
+      await scrollTo(3000)
+      await page.evaluate(() => (location.hash = "/?starred=1"))
+      await expect(search).toHaveValue("")
+      // All but five of its results renamed while away, so its position no longer fits.
+      await page.evaluate(async () => {
+        const tools = (window as unknown as { __tools: Record<string, { execute(x: unknown): Promise<unknown> }> }).__tools
+        const { diagrams } = (await tools.get_library.execute({})) as { diagrams: { id: string; title: string }[] }
+        for (const d of diagrams.filter((d) => /^Diagram (0(0[5-9]|[1-9]\d)|1\d\d)$/.test(d.title)))
+          await tools.update_diagram.execute({ id: d.id, title: d.title.replace("Diagram", "Other") })
+      })
+      await page.goBack()
+      await expect(cards).toHaveCount(5)
+      await search.selectText()
+      await search.pressSequentially("Other")
+      await expect(cards).toHaveCount(144)
+      await page.waitForTimeout(300)
+      expect(await top()).toBe(0)
     })
 
     test("back and forward between a search and Starred return to where each was scrolled", async ({ context }) => {

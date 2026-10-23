@@ -1,7 +1,5 @@
 import { tagMatches, type LibrarySort, type TagPath } from "@eos/core"
 
-import { useHash } from "./history"
-
 export type LibraryGroup = "date" | "subtag" | "none"
 
 export type Route =
@@ -70,5 +68,3 @@ export function followTag(from: TagPath, to: TagPath | null) {
   if (route.name !== "home" || !route.tag || !tagMatches(route.tag, from)) return
   navigate(homeHref({ ...route, tag: to && to + route.tag.slice(from.length) }), { replace: true })
 }
-
-export const useRoute = (): Route => parseRoute(useHash())

@@ -9,10 +9,10 @@ import { NativeSelect, NativeSelectOption } from "@workspace/ui/components/nativ
 
 import { useEos, useLibrary, useTags } from "@/lib/eos"
 import { groupRows } from "@/lib/grouping"
-import { entryKey, useHistoryEntry } from "@/lib/history"
+import { entryKey } from "@/lib/history"
 import { diagramHref, homeHref, navigate, parseRoute, type LibraryGroup, type Route } from "@/lib/router"
 import { useIsMobile } from "@/lib/layout"
-import { useScrollRestoration } from "@/lib/scroll-restore"
+import { startTypedSearchAtTop, useScrollRestoration } from "@/lib/scroll-restore"
 import { clearSelection, getSelection, setSelection } from "@/lib/selection"
 
 import { CardHint, DiagramCard } from "./diagram-card"
@@ -21,57 +21,16 @@ import { SelectionBar } from "./selection-bar"
 import { Pill } from "./pill"
 import { Page, PageHeader, PageTitle, Panel, PanelHeader } from "./page"
 
-export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
+export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>; entry: string }) {
   const eos = useEos()
   // Everything about the view lives in the URL, so back/forward and reload restore it.
-  // The search box shows what's typed at once and the URL follows at most every 150ms,
-  // as Safari throws once a page rewrites its URL more than 100 times in 10 seconds.
-  const [query, setQuery] = useState(route.q)
-  const entry = useHistoryEntry()
-  // The URL's search as last written or read, and the history entry it belongs to.
-  const synced = useRef({ entry, q: route.q })
-  const typed = useRef(route.q)
-  const throttle = useRef<ReturnType<typeof setTimeout>>(undefined)
-  const write = () => {
-    const q = typed.current
-    // Only into the entry the typing started in: once that's been left, its URL is the one to show.
-    if (entryKey() !== synced.current.entry || q === synced.current.q) return false
-    synced.current.q = q
-    // Typing replaces the current history entry rather than adding one per keystroke.
-    const now = parseRoute(location.hash)
-    if (now.name === "home") navigate(homeHref({ ...now, q }), { replace: true })
-    return true
+  const { query, type, flush } = useUrlSearch(entry, route.q)
+  // A search the person types starts at the top, where its best match is; back/forward, links and agents keep the
+  // position the entry restores.
+  const search = (q: string) => {
+    if (q.trim() !== query.trim()) startTypedSearchAtTop(entry)
+    type(q)
   }
-  // Writes now, then once more at the end of each 150ms that brought more typing.
-  const tick = () => void (throttle.current = write() ? setTimeout(tick, 150) : undefined)
-  // A search the person types starts at the top once its results show; set nowhere else, so back/forward, links
-  // and agents keep the position the entry restores.
-  const newSearch = useRef<string>(undefined)
-  const type = (q: string) => {
-    setQuery(q)
-    typed.current = q
-    newSearch.current = q.trim() === (library?.filter.query?.trim() ?? "") ? undefined : q.trim()
-    if (!throttle.current) tick()
-  }
-  // A new entry or search in the URL shows in the box in the same render, so the library never loads one view with
-  // another's search. Our own write coming back is what's in the box already.
-  const [url, setUrl] = useState({ entry, q: route.q })
-  if (entry !== url.entry || route.q !== url.q) {
-    setUrl({ entry, q: route.q })
-    setQuery(route.q)
-  }
-  // A search set elsewhere (back/forward, an agent, a link) also drops typing still due to be written.
-  useEffect(() => {
-    if (entry === synced.current.entry && route.q === synced.current.q) return
-    synced.current = { entry, q: route.q }
-    typed.current = route.q
-    newSearch.current = undefined
-    clearTimeout(throttle.current)
-    throttle.current = undefined
-  }, [entry, route.q])
-  useEffect(() => () => clearTimeout(throttle.current), [])
-  // Leaving the box, e.g. to open a result, saves typing still due so back returns to it.
-  const flush = () => void write()
   const view = { starred: route.starred, deleted: route.deleted, tags: route.tag ? [route.tag] : [], sort: route.sort }
   const library = useLibrary({ query, ...view })
   const rows = library?.rows
@@ -82,17 +41,10 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   // Back/forward returns to where you were. Phones scroll the page; desktop scrolls this pane.
   const mobile = useIsMobile()
   const scroller = useRef<HTMLDivElement>(null)
-  // Restored into the URL's view, once its rows show: until then, the last view's rows are still on screen, or ones
-  // loaded before the search box has caught up with the URL.
+  // Put back once the URL's own rows show: until then, the last view's rows are still on screen, or ones loaded for
+  // typing not yet in the URL.
   const shown = !!library && JSON.stringify(library.filter) === JSON.stringify({ query: route.q, ...view })
-  useScrollRestoration(mobile ? null : scroller, shown, [homeHref({ ...route, q: "" }), mobile])
-  // The typed search's results show at the top, where its best match is.
-  // After a frame: WebKit moves a page scrolled before then partway back down.
-  useEffect(() => {
-    if (!library || newSearch.current !== (library.filter.query?.trim() ?? "")) return
-    newSearch.current = undefined
-    requestAnimationFrame(() => (mobile ? window : scroller.current)?.scrollTo({ top: 0 }))
-  }, [library, mobile])
+  useScrollRestoration(mobile ? null : scroller, entry, shown)
   const emoji = route.tag ? findEmoji(tags ?? [], route.tag) : null
   const empty = rows?.length === 0
   useEffect(() => clearSelection(), [route.tag, route.starred, route.deleted])
@@ -118,7 +70,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={query}
-              onChange={(e) => type(e.target.value)}
+              onChange={(e) => search(e.target.value)}
               onFocus={() => eos.prepareSearch()}
               onBlur={flush}
               placeholder="Search"
@@ -134,7 +86,7 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
           <Search className="pointer-events-none absolute top-1/2 left-4.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
-            onChange={(e) => type(e.target.value)}
+            onChange={(e) => search(e.target.value)}
             onFocus={() => eos.prepareSearch()}
             onBlur={flush}
             placeholder="Search"
@@ -229,4 +181,39 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
       <SelectionBar deleted={route.deleted} />
     </Page>
   )
+}
+
+/**
+ * The search box: the URL's search, with what the person has typed on top until it's written. Typing replaces the
+ * history entry rather than adding one, at most every 150ms, as Safari throws once a page rewrites its URL more than
+ * 100 times in 10 seconds.
+ */
+function useUrlSearch(entry: string, q: string) {
+  // Typing, with the entry and the URL's search it was typed over. It shows only while both still hold, so a search set
+  // elsewhere (back/forward, an agent, a link) shows at once, and isn't written over.
+  const [draft, setDraft] = useState<{ entry: string; base: string; q: string }>()
+  const latest = useRef(draft)
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const write = () => {
+    const d = latest.current
+    const now = parseRoute(location.hash)
+    if (!d || d.q === d.base || d.entry !== entryKey() || now.name !== "home" || now.q !== d.base) return false
+    navigate(homeHref({ ...now, q: d.q }), { replace: true })
+    return true
+  }
+  // Writes now, then once more at the end of each 150ms that brought more typing. Once there's nothing left to write,
+  // the typing is either in the URL or was typed over a URL since left, so it's dropped.
+  const tick = () => {
+    timer.current = write() ? setTimeout(tick, 150) : undefined
+    if (!timer.current) setDraft((latest.current = undefined))
+  }
+  return {
+    query: draft && draft.entry === entry && draft.base === q ? draft.q : q,
+    type: (text: string) => {
+      setDraft((latest.current = { entry, base: q, q: text }))
+      if (!timer.current) tick()
+    },
+    // Leaving the box, e.g. to open a result, writes typing still due, so Back returns to it.
+    flush: () => void write(),
+  }
 }
