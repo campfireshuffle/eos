@@ -17,6 +17,17 @@ export function useIsMobile(): boolean {
 }
 
 /**
+ * The narrowest the shell lets a page get on desktop, and the editor's minimums within it. Invariant: the source's and
+ * the preview's minimums, and the splitter between them, fit the narrowest page at once, so at every width the shell
+ * allows the editor's limits can all be met and a hidden source can always be shown again. The preview gets what the
+ * source's minimum leaves, since its header holds more controls.
+ */
+export const PAGE_MIN_PX = 360
+const SPLITTER_PX = 8 // ResizeHandle's gutter
+export const SOURCE_MIN_PX = 160
+export const PREVIEW_MIN_PX = PAGE_MIN_PX - SPLITTER_PX - SOURCE_MIN_PX
+
+/**
  * Whether `panel` is collapsed, as the panel itself has it, asked again each time it resizes. Pass `onResize` to the
  * Panel. Until the panel has mounted, it's `before`.
  */

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Locator, type Page } from "@playwright/test"
 
 import { cursorAtEndOf, expectEditor, newDiagram, openEditor, tool, withAgentTools } from "./helpers"
 
@@ -47,6 +47,51 @@ for (const { viewport, axis } of [
     await expectEditor(page, `${SOURCE}\n  B --> C`)
   })
 }
+
+// Narrow desktop windows with the sidebar open leave the editor less room than the source's and the preview's minimums
+// used to add up to, so the source couldn't be shown again.
+for (const width of [780, 820, 834]) {
+  test(`at ${width}px wide with the sidebar open, hiding and showing the source brings it back`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 })
+    await openEditor(page, await newDiagram(page, SOURCE))
+    await expect(page.locator("[data-panel]#sidebar")).not.toHaveAttribute("inert")
+    await page.getByRole("button", { name: "Hide source" }).click()
+    await expect.poll(() => size(page, "source", "width")).toBe(0)
+    await page.getByRole("button", { name: "Show source" }).click()
+    await expect(page.getByRole("button", { name: "Hide source" })).toHaveAttribute("aria-expanded", "true")
+    await expect.poll(() => size(page, "source", "width")).toBeGreaterThan(0)
+    await expect(page.getByRole("textbox", { name: "Mermaid source" })).toBeInViewport()
+  })
+}
+
+test("at 768px wide with the sidebar as wide as it goes, the source can be shown, and the splitter stops at both minimums", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 768, height: 800 })
+  await openEditor(page, await newDiagram(page, SOURCE))
+  const drag = async (handle: Locator, toX: number) => {
+    const box = (await handle.boundingBox())!
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(toX, box.y + box.height / 2, { steps: 10 })
+    await page.mouse.up()
+  }
+  // The page is then as narrow as the shell lets it get.
+  await drag(page.getByRole("separator").first(), 760)
+  expect(await size(page, "content", "width")).toBeCloseTo(360, 0)
+
+  await page.getByRole("button", { name: "Hide source" }).click()
+  await expect.poll(() => size(page, "source", "width")).toBe(0)
+  await page.getByRole("button", { name: "Show source" }).click()
+  await expect(page.getByRole("button", { name: "Hide source" })).toHaveAttribute("aria-expanded", "true")
+  await expect.poll(() => size(page, "source", "width")).toBeGreaterThanOrEqual(160)
+  expect(await size(page, "preview", "width")).toBeGreaterThanOrEqual(192 - 0.5)
+
+  // Towards the window's edge, the preview stops at its minimum, and the source takes the rest.
+  await drag(page.getByRole("separator").last(), 767)
+  expect(await size(page, "preview", "width")).toBeCloseTo(192, 0)
+  expect(await size(page, "source", "width")).toBeCloseTo(160, 0)
+})
 
 test("the toggle works from the keyboard, focus stays on it, and nothing hidden is a Tab stop", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })

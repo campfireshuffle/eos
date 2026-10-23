@@ -16,7 +16,7 @@ import { SettingsDialog } from "@/components/settings-dialog"
 import { Sidebar } from "@/components/sidebar"
 import { useDiagram, useEos, useSettings } from "@/lib/eos"
 import { useHistoryEntry } from "@/lib/history"
-import { isAnimating, sidebarPanel, useIsMobile } from "@/lib/layout"
+import { isAnimating, PAGE_MIN_PX, sidebarPanel, useIsMobile } from "@/lib/layout"
 import { diagramHref, homeHref, navigate, pageName, parseRoute, type Route } from "@/lib/router"
 import { applyTheme } from "@/lib/theme"
 import { getUi, setUi, useUi } from "@/lib/ui-state"
@@ -153,7 +153,7 @@ function Shell({ route, children }: { route: Route; children: ReactNode }) {
           {/* On phones the page itself scrolls (so Safari can collapse its toolbar); the editor pins itself to the viewport. */}
           <ResizablePanel
             id="content"
-            minSize={mobile ? undefined : "360px"}
+            minSize={mobile ? undefined : `${PAGE_MIN_PX}px`}
             className={mobile ? "flex min-h-svh flex-col" : "flex min-w-0"}
           >
             {children}

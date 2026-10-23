@@ -33,7 +33,7 @@ import { useDefaultLayout, useGroupRef, usePanelRef } from "react-resizable-pane
 
 import { useDiagram, useEos } from "@/lib/eos"
 import { useCopy } from "@/lib/use-copy"
-import { togglePanel, useIsMobile, usePanelCollapsed } from "@/lib/layout"
+import { PREVIEW_MIN_PX, SOURCE_MIN_PX, togglePanel, useIsMobile, usePanelCollapsed } from "@/lib/layout"
 import { homeHref } from "@/lib/router"
 import { requestZoom, setUi, useUi } from "@/lib/ui-state"
 
@@ -275,7 +275,7 @@ export function Editor({ id }: { id: string }) {
           id="source"
           panelRef={sourcePanel}
           defaultSize="42%"
-          minSize={mobile ? "120px" : "280px"}
+          minSize={mobile ? "120px" : `${SOURCE_MIN_PX}px`}
           collapsible
           collapsedSize={mobile ? "48px" : "0px"}
           onResize={onResize}
@@ -350,7 +350,7 @@ export function Editor({ id }: { id: string }) {
         <ResizeHandle
           className={mobile ? "h-px! bg-border before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-['']" : undefined}
         />
-        <ResizablePanel id="preview" minSize={mobile ? "160px" : "320px"} className="flex">
+        <ResizablePanel id="preview" minSize={mobile ? "160px" : `${PREVIEW_MIN_PX}px`} className="flex">
           <Panel as="section" split="end" className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
             <PanelHeader
               title={
