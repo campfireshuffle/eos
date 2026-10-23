@@ -17,6 +17,31 @@ export function tool<T = Record<string, unknown>>(page: Page, name: string, inpu
   ) as Promise<T>
 }
 
+/**
+ * Adds `diagrams` to the library open in `page` in one import, so seeding a long library costs the same whatever the
+ * page shows: one at a time, each would redraw the library's whole grid (issue #25). They're made in a context of
+ * their own, on a page without the library, and exported from there as a backup.
+ */
+export async function seedLibrary(page: Page, diagrams: { title: string; starred?: boolean; tags?: string[] }[]) {
+  const scratch = await page.context().browser()!.newContext()
+  await withAgentTools(scratch)
+  const maker = await scratch.newPage()
+  await maker.goto(new URL("/#/d/none", page.url()).href)
+  await maker.waitForFunction(() => "__tools" in window && "export" in (window as unknown as { __tools: object }).__tools)
+  const data = await maker.evaluate(async (diagrams) => {
+    const tools = (window as unknown as { __tools: Record<string, { execute(x: unknown): Promise<unknown> }> }).__tools
+    const ids = new Set<string>()
+    for (const d of diagrams) ids.add(((await tools.create_diagram.execute({ ...d, open: false })) as { id: string }).id)
+    const backup = JSON.parse(((await tools.export.execute({ format: "backup" })) as { data: string }).data)
+    // Only these, not the scratch library's welcome diagram.
+    backup.diagrams = backup.diagrams.filter((d: { id: string }) => ids.has(d.id))
+    return JSON.stringify(backup)
+  }, diagrams)
+  await scratch.close()
+  await page.waitForFunction(() => "__tools" in window && "import_backup" in (window as unknown as { __tools: object }).__tools)
+  expect(await tool(page, "import_backup", { data, mode: "merge" })).toMatchObject({ ok: true })
+}
+
 export async function newDiagram(page: Page, source: string): Promise<string> {
   await page.goto("/#/")
   await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)

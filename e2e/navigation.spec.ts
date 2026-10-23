@@ -1,6 +1,6 @@
 import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test"
 
-import { focusNext, tool, withAgentTools } from "./helpers"
+import { focusNext, seedLibrary, tool, withAgentTools } from "./helpers"
 
 /** Waits out the frame after a search's results show, in which a phone puts the position back again while typing. */
 const searchScrolled = (page: Page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
@@ -298,18 +298,21 @@ for (const [size, viewport] of Object.entries({ desktop: { width: 1280, height: 
       Array.from({ length: n }, (_, i) => ({ title: `${name} ${String(i).padStart(3, "0")}`, starred }))
 
     /** By default 150 cards, sorted so "Login flow" comes last. Desktop scrolls the library's pane; phones scroll the page. */
-    async function longLibrary(context: BrowserContext, diagrams = [...numbered("Diagram", 149), { title: "Login flow", starred: false }]) {
+    async function longLibrary(
+      context: BrowserContext,
+      diagrams: { title: string; starred?: boolean; tags?: string[] }[] = [
+        ...numbered("Diagram", 149),
+        { title: "Login flow", starred: false },
+      ],
+      { hash = "/?sort=title", copies = 1 } = {}
+    ) {
       await withAgentTools(context)
       const page = await context.newPage()
       await page.goto("/#/")
-      await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
-      await page.evaluate(async (diagrams) => {
-        const tools = (window as unknown as { __tools: Record<string, { execute(x: unknown): Promise<unknown> }> }).__tools
-        for (const d of diagrams) await tools.create_diagram.execute({ ...d, open: false })
-      }, diagrams)
-      await page.evaluate(() => (location.hash = "/?sort=title"))
+      await seedLibrary(page, diagrams)
+      await page.evaluate((hash) => (location.hash = hash), hash)
       const cards = page.locator("[data-card-id]")
-      await expect(cards).toHaveCount(diagrams.length + 1) // and the welcome diagram
+      await expect(cards).toHaveCount(diagrams.length * copies + 1) // and the welcome diagram
       const top = () => page.evaluate((phone) => (phone ? scrollY : document.querySelector(".eos-library-scroller")!.scrollTop), phone)
       const scrollTo = async (y: number) => {
         const scrolled = () =>
@@ -474,6 +477,37 @@ for (const [size, viewport] of Object.entries({ desktop: { width: 1280, height: 
       await expect(cards).toHaveCount(144)
       await page.waitForTimeout(300)
       expect(await top()).toBe(0)
+    })
+
+    // Two views of the same diagrams that differ only in their grouping: under two tags each, Group: Subtag shows every
+    // diagram twice, so its position is past the end of the date-grouped view's. It's put back once the grid draws the
+    // subtag view, not against the date view still on screen.
+    test("back to a view grouped otherwise returns to where it was scrolled, once its own grouping shows", async ({ context }) => {
+      const { page, cards, top, scrollTo } = await longLibrary(
+        context,
+        numbered("Diagram", 120).map((d) => ({ ...d, tags: ["a", "b"] })),
+        { hash: "/?group=subtag", copies: 2 }
+      )
+      const end = await page.evaluate((phone) => {
+        const el = phone ? document.scrollingElement! : document.querySelector(".eos-library-scroller")!
+        return el.scrollHeight - el.clientHeight
+      }, phone)
+      const y = Math.round(end - 200)
+      await scrollTo(y)
+      if (phone) await page.getByRole("button", { name: "Show sidebar" }).click()
+      await page.getByRole("link", { name: "Eos", exact: true }).click()
+      await expect(page).not.toHaveURL(/group=/)
+      await expect(cards).toHaveCount(121)
+      await page.goBack()
+      await expect(page).toHaveURL(/group=subtag/)
+      await expect(cards).toHaveCount(241)
+      // Back at y, and still there a frame later, once nothing else can move it.
+      const held = async () => {
+        const at = await top()
+        await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+        return at === y && (await top()) === y
+      }
+      await expect.poll(held).toBe(true)
     })
 
     test("back and forward between a search and Starred return to where each was scrolled", async ({ context }) => {

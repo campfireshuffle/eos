@@ -150,12 +150,13 @@ test("a card dragged onto a tag or Starred gets it, and so does the selection it
   await card("Two").click({ button: "right" })
   await card("Three").click()
   await drag("Three", row, () => expect.poll(async () => (await diagram("Two")).tags, within).toEqual(["target"]))
-  expect((await diagram("Three")).tags).toEqual(["target"])
+  // Each card of the selection is written in its own change, so each one is waited for.
+  await expect.poll(async () => (await diagram("Three")).tags).toEqual(["target"])
 
   await drag("Two", page.getByRole("link", { name: /Starred/ }).first(), () =>
     expect.poll(async () => (await diagram("Two")).starred, within).toBe(true)
   )
-  expect((await diagram("Three")).starred).toBe(true)
+  await expect.poll(async () => (await diagram("Three")).starred).toBe(true)
   expect((await diagram("One")).starred).toBe(false)
 })
 
