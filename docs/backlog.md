@@ -513,9 +513,10 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
 
 - **The theme parser breaks on a ";" inside a quoted value.**
   - **What:** `parseVars` splits declarations with a regex. A value like `--x: "a;b";` ends at the quoted `;`, swallows the next declaration, and saves broken CSS.
+    - Also, declarations inside an `@media` block apply, though `docs/theming.md` says `@` rules are ignored (`theme.ts:51-56`).
   - **Where:** `apps/web/src/lib/theme.ts`, `parseVars` (about line 51). Repro: A3 `arch/specs/css.spec.ts`.
   - **Why low:** custom properties with quoted semicolons are rare in a theme.
-  - **Fix:** platform-first. Parse with `new CSSStyleSheet().replaceSync(css)` and walk the rules' `style` declarations, keeping `--*` properties.
+  - **Fix:** platform-first. Parse with `new CSSStyleSheet().replaceSync(css)` and walk the top-level style rules' `style` declarations, keeping `--*` properties (which also drops `@media` blocks, as documented).
 
 - **preview.spec's "after Back to latest/Restore, focus is back in the source" can time out under load.**
   - **What:** it failed once each on Firefox and WebKit under the full suite. The Restore's IndexedDB write sometimes outlasts the default 4 s expect, and it passed 30/30 with a 15 s timeout. It isn't a product race.
@@ -799,9 +800,9 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Fix:** scale down to fit the canvas limit, or say why it failed and suggest SVG.
 
 - **Small landscape phones show only 1–2 lines of source.**
-  - **What:** the stacked editor split (42/58) leaves the Source pane about 30px tall on an iPhone SE in landscape (667×320). At 667×375 with an error showing, it shows no lines at all: the pane's header and error footer fill its 120px `minSize`.
+  - **What:** the stacked editor split (42/58) leaves the Source pane about 30px tall on an iPhone SE in landscape (667×320). At 667×375 with an error showing, it shows no lines at all: the pane's header and error footer fill its 120px `minSize`. A past version on a small portrait phone (320×568) shows only 2 source lines.
   - **Where:** `apps/web/src/components/editor.tsx` (the phone split via `setLayout`, and the source panel's `minSize` at about line 201).
-  - **Why low:** the splitter can be dragged; portrait works; it predates A7.
+  - **Why low:** the splitter can be dragged; portrait works above 320px wide; it predates A7.
   - **Fix:** below about 400px tall, give the source a minimum size (e.g. 50%), or put the panes side by side in landscape.
 
 - **A short search prefix-matches the diagram type keyword.**
@@ -1054,6 +1055,100 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** test timing only; they pass today.
   - **Fix:** `expect.poll` the position until it's stable, or until the expected value.
 
+- **Library rows are re-read on every typing pause.**
+  - **What:** each pause's index write emits `"library"`, which drops the cached rows, so the next library read loads every row again, full source included. At 2000 diagrams of 1000 lines that's about 100 ms.
+  - **Where:** `packages/core/src/store.ts`, `emit` (about line 169) and `allRows`. Related to "The search index is rebuilt on every library event".
+  - **Why low:** only very large libraries notice it.
+  - **Fix:** patch the cached rows per diagram instead of dropping them, or leave the full source out of the rows the library reads.
+
+- **`readBackup` never frees its decode docs.**
+  - **What:** `decode` loads each diagram into a throwaway `LoroDoc` to check it, and never calls `free()`. A 67 MB backup holds about 265 MB until GC runs.
+  - **Where:** `packages/core/src/store.ts`, `readBackup` (about line 1052).
+  - **Why low:** the memory is reclaimed eventually, and backups that large are rare.
+  - **Fix:** `const doc = new LoroDoc(); try { doc.import(bytes) } finally { doc.free() }`.
+
+- **A damaged workspace snapshot stops Eos starting.**
+  - **What:** `Eos.create` loads the workspace doc with no recovery path, so if its snapshot or log can't be imported, the app can't open. Not reproduced.
+  - **Where:** `packages/core/src/store.ts`, `Eos.create`. Related to "A tab that starts while another tab stars a diagram misses the star".
+  - **Why low:** it needs damaged storage; diagrams are stored apart, and `repairRows` covers damaged ones.
+  - **Fix:** on a failed workspace load, start an empty workspace (losing only stars and tag emoji) and log it.
+
+- **Two save paths write a snapshot without a `pendingRows` mark.**
+  - **What:** the gap compact in `persistDoc`, and an import into an open diagram (`compact`, then `afterChange`), save the doc before its row with nothing marking the row as behind. A crash in between leaves a stale row that startup doesn't repair. Not reproduced.
+  - **Where:** `packages/core/src/docs.ts`, `persistDoc`; `packages/core/src/store.ts`, `importBackup` (about line 610).
+  - **Why low:** it needs a crash between two writes, and any later edit corrects the row.
+  - **Fix:** put the `pendingRows` mark in `compact`'s transaction when no row is written with it.
+
+- **Deleted is ordered by last edit, not by when diagrams were deleted.**
+  - **What:** `deletedAt` is written but never used for sorting, so a diagram deleted by mistake just now can sit at the bottom of Deleted.
+  - **Where:** `packages/core/src/store.ts`, `deleteDiagram` (lines 320-322) and `listDiagrams`.
+  - **Why low:** the diagram is still there, and search finds it.
+  - **Fix:** the owner's call, since it's new behaviour: sort Deleted by `deletedAt`, newest first.
+
+- **Deep or long tag names can't be read in the sidebar.**
+  - **What:** each level indents 18px, so tags 9 or more levels deep get a 0px-wide name in the 228px sidebar. A truncated name has no `title`, so hovering doesn't show it either.
+  - **Where:** `apps/web/src/components/tag-tree.tsx` (lines 169 and 181). Related to "Phones: a long tag pill can widen the page".
+  - **Why low:** it needs very deep or long tags; the tag still works, and its filter pill names it.
+  - **Fix:** cap the indent (e.g. at 6 levels), and add `title={tag.path}` to the name.
+
+- **Modified-sort ties fall back to random order.**
+  - **What:** Loro timestamps are whole seconds, so diagrams edited in the same second tie, and the order between them is their random UUIDs'.
+  - **Where:** `packages/core/src/docs.ts`, `lastChangeAt` (lines 312-315); `packages/core/src/store.ts`, `listDiagrams` (about line 214).
+  - **Why low:** only same-second edits, such as a bulk change, and the order is stable between reads.
+  - **Fix:** break ties by title, then id.
+
+- **RTL titles are clipped.**
+  - **What:** the title input has no `dir="auto"`, so an Arabic or Hebrew title is laid out left to right and can be cut off.
+  - **Where:** `apps/web/src/components/editor.tsx`, the title `<input>` (about line 382).
+  - **Why low:** the title is saved right, and cards show it in full.
+  - **Fix:** add `dir="auto"`.
+
+- **"Restore this version" has no error handling.**
+  - **What:** if `restoreVersion` throws, the rejection is unhandled, the preview stays open and nothing tells the person.
+  - **Where:** `apps/web/src/components/editor.tsx`, the button's `onClick` (about line 210).
+  - **Why low:** restoring a listed version doesn't fail in practice.
+  - **Fix:** catch it and show the error in the banner.
+
+- **`safeName` filenames have no length cap and keep a leading ".".**
+  - **What:** a long title gives a filename some systems refuse, and a title starting with "." gives a hidden file.
+  - **Where:** `apps/web/src/lib/files.ts`, `safeName`.
+  - **Why low:** it needs an unusual title, and the file is still saved.
+  - **Fix:** strip leading dots and cap the name at about 100 characters.
+
+- **update_diagram checks `expectedVersion` before the delete confirm.**
+  - **What:** with `deleted: true`, the version is checked, then the dialog waits. Edits the person makes while it's open aren't caught.
+  - **Where:** `packages/webmcp/src/index.ts`, `update_diagram` (line 350 vs lines 354-357).
+  - **Why low:** agent-only; the delete is reversible, and the person just approved it.
+  - **Fix:** check `expectedVersion` again after the confirm.
+
+- **set_view({ page: "library" }) with no filters wipes the person's view.**
+  - **What:** it calls `goHome`, which drops the search, the grouping and the Starred filter, where `setLibraryView` keeps what the agent leaves out.
+  - **Where:** `packages/webmcp/src/index.ts`, `set_view` (about line 443); `apps/web/src/lib/webmcp.ts`, `goHome`.
+  - **Why low:** agent-only, and the person can set them again.
+  - **Fix:** call `setLibraryView({})` instead of `goHome`.
+
+- **delete_tag on an unused tag still asks, then returns `diagrams: 0`.**
+  - **Where:** `packages/webmcp/src/index.ts`, `delete_tag` (about line 501).
+  - **Why low:** agent-only; nothing is lost.
+  - **Fix:** return `not_found` before asking when no diagram has the tag.
+
+- **In Chromium, an import that fills storage stops partway with no message.**
+  - **What:** QuotaExceededError has an empty `.message`, so the import's alert is empty.
+  - **Where:** `apps/web/src/components/settings-dialog.tsx` (lines 366 and 371). Related to "On a full disk, edits look saved but are lost on reload".
+  - **Why low:** it needs the storage quota to run out mid-import.
+  - **Fix:** show `message || name`, as `main.tsx:72-73` does.
+
+- **The "Eos has been updated" screen drops focus to the page.**
+  - **Where:** `apps/web/src/components/error-boundary.tsx`. Related to "A failed idle preload of the editor is never retried".
+  - **Why low:** the screen is rare, and Tab reaches Reload.
+  - **Fix:** focus the heading or the Reload button when it shows.
+
+- **The install splash is always dark.**
+  - **What:** the manifest's `background_color` is `#0e0e0e`, so an installed Eos opens on a dark splash in light mode too.
+  - **Where:** `apps/web/public/site.webmanifest`.
+  - **Why low:** it shows only for a moment at launch.
+  - **Fix:** a neutral colour; the manifest can't follow the colour scheme.
+
 ## Refactors to consider (from the round 11 cleanup review)
 
 - **What the preview shows, as one pure function.**
@@ -1087,7 +1182,7 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Fix:** add one `daysAgo(ms, now)`, and have both functions take `now` (cleanup #8). Add a property test across a DST change and a year boundary.
 
 - **Tag moves followed in one place.**
-  - **What:** every caller of `renameTag` or `deleteTag` has to remember `followTag`, and webmcp re-normalises the paths itself.
+  - **What:** every caller of `renameTag` or `deleteTag` has to remember `followTag`, and webmcp re-normalises the paths itself. `set_view` doesn't normalise `filters.tags` at all (`apps/web/src/lib/webmcp.ts:30`), so after `update_tag` a view set to the old spelling stays on a dead tag.
   - **Where:** `apps/web/src/lib/router.ts:72-76`, `tag-tree.tsx` (the `followTag` calls after `renameTag` and `deleteTag`), `packages/webmcp/src/index.ts:409-412, 503-505`.
   - **Why low:** every current caller does it.
   - **Fix:** have `renameTag` and `deleteTag` return the normalised `{ from, to }` they applied, or null when nothing changed, and pass that to `followTag` (cleanup #9).
