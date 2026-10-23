@@ -14,6 +14,7 @@ import { EmptyPage } from "@/components/page"
 import { SettingsDialog } from "@/components/settings-dialog"
 import { Sidebar } from "@/components/sidebar"
 import { useDiagram, useEos, useSettings } from "@/lib/eos"
+import { useHash } from "@/lib/history"
 import { sidebarPanel, useIsMobile } from "@/lib/layout"
 import { diagramHref, homeHref, navigate, useRoute, type Route } from "@/lib/router"
 import { applyTheme } from "@/lib/theme"
@@ -80,7 +81,7 @@ function Shell({ route, children }: { route: Route; children: ReactNode }) {
   const sidebar = <RouteSidebar route={route} />
 
   // Close the mobile drawer whenever the route changes.
-  const hash = location.hash
+  const hash = useHash()
   useEffect(() => setUi({ mobileNavOpen: false }), [hash])
 
   // One tree for phones and desktop, with the page in the same place in both: crossing 768px (rotating a phone) only

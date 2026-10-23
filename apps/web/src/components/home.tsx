@@ -44,30 +44,36 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   }
   // Writes now, then once more at the end of each 150ms that brought more typing.
   const tick = () => void (throttle.current = write() ? setTimeout(tick, 150) : undefined)
+  // A search the person types starts at the top once its results show; set nowhere else, so back/forward, links
+  // and agents keep the position the entry restores.
+  const newSearch = useRef<string>(undefined)
   const type = (q: string) => {
     setQuery(q)
     typed.current = q
+    newSearch.current = q.trim() === (library?.filter.query?.trim() ?? "") ? undefined : q.trim()
     if (!throttle.current) tick()
   }
-  // A search set elsewhere (back/forward, an agent, a link) shows in the box; our own write coming back changes nothing.
+  // A new entry or search in the URL shows in the box in the same render, so the library never loads one view with
+  // another's search. Our own write coming back is what's in the box already.
+  const [url, setUrl] = useState({ entry, q: route.q })
+  if (entry !== url.entry || route.q !== url.q) {
+    setUrl({ entry, q: route.q })
+    setQuery(route.q)
+  }
+  // A search set elsewhere (back/forward, an agent, a link) also drops typing still due to be written.
   useEffect(() => {
     if (entry === synced.current.entry && route.q === synced.current.q) return
     synced.current = { entry, q: route.q }
     typed.current = route.q
+    newSearch.current = undefined
     clearTimeout(throttle.current)
     throttle.current = undefined
-    setQuery(route.q)
   }, [entry, route.q])
   useEffect(() => () => clearTimeout(throttle.current), [])
   // Leaving the box, e.g. to open a result, saves typing still due so back returns to it.
   const flush = () => void write()
-  const library = useLibrary({
-    query,
-    starred: route.starred,
-    deleted: route.deleted,
-    tags: route.tag ? [route.tag] : [],
-    sort: route.sort,
-  })
+  const view = { starred: route.starred, deleted: route.deleted, tags: route.tag ? [route.tag] : [], sort: route.sort }
+  const library = useLibrary({ query, ...view })
   const rows = library?.rows
   // Search results are one list, best match first: grouped, the best match could sit under a later date or tag.
   // Decided by the search the shown rows were loaded with, so the view changes with the results, not a keystroke before.
@@ -76,18 +82,17 @@ export function Home({ route }: { route: Extract<Route, { name: "home" }> }) {
   // Back/forward returns to where you were. Phones scroll the page; desktop scrolls this pane.
   const mobile = useIsMobile()
   const scroller = useRef<HTMLDivElement>(null)
-  useScrollRestoration(mobile ? null : scroller, rows !== undefined, [homeHref({ ...route, q: "" }), mobile])
-  // A new search starts at the top, where its best match is. Only within an entry: the first rows an entry shows
-  // (once they're for its own search, not the last entry's) keep the position back/forward restores.
+  // Restored into the URL's view, once its rows show: until then, the last view's rows are still on screen, or ones
+  // loaded before the search box has caught up with the URL.
+  const shown = !!library && JSON.stringify(library.filter) === JSON.stringify({ query: route.q, ...view })
+  useScrollRestoration(mobile ? null : scroller, shown, [homeHref({ ...route, q: "" }), mobile])
+  // The typed search's results show at the top, where its best match is.
   // After a frame: WebKit moves a page scrolled before then partway back down.
-  const shownSearch = useRef<{ entry: string; q: string }>(undefined)
   useEffect(() => {
-    const q = library?.filter.query?.trim() ?? ""
-    if (!library || (shownSearch.current?.entry !== entry && q !== route.q.trim())) return
-    const last = shownSearch.current
-    shownSearch.current = { entry, q }
-    if (last?.entry === entry && last.q !== q) requestAnimationFrame(() => (mobile ? window : scroller.current)?.scrollTo({ top: 0 }))
-  }, [library, entry, route.q, mobile])
+    if (!library || newSearch.current !== (library.filter.query?.trim() ?? "")) return
+    newSearch.current = undefined
+    requestAnimationFrame(() => (mobile ? window : scroller.current)?.scrollTo({ top: 0 }))
+  }, [library, mobile])
   const emoji = route.tag ? findEmoji(tags ?? [], route.tag) : null
   const empty = rows?.length === 0
   useEffect(() => clearSelection(), [route.tag, route.starred, route.deleted])
