@@ -15,7 +15,7 @@ import {
   RotateCcw,
   Trash2,
 } from "lucide-react"
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 
 import { validate, type SourceBinding } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
@@ -125,24 +125,30 @@ export function Editor({ id }: { id: string }) {
   // Whenever that changes, or the layout does, focus and selection left somewhere now out of reach are put right before
   // the browser next renders, while they're still where the person had them. Focus goes to the live editor if it can
   // take it (as after Back to latest), otherwise to the source's toggle, the one control for it that's always there.
-  // Focus on the page itself counts as lost only when the version shown changed, which is when the banner's buttons
-  // and the past version's editor go; otherwise, as when the editor opens, it's the person's. A selection out of reach
-  // is still edited by execCommand in Firefox, and blocks typing elsewhere (see CodeEditor), so it goes; the live
+  // Focus on the page itself counts as lost only if it was in the banner or the past version's editor as they went
+  // (React detaches their refs before it removes them); otherwise it's where the person left it. A selection out of
+  // reach is still edited by execCommand in Firefox, and blocks typing elsewhere (see CodeEditor), so it goes; the live
   // editor's caret is in its state.
-  const shownBefore = useRef(previewing)
+  const dropped = useRef(false)
+  const dropsFocus = useCallback(
+    (el: HTMLElement | null) => () => {
+      if (el?.contains(document.activeElement)) dropped.current = true
+    },
+    []
+  )
   useLayoutEffect(() => {
     const outOfReach = (node: Node | null | undefined) =>
       !!node && (!node.isConnected || !!(node instanceof Element ? node : node.parentElement)?.closest("[inert], [hidden]"))
     // Where focus is, before clearing the selection blurs the editor that has it.
     const focus = document.activeElement
-    const lost = focus === document.body ? shownBefore.current !== previewing : outOfReach(focus)
+    const lost = focus === document.body ? dropped.current : outOfReach(focus)
+    dropped.current = false
     const selection = getSelection()
     if (outOfReach(selection?.anchorNode)) selection?.removeAllRanges()
     if (lost) {
       if (reachable) editorRef.current?.focus()
       else document.getElementById("source-toggle")?.focus()
     }
-    shownBefore.current = previewing
   }, [reachable, collapsed, mobile, previewing])
   // The past version's source, null until it has loaded, so its read-only editor starts with it.
   const [loaded, setLoaded] = useState<{ id: string; version: string; source: string } | null>(null)
@@ -230,7 +236,7 @@ export function Editor({ id }: { id: string }) {
       </PageHeader>
 
       {previewing && (
-        <Banner>
+        <Banner ref={dropsFocus}>
           <HistoryIcon className="size-4 text-muted-foreground" />
           {/* Wraps rather than being cut off, and the buttons move to the next row together. */}
           <span className="min-w-0 grow basis-48">
@@ -297,7 +303,9 @@ export function Editor({ id }: { id: string }) {
             </PanelHeader>
             <div inert={collapsed} className="flex min-h-0 flex-1 flex-col">
               {previewing && previewSource !== null && (
-                <CodeEditor key={`preview:${previewing.version}`} value={previewSource} readOnly errorAt={errorLine} handleRef={pastRef} />
+                <div key={`preview:${previewing.version}`} ref={dropsFocus} className="contents">
+                  <CodeEditor value={previewSource} readOnly errorAt={errorLine} handleRef={pastRef} />
+                </div>
               )}
               {/* Hidden, not unmounted, while a past version shows, so its caret and scroll are there to come back to;
                   inert, so the selection it keeps takes no editing. */}
@@ -379,9 +387,12 @@ export function Editor({ id }: { id: string }) {
   )
 }
 
-function Banner({ children }: { children: React.ReactNode }) {
+function Banner({ ref, children }: { ref?: React.Ref<HTMLDivElement>; children: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 rounded-lg border border-[var(--eos-line-hover)] bg-card px-3 py-1.5 text-body md:mr-2 md:group-data-[collapsed=true]/shell:ml-2">
+    <div
+      ref={ref}
+      className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 rounded-lg border border-[var(--eos-line-hover)] bg-card px-3 py-1.5 text-body md:mr-2 md:group-data-[collapsed=true]/shell:ml-2"
+    >
       {children}
     </div>
   )

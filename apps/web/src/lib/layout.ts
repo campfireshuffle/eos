@@ -89,3 +89,14 @@ export function togglePanel(
 
 /** Each group's latest toggle, so the sidebar's and the editor's don't end each other's. */
 const toggles = new WeakMap<object, number>()
+
+/** Whether the group holding the panel with this id is in a toggle's animation; each group is asked about on its own. */
+export function isAnimating(panelId: string): boolean {
+  return !!document.getElementById(panelId)?.parentElement?.hasAttribute("data-animating")
+}
+
+// Crossing 768px lays panels out anew, instantly: a toggle's animation still running there ends with the layout it was in.
+// Registered before any component's listener, so it runs before the new layout renders.
+matchMedia(MOBILE_QUERY).addEventListener("change", () => {
+  for (const group of document.querySelectorAll("[data-animating]")) group.removeAttribute("data-animating")
+})

@@ -15,7 +15,7 @@ import { SettingsDialog } from "@/components/settings-dialog"
 import { Sidebar } from "@/components/sidebar"
 import { useDiagram, useEos, useSettings } from "@/lib/eos"
 import { useHistoryEntry } from "@/lib/history"
-import { sidebarPanel, useIsMobile } from "@/lib/layout"
+import { isAnimating, sidebarPanel, useIsMobile } from "@/lib/layout"
 import { diagramHref, homeHref, navigate, parseRoute, type Route } from "@/lib/router"
 import { applyTheme } from "@/lib/theme"
 import { getUi, setUi, useUi } from "@/lib/ui-state"
@@ -112,7 +112,7 @@ function Shell({ route, children }: { route: Route; children: ReactNode }) {
                 collapsedSize="0px"
                 onResize={(size) => {
                   // During a toggle animation the button has already set the end state; ignore the in-between sizes.
-                  if (!document.querySelector("[data-animating]")) setUi({ sidebarCollapsed: size.inPixels < 1 })
+                  if (!isAnimating("sidebar")) setUi({ sidebarCollapsed: size.inPixels < 1 })
                 }}
               >
                 {/* Keeps its width while the panel animates, so it slides out of view instead of re-wrapping. */}

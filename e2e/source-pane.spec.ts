@@ -187,6 +187,39 @@ for (const viewport of [
   })
 }
 
+test("the sidebar still follows a drag made while the source's toggle animates", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await openEditor(page, await newDiagram(page, SOURCE))
+  const handle = (await page.getByRole("separator").first().boundingBox())!
+  const y = handle.y + handle.height / 2
+  await page.getByRole("button", { name: "Hide source" }).click()
+  expect(await page.locator("[data-animating]").count()).toBe(1)
+  await page.mouse.move(handle.x + handle.width / 2, y)
+  await page.mouse.down()
+  await page.mouse.move(2, y, { steps: 3 })
+  await page.mouse.up()
+  await expect(page.locator("[data-collapsed]")).toHaveAttribute("data-collapsed", "true")
+  await expect(page.getByRole("button", { name: "Show sidebar" })).toBeVisible()
+})
+
+test("an agent switching versions leaves focus alone when it wasn't in what goes", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  const id = await newDiagram(page, SOURCE)
+  await tool(page, "update_diagram", { id, source: "flowchart TD\n  A --> C" })
+  await openEditor(page, id)
+  const { history } = await tool<{ history: { version: string }[] }>(page, "get_diagram", { id, history: true })
+  // Focus on the page itself, as after clicking somewhere that takes none.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  const onPage = () => page.evaluate(() => document.activeElement === document.body)
+  expect(await onPage()).toBe(true)
+  await tool(page, "set_view", { diagramId: id, previewVersion: history.at(-1)!.version })
+  await expect(page.getByText("Viewing the version from")).toBeVisible()
+  expect(await onPage()).toBe(true)
+  await tool(page, "set_view", { diagramId: id, previewVersion: "latest" })
+  await expect(page.getByText("Viewing the version from")).toHaveCount(0)
+  expect(await onPage()).toBe(true)
+})
+
 test("an agent showing a past version, and then the latest, never leaves focus on the page", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   const id = await newDiagram(page, SOURCE)
