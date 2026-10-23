@@ -123,6 +123,26 @@ for (const colorScheme of ["light", "dark"] as const) {
       await audit(page)
     })
 
+    test("the source's search panel, with a match, and in a past version", async ({ page }) => {
+      const id = await library(page)
+      await openEditor(page, id)
+      await page.getByRole("textbox", { name: "Mermaid source" }).focus()
+      await page.keyboard.press("ControlOrMeta+f")
+      await page.keyboard.type("Start")
+      await page.keyboard.press("Enter")
+      await expect(page.locator(".cm-searchMatch-selected")).toBeVisible()
+      await audit(page)
+
+      await tool(page, "update_diagram", { id, source: FLOWCHART + "\n  C --> D" })
+      const { history } = await tool<{ history: { version: string }[] }>(page, "get_diagram", { id, history: true })
+      await tool(page, "set_view", { diagramId: id, previewVersion: history.at(-1)!.version })
+      await expect(page.getByText("Viewing the version from")).toBeVisible()
+      await page.getByRole("textbox", { name: "Mermaid source" }).focus()
+      await page.keyboard.press("ControlOrMeta+f")
+      await expect(page.getByRole("textbox", { name: "Find" })).toBeFocused()
+      await audit(page)
+    })
+
     test("settings, every section", async ({ page }) => {
       await library(page)
       await page.getByRole("button", { name: "Settings" }).click()
