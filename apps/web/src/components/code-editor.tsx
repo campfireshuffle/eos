@@ -148,13 +148,14 @@ export function CodeEditor({
           // Shows a "\r", and other invisible control characters, as a marker (␍), so what is typed next to one is where it looks.
           highlightSpecialChars(),
           EditorState.readOnly.of(readOnly),
+          // CodeMirror's search, which finds text on lines that aren't drawn, as the browser's find in page can't.
+          // Read-only, its panel offers no replace. Its Escape comes first: it closes the panel and returns focus to the text.
+          // Only its find keys: the rest of its keymap takes ⌘⇧L (Copy share link), ⌘D (bookmark) and ⌘⌥G.
+          search({ top: true }),
+          keymap.of(searchKeymap.filter((b) => ["Mod-f", "Escape", "F3", "Mod-g"].includes(b.key ?? ""))),
           // Escape arms CodeMirror's Escape-then-Tab exit (see the hint below). In a dialog it's handled, so the key
           // stops here and the dialog stays open with the unsaved text; elsewhere the default keymap still collapses a selection.
           // Read-only, Tab doesn't indent and there's nothing unsaved, so Escape is left to the dialog.
-          // CodeMirror's search, which finds text on lines that aren't drawn, as the browser's find in page can't.
-          // Read-only, its panel offers no replace. Its Escape comes first: it closes the panel and returns focus to the text.
-          search({ top: true }),
-          keymap.of(searchKeymap),
           readOnly ? [] : keymap.of([{ key: "Escape", run: (v) => (v.setTabFocusMode(2000), !!v.dom.closest("dialog")) }]),
           onUndo
             ? // Undo goes through Loro: the person's own stack, which skips agent edits.

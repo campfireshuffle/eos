@@ -70,3 +70,21 @@ test("Escape in a settings editor's search panel closes the panel, not the dialo
   await expect(dialog).toBeVisible()
   await expect(editor).toBeFocused()
 })
+
+test("⌘⇧L in the source copies the share link and leaves the selection alone", async ({ context, page }) => {
+  // Records what's copied, in every engine.
+  await context.addInitScript(() => {
+    const copied: string[] = []
+    Object.assign(window, { __copied: copied })
+    navigator.clipboard.writeText = async (text: string) => void copied.push(text)
+  })
+  await openEditor(page, await newDiagram(page, "flowchart TD\n  Alpha --> B\n  B --> Alpha"))
+  await page.locator(".cm-line", { hasText: "Alpha --> B" }).getByText("Alpha").dblclick()
+  await expect(page.locator(".cm-selectionBackground")).toHaveCount(1)
+  await page.keyboard.press("ControlOrMeta+Shift+L")
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { __copied: string[] }).__copied))
+    .toEqual([expect.stringContaining("/#/import?d=")])
+  await expect(page.locator(".cm-selectionBackground")).toHaveCount(1)
+  expect(await page.evaluate(() => getSelection()?.toString())).toBe("Alpha")
+})
