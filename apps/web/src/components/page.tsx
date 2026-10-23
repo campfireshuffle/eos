@@ -60,7 +60,8 @@ export const CurrentPage = createContext<{ entry: string; name?: string }>({ ent
 /**
  * The page's heading, named from its route; nothing until the name is known. It keeps its width, so the header's
  * actions give way instead. A page arrived at takes focus here (see arrive), as it shows, and as a dialog that was open
- * over it closes. Not scrolled to: a page gone back to restores its own scroll. It's no control, so it draws no ring.
+ * over it closes, as does a page a dialog closes over with nowhere to hand focus back. Not scrolled to: a page gone back
+ * to restores its own scroll. It's no control, so it draws no ring.
  * `children` is ignored: the name comes from the route.
  */
 export function PageTitle({ visuallyHidden }: { visuallyHidden?: boolean; children?: ReactNode }) {

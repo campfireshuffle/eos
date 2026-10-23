@@ -15,6 +15,15 @@ function adoptAnnouncer() {
   if (announcer && announcer.parentNode !== top) top.prepend(announcer)
 }
 
+/** The dialog each dialog was opened from: the one its opener, where the browser hands focus back, was in. */
+const openedFrom = new WeakMap<HTMLDialogElement, HTMLDialogElement | null>()
+
+/**
+ * Whether `dialog`, as it closes, has nowhere to hand focus back: it was opened from inside another dialog that has
+ * closed since (and may have unmounted its contents, the opener with them).
+ */
+export const openerClosed = (dialog: HTMLDialogElement) => openedFrom.get(dialog)?.open === false
+
 /**
  * A native modal <dialog>, shown with showModal() while `open`. The browser makes the rest of the page inert, closes it on Escape,
  * and returns focus to what had it when it opened; `onClose` hears every close. A closed dialog never keeps focus.
@@ -35,7 +44,10 @@ function Dialog({
   const [mounted, setMounted] = React.useState(open)
   if (open && !mounted) setMounted(true)
   React.useLayoutEffect(() => {
-    if (open !== dialog?.open) dialog?.[open ? "showModal" : "close"]()
+    if (dialog && open !== dialog.open) {
+      if (open) openedFrom.set(dialog, document.activeElement?.closest("dialog") ?? null)
+      dialog[open ? "showModal" : "close"]()
+    }
     adoptAnnouncer()
     if (!open || !dialog) return
     // React Aria makes the announcer on its first announcement, which can come while this is open.

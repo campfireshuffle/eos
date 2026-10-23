@@ -1,5 +1,4 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react"
-import { flushSync } from "react-dom"
 import { useDefaultLayout } from "react-resizable-panels"
 
 import { decodeShare } from "@eos/core"
@@ -28,7 +27,7 @@ const loadEditor = () => import("@/components/editor").then((m) => (editorModule
 const LazyEditor = lazy(() => loadEditor().then((m) => ({ default: m.Editor })))
 
 export function App() {
-  const { entry, hash } = useHistoryEntry()
+  const { entry, id, hash } = useHistoryEntry()
   const route = parseRoute(hash)
   const settings = useSettings()
   useEffect(() => applyTheme(settings.theme), [settings.theme])
@@ -51,7 +50,7 @@ export function App() {
 
   return (
     <TooltipProvider delayDuration={400}>
-      <Shell route={route}>
+      <Shell route={route} entryId={id}>
         <NamedPage route={route} entry={entry}>
           {route.name === "home" && <Home route={route} entry={entry} />}
           {route.name === "diagram" && (
@@ -90,20 +89,15 @@ function NamedPage({ route, entry, children }: { route: Route; entry: string; ch
   return <CurrentPage value={{ entry, name }}>{children}</CurrentPage>
 }
 
-function Shell({ route, children }: { route: Route; children: ReactNode }) {
+function Shell({ route, entryId, children }: { route: Route; entryId: string; children: ReactNode }) {
   const mobile = useIsMobile()
-  const mobileNavOpen = useUi((s) => s.mobileNavOpen)
+  // The drawer is open only on the page it was opened on (drawerOn): when the entry changes, even to the page already
+  // shown, it closes in the commit that renders the new one, and hands focus back before that page arrives (see
+  // useHistoryEntry). A navigation that changes no entry (a download, a cancelled one) leaves it open.
+  const drawerOpen = useUi((s) => s.drawerOn) === entryId
   const collapsed = useUi((s) => s.sidebarCollapsed)
   const layout = useDefaultLayout({ id: "eos-shell", storage: localStorage })
   const sidebar = <RouteSidebar route={route} />
-
-  // Any navigation closes the mobile drawer, even to the page already shown. It closes as the navigation starts, so
-  // it has handed focus back to its opener, and made the page live again, before the page arrives and takes focus.
-  useEffect(() => {
-    const close = () => getUi().mobileNavOpen && flushSync(() => setUi({ mobileNavOpen: false }))
-    navigation.addEventListener("navigate", close)
-    return () => navigation.removeEventListener("navigate", close)
-  }, [])
 
   // One tree for phones and desktop, with the page in the same place in both: crossing 768px (rotating a phone) only
   // changes the chrome around it, so the page keeps its state (the editor its caret, scroll and focus; the library its
@@ -162,8 +156,8 @@ function Shell({ route, children }: { route: Route; children: ReactNode }) {
       </div>
       {mobile && (
         <Dialog
-          open={mobileNavOpen}
-          onClose={() => setUi({ mobileNavOpen: false })}
+          open={drawerOpen}
+          onClose={() => setUi({ drawerOn: null })}
           closeOnBackdrop
           aria-label="Navigation"
           className="m-0 h-full max-h-none w-72 max-w-[85vw] border-r bg-background shadow-lg not-open:-translate-x-10 open:flex open:flex-col starting:open:-translate-x-10"
