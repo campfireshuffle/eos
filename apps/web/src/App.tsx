@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react"
+import { flushSync } from "react-dom"
 import { useDefaultLayout } from "react-resizable-panels"
 
 import { decodeShare } from "@eos/core"
@@ -10,13 +11,13 @@ import { cn } from "@workspace/ui/lib/utils"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ResizeHandle } from "@/components/resize-handle"
 import { Home } from "@/components/home"
-import { EmptyPage } from "@/components/page"
+import { CurrentPage, EmptyPage } from "@/components/page"
 import { SettingsDialog } from "@/components/settings-dialog"
 import { Sidebar } from "@/components/sidebar"
 import { useDiagram, useEos, useSettings } from "@/lib/eos"
 import { useHistoryEntry } from "@/lib/history"
 import { isAnimating, sidebarPanel, useIsMobile } from "@/lib/layout"
-import { diagramHref, homeHref, navigate, parseRoute, type Route } from "@/lib/router"
+import { diagramHref, homeHref, navigate, pageName, parseRoute, type Route } from "@/lib/router"
 import { applyTheme } from "@/lib/theme"
 import { getUi, setUi, useUi } from "@/lib/ui-state"
 
@@ -51,12 +52,14 @@ export function App() {
   return (
     <TooltipProvider delayDuration={400}>
       <Shell route={route}>
-        {route.name === "home" && <Home route={route} entry={entry} />}
-        {route.name === "diagram" && (
-          <Suspense fallback={<EmptyPage />}>
-            <EditorRoute key={route.id} id={route.id} />
-          </Suspense>
-        )}
+        <NamedPage route={route} entry={entry}>
+          {route.name === "home" && <Home route={route} entry={entry} />}
+          {route.name === "diagram" && (
+            <Suspense fallback={<EmptyPage />}>
+              <EditorRoute key={route.id} id={route.id} />
+            </Suspense>
+          )}
+        </NamedPage>
       </Shell>
       <SettingsDialog />
       <ConfirmDialog />
@@ -74,6 +77,19 @@ function EditorRoute({ id }: { id: string }) {
   return <Editor id={id} />
 }
 
+/**
+ * The page's name, from its route (pageName), for its heading and the tab's title. Its own component, so a diagram's
+ * every edit renders the heading again, not the whole app.
+ */
+function NamedPage({ route, entry, children }: { route: Route; entry: string; children: ReactNode }) {
+  const diagram = useDiagram(route.name === "diagram" ? route.id : "")
+  const name = pageName(route, diagram === null ? null : diagram?.meta.title)
+  useEffect(() => {
+    document.title = name ? `${name} · Eos` : "Eos"
+  }, [name])
+  return <CurrentPage value={{ entry, name }}>{children}</CurrentPage>
+}
+
 function Shell({ route, children }: { route: Route; children: ReactNode }) {
   const mobile = useIsMobile()
   const mobileNavOpen = useUi((s) => s.mobileNavOpen)
@@ -81,9 +97,13 @@ function Shell({ route, children }: { route: Route; children: ReactNode }) {
   const layout = useDefaultLayout({ id: "eos-shell", storage: localStorage })
   const sidebar = <RouteSidebar route={route} />
 
-  // Close the mobile drawer whenever the route changes.
-  const { hash } = useHistoryEntry()
-  useEffect(() => setUi({ mobileNavOpen: false }), [hash])
+  // Any navigation closes the mobile drawer, even to the page already shown. It closes as the navigation starts, so
+  // it has handed focus back to its opener, and made the page live again, before the page arrives and takes focus.
+  useEffect(() => {
+    const close = () => getUi().mobileNavOpen && flushSync(() => setUi({ mobileNavOpen: false }))
+    navigation.addEventListener("navigate", close)
+    return () => navigation.removeEventListener("navigate", close)
+  }, [])
 
   // One tree for phones and desktop, with the page in the same place in both: crossing 768px (rotating a phone) only
   // changes the chrome around it, so the page keeps its state (the editor its caret, scroll and focus; the library its

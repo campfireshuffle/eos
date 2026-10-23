@@ -17,8 +17,9 @@ export function connectWebMcp(eos: Eos): () => void {
       settingsOpen: getUi().settingsOpen,
       sidebarOpen: isSidebarOpen(),
     }),
-    openDiagram: (id) => navigate(diagramHref(id)),
-    goHome: () => navigate(homeHref()),
+    // An agent's navigations leave the person's focus where it is.
+    openDiagram: (id) => navigate(diagramHref(id), { agent: true }),
+    goHome: () => navigate(homeHref(), { agent: true }),
     // Filters the agent leaves out, and the grouping and search it can't set, keep their current values.
     setLibraryView: ({ starred, deleted, tags, sort }) => {
       const current = parseRoute(location.hash)
@@ -27,7 +28,7 @@ export function connectWebMcp(eos: Eos): () => void {
       if (deleted !== undefined) view.deleted = deleted
       if (sort !== undefined) view.sort = sort
       if (tags !== undefined) view.tag = tags[0] ?? null
-      navigate(homeHref(view))
+      navigate(homeHref(view), { agent: true })
     },
     setZoom: requestZoom,
     openSettings: (open) => setUi({ settingsOpen: open }),

@@ -240,7 +240,8 @@ test("clicking a link to the page already shown keeps in-app Back inside Eos, an
   await expect(page.getByRole("button", { name: "Forward" })).toBeEnabled()
 })
 
-test("pressing in-app Back or Forward with the keyboard to the end of history keeps focus on it", async ({ page }) => {
+// Going back or forward swaps the page, so focus goes to its heading; the button, now with nowhere to go, still takes focus.
+test("in-app Back or Forward with the keyboard focuses the page, and at the end of history the button keeps focus", async ({ page }) => {
   await page.goto("about:blank")
   await page.goto("/#/?starred=1")
   await page.locator("aside").getByRole("link", { name: "Eos" }).click()
@@ -252,9 +253,11 @@ test("pressing in-app Back or Forward with the keyboard to the end of history ke
     await button.focus()
     await page.keyboard.press("Enter")
     await expect(page).toHaveURL(url)
+    await expect(page.getByRole("heading", { level: 1 })).toBeFocused()
     await expect(button).toBeDisabled()
-    await expect(button).toBeFocused()
+    await button.focus()
     await page.keyboard.press("Enter") // nowhere to go
+    await expect(button).toBeFocused()
     await expect(page).toHaveURL(url)
   }
 })
