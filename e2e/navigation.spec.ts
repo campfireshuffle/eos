@@ -1,6 +1,9 @@
-import { expect, test, type BrowserContext } from "@playwright/test"
+import { expect, test, type BrowserContext, type Page } from "@playwright/test"
 
 import { focusNext, tool, withAgentTools } from "./helpers"
+
+/** Waits out the scroll to the top that a new search's results make, in the frame after they show. */
+const searchScrolled = (page: Page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
 
 /** A library long enough to scroll, open at `hash`. */
 async function library(context: BrowserContext, hash: string) {
@@ -250,20 +253,22 @@ for (const [size, viewport] of Object.entries({ desktop: { width: 1280, height: 
     test.use({ viewport })
     const phone = size === "phone"
 
-    /** 150 cards, sorted so "Login flow" comes last. Desktop scrolls the library's pane; phones scroll the page. */
-    async function longLibrary(context: BrowserContext) {
+    const numbered = (name: string, n: number, starred = false) =>
+      Array.from({ length: n }, (_, i) => ({ title: `${name} ${String(i).padStart(3, "0")}`, starred }))
+
+    /** By default 150 cards, sorted so "Login flow" comes last. Desktop scrolls the library's pane; phones scroll the page. */
+    async function longLibrary(context: BrowserContext, diagrams = [...numbered("Diagram", 149), { title: "Login flow", starred: false }]) {
       await withAgentTools(context)
       const page = await context.newPage()
       await page.goto("/#/")
       await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
-      await page.evaluate(async () => {
+      await page.evaluate(async (diagrams) => {
         const tools = (window as unknown as { __tools: Record<string, { execute(x: unknown): Promise<unknown> }> }).__tools
-        for (let i = 0; i < 149; i++) await tools.create_diagram.execute({ title: `Diagram ${String(i).padStart(3, "0")}`, open: false })
-        await tools.create_diagram.execute({ title: "Login flow", open: false })
-      })
+        for (const d of diagrams) await tools.create_diagram.execute({ ...d, open: false })
+      }, diagrams)
       await page.evaluate(() => (location.hash = "/?sort=title"))
       const cards = page.locator("[data-card-id]")
-      await expect(cards).toHaveCount(151) // and the welcome diagram
+      await expect(cards).toHaveCount(diagrams.length + 1) // and the welcome diagram
       const top = () => page.evaluate((phone) => (phone ? scrollY : document.querySelector(".eos-library-scroller")!.scrollTop), phone)
       const scrollTo = async (y: number) => {
         const scrolled = () =>
@@ -310,6 +315,7 @@ for (const [size, viewport] of Object.entries({ desktop: { width: 1280, height: 
       await search.fill("Diagram")
       await expect(page).toHaveURL(/q=Diagram/)
       await expect(cards.filter({ hasText: "Login flow" })).toHaveCount(0)
+      await searchScrolled(page)
       await scrollTo(1500)
       // Clicked where it sits: Playwright's own click would first scroll it into view.
       const shown = await cards.evaluateAll((all) => all.findIndex((c) => c.getBoundingClientRect().top > 200))
@@ -326,6 +332,7 @@ for (const [size, viewport] of Object.entries({ desktop: { width: 1280, height: 
       await search.fill("Diagram")
       await expect(page).toHaveURL(/q=Diagram/)
       await expect(cards.filter({ hasText: "Login flow" })).toHaveCount(0)
+      await searchScrolled(page)
       await scrollTo(1500)
       if (phone) await page.getByRole("button", { name: "Show sidebar" }).click()
       await page.getByRole("link", { name: /^Starred/ }).click()
@@ -341,6 +348,7 @@ for (const [size, viewport] of Object.entries({ desktop: { width: 1280, height: 
       await search.fill("Diagram")
       await expect(page).toHaveURL(/q=Diagram/)
       await expect(cards.filter({ hasText: "Login flow" })).toHaveCount(0)
+      await searchScrolled(page)
       await scrollTo(1500)
       await page.evaluate(() => (location.hash = "/?sort=title&q=Diagram+0"))
       await expect(search).toHaveValue("Diagram 0")
@@ -354,6 +362,30 @@ for (const [size, viewport] of Object.entries({ desktop: { width: 1280, height: 
       await expect(search).toHaveValue("Diagram 0")
       await page.waitForTimeout(300)
       expect(await top()).toBe(800)
+    })
+
+    test("back and forward between a search and Starred return to where each was scrolled", async ({ context }) => {
+      // Nothing starred matches the search, so neither view's rows hold the other's position.
+      const { page, cards, top, scrollTo, search } = await longLibrary(context, [...numbered("Alpha", 120), ...numbered("Beta", 120, true)])
+      await search.fill("Alpha")
+      await expect(page).toHaveURL(/q=Alpha/)
+      await expect(cards.filter({ hasText: "Beta" })).toHaveCount(0)
+      await searchScrolled(page)
+      await scrollTo(600)
+      if (phone) await page.getByRole("button", { name: "Show sidebar" }).click()
+      await page.getByRole("link", { name: /^Starred/ }).click()
+      await expect(cards.filter({ hasText: "Alpha" })).toHaveCount(0)
+      await scrollTo(3000)
+      for (let i = 0; i < 2; i++) {
+        await page.goBack()
+        await expect(search).toHaveValue("Alpha")
+        await page.waitForTimeout(300)
+        expect(await top()).toBe(600)
+        await page.goForward()
+        await expect(search).toHaveValue("")
+        await page.waitForTimeout(300)
+        expect(await top()).toBe(3000)
+      }
     })
   })
 }
