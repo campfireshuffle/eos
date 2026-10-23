@@ -20,7 +20,7 @@ import { CARD_HINT_ID, CardHint, DiagramCard } from "./diagram-card"
 import { Marquee } from "./marquee"
 import { SelectionBar } from "./selection-bar"
 import { Pill } from "./pill"
-import { Page, PageHeader, PageTitle, Panel, PanelHeader } from "./page"
+import { Page, PageHeader, Panel, PanelHeader } from "./page"
 
 export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>; entry: string }) {
   const eos = useEos()
@@ -95,7 +95,7 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
     <Page className="relative">
       {/* Sticks to the top on phones, where the page itself scrolls. */}
       <div className="max-md:sticky max-md:top-0 max-md:z-20 max-md:bg-background">
-        <PageHeader title={<PageTitle>{route.deleted ? "Deleted" : "Diagrams"}</PageTitle>}>
+        <PageHeader>
           <div className="relative w-[280px] max-md:hidden">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input

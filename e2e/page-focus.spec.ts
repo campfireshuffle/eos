@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
 
-import { newDiagram, openEditor, tool, withAgentTools } from "./helpers"
+import { newDiagram, openEditor, tabTo, tool, withAgentTools } from "./helpers"
 
 // Arriving at another history entry owes the page focus, on its heading, which is named from the route as the tab's
 // title is. A replace (typing a search, an import opening its diagram) keeps what's owed; an agent's navigation owes
@@ -221,4 +221,18 @@ test.describe("the person's navigation after an agent's still focuses the page",
     await expect(heading(page)).toBeFocused()
     await expect(heading(page)).toHaveText("Test")
   })
+})
+
+test("back on the library, its heading has focus, not the cards' grid, and Tab goes on into the grid", async ({ context }) => {
+  await withAgentTools(context)
+  const page = await context.newPage()
+  const id = await newDiagram(page, "flowchart LR\n  A --> B")
+  await page.locator(`[data-card-id="${id}"]`).focus()
+  await page.keyboard.press("Enter")
+  await expect(heading(page)).toBeFocused()
+  await page.getByRole("button", { name: "Back" }).focus()
+  await page.keyboard.press("Enter")
+  await expect(heading(page)).toHaveText("Diagrams")
+  await expect(heading(page)).toBeFocused()
+  await tabTo(page, page.locator("[data-card-id]").first(), 10)
 })
