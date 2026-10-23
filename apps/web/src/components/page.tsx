@@ -1,6 +1,8 @@
-import { createContext, useContext, useState, type ComponentProps, type ReactNode } from "react"
+import { createContext, useContext, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react"
 
 import { cn } from "@workspace/ui/lib/utils"
+
+import { PageEntry, takeFocus } from "@/lib/history"
 
 import { HistoryNav } from "./history-nav"
 import { SidebarToggle } from "./sidebar-toggle"
@@ -16,11 +18,21 @@ export function Page({ className, ...props }: ComponentProps<"main">) {
  * padded like one so the two line up; it takes the header's type either way.
  */
 export function PageHeader({ title, children }: { title?: ReactNode; children?: ReactNode }) {
+  // A page arrived at by navigation names itself by focusing its title (see takeFocus). Not scrolled to: a page
+  // gone back to restores its own scroll.
+  const titleRef = useRef<HTMLDivElement>(null)
+  const entry = useContext(PageEntry)
+  useEffect(() => {
+    const target = titleRef.current?.firstElementChild
+    if (target instanceof HTMLElement && takeFocus(entry)) target.focus({ preventScroll: true })
+  }, [entry])
   return (
     <header className="flex h-10 shrink-0 items-center gap-1.5 pr-2 pl-1.5">
       <SidebarToggle />
       <HistoryNav />
-      <div className="contents text-label">{title}</div>
+      <div ref={titleRef} className="contents text-label">
+        {title}
+      </div>
       <div className="flex-1" />
       {children}
     </header>
@@ -48,9 +60,16 @@ export function PanelHeader({ title, children }: { title?: ReactNode; children?:
   )
 }
 
-/** The page's heading. It keeps its width, so the header's actions give way instead. */
+/**
+ * The page's heading. It keeps its width, so the header's actions give way instead. Focusable from script only, for
+ * the page to take focus on arriving; it's no control, so it draws no ring.
+ */
 export function PageTitle({ children }: { children: ReactNode }) {
-  return <h1 className="shrink-0 px-1.5 py-1 whitespace-nowrap">{children}</h1>
+  return (
+    <h1 tabIndex={-1} className="shrink-0 px-1.5 py-1 whitespace-nowrap outline-none">
+      {children}
+    </h1>
+  )
 }
 
 /** A page that has nothing to show yet: its header and an empty panel, where the real ones will be. */

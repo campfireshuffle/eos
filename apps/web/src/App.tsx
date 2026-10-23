@@ -14,7 +14,7 @@ import { EmptyPage } from "@/components/page"
 import { SettingsDialog } from "@/components/settings-dialog"
 import { Sidebar } from "@/components/sidebar"
 import { useDiagram, useEos, useSettings } from "@/lib/eos"
-import { useHistoryEntry } from "@/lib/history"
+import { PageEntry, useHistoryEntry } from "@/lib/history"
 import { sidebarPanel, useIsMobile } from "@/lib/layout"
 import { diagramHref, homeHref, navigate, parseRoute, type Route } from "@/lib/router"
 import { applyTheme } from "@/lib/theme"
@@ -32,6 +32,7 @@ export function App() {
   const settings = useSettings()
   useEffect(() => applyTheme(settings.theme), [settings.theme])
   useShareImport(route.name === "import" ? route.data : null)
+  usePageName(route)
   // On phones the library scrolls the page; the editor fills the screen, so start it at the top.
   const editorId = route.name === "diagram" ? route.id : null
   useEffect(() => {
@@ -51,12 +52,14 @@ export function App() {
   return (
     <TooltipProvider delayDuration={400}>
       <Shell route={route}>
-        {route.name === "home" && <Home route={route} entry={entry} />}
-        {route.name === "diagram" && (
-          <Suspense fallback={<EmptyPage />}>
-            <EditorRoute key={route.id} id={route.id} />
-          </Suspense>
-        )}
+        <PageEntry value={entry}>
+          {route.name === "home" && <Home route={route} entry={entry} />}
+          {route.name === "diagram" && (
+            <Suspense fallback={<EmptyPage />}>
+              <EditorRoute key={route.id} id={route.id} />
+            </Suspense>
+          )}
+        </PageEntry>
       </Shell>
       <SettingsDialog />
       <ConfirmDialog />
@@ -158,6 +161,25 @@ function Shell({ route, children }: { route: Route; children: ReactNode }) {
 function RouteSidebar({ route }: { route: Route }) {
   const diagram = useDiagram(route.name === "diagram" ? route.id : "")
   return <Sidebar route={route} activeTag={route.name === "diagram" ? (diagram?.meta.tags[0] ?? null) : null} />
+}
+
+/**
+ * The tab's title names the page, from its route: the diagram's title, or the library's view. Until a diagram's title
+ * is known, and on a page with no name of its own (an import), it's just "Eos".
+ */
+function usePageName(route: Route) {
+  const diagram = useDiagram(route.name === "diagram" ? route.id : "")
+  const name =
+    route.name === "diagram"
+      ? diagram?.meta.title
+      : route.name === "home"
+        ? route.deleted
+          ? "Deleted"
+          : [route.starred && "Starred", route.tag && `#${route.tag}`].filter(Boolean).join(" ") || "Diagrams"
+        : undefined
+  useEffect(() => {
+    document.title = name ? `${name} · Eos` : "Eos"
+  }, [name])
 }
 
 function useShareImport(data: string | null) {

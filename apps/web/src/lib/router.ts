@@ -1,5 +1,7 @@
 import { tagMatches, type LibrarySort, type TagPath } from "@eos/core"
 
+import { BY_AGENT } from "./history"
+
 export type LibraryGroup = "date" | "subtag" | "none"
 
 export type Route =
@@ -51,10 +53,10 @@ export function homeHref(
 
 export const diagramHref = (id: string) => `#/d/${id}`
 
-export function navigate(href: string, { replace = false } = {}) {
+export function navigate(href: string, { replace = false, agent = false } = {}) {
   // Replacing keeps the history entry with a new URL, so its key, and the scroll position saved under it, carry over.
   // "auto" pushes, except to the URL already shown, which keeps its entry, as a link to it does.
-  navigation.navigate(href, { history: replace ? "replace" : "auto" })
+  navigation.navigate(href, { history: replace ? "replace" : "auto", info: agent ? BY_AGENT : undefined })
 }
 
 /**
