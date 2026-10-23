@@ -3,6 +3,10 @@ import {
   ChevronDown,
   CircleCheck,
   Copy,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelTopClose,
+  PanelTopOpen,
   Redo2,
   Star,
   TriangleAlert,
@@ -26,7 +30,7 @@ import {
 } from "@workspace/ui/components/dropdown-menu"
 import { ResizablePanel, ResizablePanelGroup } from "@workspace/ui/components/resizable"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@workspace/ui/components/tooltip"
-import { useDefaultLayout, useGroupRef } from "react-resizable-panels"
+import { useDefaultLayout, useGroupRef, usePanelRef } from "react-resizable-panels"
 
 import { useDiagram, useEos } from "@/lib/eos"
 import { useCopy } from "@/lib/use-copy"
@@ -96,15 +100,28 @@ export function Editor({ id }: { id: string }) {
     }
   }, [eos, id, binding, source])
 
+  const mobile = useIsMobile()
+  const orientation = mobile ? "vertical" : "horizontal"
+  const layout = useDefaultLayout({
+    id: `eos-editor-${orientation}`,
+    storage: localStorage,
+  })
+  // Whether the source pane is collapsed, as the panel reports it after any resize: by its toggle, a drag, the keyboard
+  // on the splitter, or a saved layout. It starts as the saved layout has it where that says (collapsed to nothing, on
+  // desktop); a phone's collapsed size is in pixels, which the saved percentages can't say until the panel measures.
+  const sourcePanel = usePanelRef()
+  const [collapsed, setCollapsed] = useState(() => layout.defaultLayout?.source === 0)
+  const toggleSource = () => (collapsed ? sourcePanel.current?.expand() : sourcePanel.current?.collapse())
+
   // Previewing a past version shows its source read-only in both panes.
   const preview = useUi((s) => s.preview)
   const previewing = preview?.id === id ? preview : null
-  // The live source is hidden and inert while a past version shows, but a selection left in it is still edited by
+  // The live source is hidden and inert while a past version shows (or the source pane is collapsed), but a selection left in it is still edited by
   // execCommand in Firefox, and blocks typing elsewhere (see CodeEditor), so it goes. Its caret is in its state.
   const live = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (previewing && live.current?.contains(getSelection()?.anchorNode ?? null)) getSelection()?.removeAllRanges()
-  }, [previewing])
+    if ((previewing || collapsed) && live.current?.contains(getSelection()?.anchorNode ?? null)) getSelection()?.removeAllRanges()
+  }, [previewing, collapsed])
   // The past version's source, null until it has loaded, so its read-only editor starts with it.
   const [loaded, setLoaded] = useState<{ id: string; version: string; source: string } | null>(null)
   const previewSource = loaded?.id === id && loaded.version === previewing?.version ? loaded.source : null
@@ -157,18 +174,15 @@ export function Editor({ id }: { id: string }) {
   const actions = useExportActions(title, shown ?? source ?? "", drawn)
 
   useShortcuts(actions)
-  const mobile = useIsMobile()
-  const orientation = mobile ? "vertical" : "horizontal"
-  const layout = useDefaultLayout({
-    id: `eos-editor-${orientation}`,
-    storage: localStorage,
-  })
   // Each orientation keeps its own split. The group isn't remounted for the other one (that would lose the source's
   // caret, scroll and focus mid-edit, as a phone rotates), so it's given that one's split here. The source pane
-  // changes shape, so the caret someone is typing at is brought back into view.
+  // changes shape, so the caret someone is typing at is brought back into view. Whether the source is hidden is the
+  // person's choice, not the orientation's, so that carries over.
   const group = useGroupRef()
   useEffect(() => {
     group.current?.setLayout(layout.defaultLayout ?? { source: 42, preview: 58 })
+    if (collapsed) sourcePanel.current?.collapse()
+    else sourcePanel.current?.expand()
     for (const editor of [editorRef, pastRef]) editor.current?.keepCaretInView()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orientation])
@@ -230,7 +244,19 @@ export function Editor({ id }: { id: string }) {
         </Banner>
       )}
       <ResizablePanelGroup groupRef={group} orientation={orientation} className="min-h-0 flex-1" {...layout}>
-        <ResizablePanel id="source" defaultSize="42%" minSize={mobile ? "120px" : "280px"} className="flex">
+        {/* Collapsed, it's hidden on desktop, so it takes no focus and screen readers skip it; on phones its header bar
+            stays, with the button that shows it again, and only what's below the header is. */}
+        <ResizablePanel
+          id="source"
+          panelRef={sourcePanel}
+          defaultSize="42%"
+          minSize={mobile ? "120px" : "280px"}
+          collapsible
+          collapsedSize={mobile ? "48px" : "0px"}
+          onResize={() => setCollapsed(!!sourcePanel.current?.isCollapsed())}
+          inert={collapsed && !mobile}
+          className="flex"
+        >
           <Panel as="section" split="start" className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <PanelHeader title="Source">
               {/* A past version is read-only, and undo would change the hidden latest text. */}
@@ -249,49 +275,56 @@ export function Editor({ id }: { id: string }) {
               <IconButton label={copied ? "Copied" : "Copy source"} onClick={() => copy(shown ?? "")}>
                 {copied ? <Check className="text-[var(--eos-green)]" /> : <Copy />}
               </IconButton>
+              {mobile && (
+                <SourceToggle collapsed={collapsed} onToggle={toggleSource}>
+                  {collapsed ? <PanelTopOpen /> : <PanelTopClose />}
+                </SourceToggle>
+              )}
             </PanelHeader>
-            {previewing && previewSource !== null && (
-              <CodeEditor key={`preview:${previewing.version}`} value={previewSource} readOnly errorAt={errorLine} handleRef={pastRef} />
-            )}
-            {/* Hidden, not unmounted, while a past version shows, so its caret and scroll are there to come back to;
-                inert, so the selection it keeps takes no editing. */}
-            {binding ? (
-              <div ref={live} hidden={!!previewing} inert={!!previewing} className="flex min-h-0 flex-1 flex-col">
-                <CodeEditor
-                  key={key}
-                  binding={binding}
-                  onChange={setSource}
-                  onUndo={undo}
-                  onRedo={redo}
-                  errorAt={errorLine}
-                  handleRef={editorRef}
-                />
-              </div>
-            ) : (
-              <div className="min-h-0 flex-1" />
-            )}
-            <p role="status" className="sr-only">
-              {announced}
-            </p>
-            {result?.ok ? (
-              <footer className="flex items-center gap-1.5 px-4 py-2.5 text-caption text-muted-foreground">
-                <CircleCheck className="size-3.5 text-[var(--eos-green)]" /> Valid
-              </footer>
-            ) : result ? (
-              <footer className="flex flex-col gap-1.5 border-t border-border bg-[color-mix(in_srgb,var(--eos-red)_7%,transparent)] px-4 pt-3 pb-3.5">
-                <button
-                  type="button"
-                  className="flex items-center gap-2 text-left text-caption font-medium"
-                  onClick={() => (previewing ? pastRef : editorRef).current?.focusLine(result.error.line, result.error.column)}
-                >
-                  <TriangleAlert className="size-3.5 text-destructive" />
-                  {status}
-                </button>
-                {result.error.snippet && (
-                  <pre className="pl-[22px] font-mono text-caption whitespace-pre text-muted-foreground">{result.error.snippet}</pre>
-                )}
-              </footer>
-            ) : null}
+            <div inert={collapsed} className="flex min-h-0 flex-1 flex-col">
+              {previewing && previewSource !== null && (
+                <CodeEditor key={`preview:${previewing.version}`} value={previewSource} readOnly errorAt={errorLine} handleRef={pastRef} />
+              )}
+              {/* Hidden, not unmounted, while a past version shows, so its caret and scroll are there to come back to;
+                  inert, so the selection it keeps takes no editing. */}
+              {binding ? (
+                <div ref={live} hidden={!!previewing} inert={!!previewing} className="flex min-h-0 flex-1 flex-col">
+                  <CodeEditor
+                    key={key}
+                    binding={binding}
+                    onChange={setSource}
+                    onUndo={undo}
+                    onRedo={redo}
+                    errorAt={errorLine}
+                    handleRef={editorRef}
+                  />
+                </div>
+              ) : (
+                <div className="min-h-0 flex-1" />
+              )}
+              <p role="status" className="sr-only">
+                {announced}
+              </p>
+              {result?.ok ? (
+                <footer className="flex items-center gap-1.5 px-4 py-2.5 text-caption text-muted-foreground">
+                  <CircleCheck className="size-3.5 text-[var(--eos-green)]" /> Valid
+                </footer>
+              ) : result ? (
+                <footer className="flex flex-col gap-1.5 border-t border-border bg-[color-mix(in_srgb,var(--eos-red)_7%,transparent)] px-4 pt-3 pb-3.5">
+                  <button
+                    type="button"
+                    className="flex items-center gap-2 text-left text-caption font-medium"
+                    onClick={() => (previewing ? pastRef : editorRef).current?.focusLine(result.error.line, result.error.column)}
+                  >
+                    <TriangleAlert className="size-3.5 text-destructive" />
+                    {status}
+                  </button>
+                  {result.error.snippet && (
+                    <pre className="pl-[22px] font-mono text-caption whitespace-pre text-muted-foreground">{result.error.snippet}</pre>
+                  )}
+                </footer>
+              ) : null}
+            </div>
           </Panel>
         </ResizablePanel>
         {/* Stacked on small screens: a hairline instead of a gap, so both panes stay flush. */}
@@ -300,7 +333,20 @@ export function Editor({ id }: { id: string }) {
         />
         <ResizablePanel id="preview" minSize={mobile ? "160px" : "320px"} className="flex">
           <Panel as="section" split="end" className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-            <PanelHeader title="Preview">
+            <PanelHeader
+              title={
+                mobile ? (
+                  "Preview"
+                ) : (
+                  <>
+                    <SourceToggle collapsed={collapsed} onToggle={toggleSource}>
+                      {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+                    </SourceToggle>
+                    <span className="ml-1.5">Preview</span>
+                  </>
+                )
+              }
+            >
               <ZoomMenu />
               <ExportMenu actions={actions} />
             </PanelHeader>
@@ -414,6 +460,32 @@ function IconButton({
         {label}
         {shortcut && <span className="ml-2 text-background/70">{shortcut}</span>}
       </TooltipContent>
+    </Tooltip>
+  )
+}
+
+/**
+ * Hides and shows the source pane, and stays where it is either way, so focus stays on it. It's a disclosure, expanded
+ * whenever the source shows, so unlike a menu's trigger it doesn't look pressed then.
+ */
+function SourceToggle({ collapsed, onToggle, children }: { collapsed: boolean; onToggle: () => void; children: React.ReactNode }) {
+  const label = collapsed ? "Show source" : "Hide source"
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={label}
+          aria-expanded={!collapsed}
+          aria-controls="source"
+          onClick={onToggle}
+          className="text-muted-foreground aria-expanded:bg-transparent aria-expanded:text-muted-foreground aria-expanded:hover:bg-muted aria-expanded:hover:text-foreground dark:aria-expanded:hover:bg-muted/50"
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
     </Tooltip>
   )
 }
