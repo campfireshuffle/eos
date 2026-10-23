@@ -1,5 +1,5 @@
 import { Plus, Search } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { findEmoji, type LibrarySort } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
@@ -47,6 +47,16 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
   useScrollRestoration(mobile ? null : scroller, entry, shown)
   const emoji = route.tag ? findEmoji(tags ?? [], route.tag) : null
   const empty = rows?.length === 0
+  const groups = useMemo(
+    () => groupRows(rows ?? [], searched ? "none" : route.group, route.sort, route.tag),
+    [rows, searched, route.group, route.sort, route.tag]
+  )
+  // The cards are one Tab stop, so Tab reaches the selection bar after them in one press however many there are; the
+  // left and right arrows move between them. The stop is the card last focused while it's shown, else the first, and where a card
+  // shows under several groups, its first.
+  const [focused, setFocused] = useState<string>()
+  const stop = groups.flatMap((g) => g.rows).find((r) => r.id === focused)?.id ?? groups[0]?.rows[0]?.id
+  const stopGroup = groups.find((g) => g.rows.some((r) => r.id === stop))?.key
   useEffect(() => clearSelection(), [route.tag, route.starred, route.deleted])
   // Cards a search or edit hides leave the selection, so the bar only acts on what's shown.
   useEffect(() => {
@@ -157,8 +167,12 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
               </Button>
             )
           ) : (
-            <div className="flex flex-col gap-7">
-              {groupRows(rows ?? [], searched ? "none" : route.group, route.sort, route.tag).map((g) => (
+            <div
+              className="flex flex-col gap-7"
+              onFocus={(e) => e.target.dataset.cardId && setFocused(e.target.dataset.cardId)}
+              onKeyDown={moveBetweenCards}
+            >
+              {groups.map((g) => (
                 <section key={g.key} className="flex flex-col gap-3">
                   {g.label && (
                     <h2 className="flex items-baseline gap-2 text-caption font-medium text-muted-foreground">
@@ -168,7 +182,7 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
                   )}
                   <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
                     {g.rows.map((row) => (
-                      <DiagramCard key={row.id} row={row} />
+                      <DiagramCard key={row.id} row={row} tabbable={g.key === stopGroup && row.id === stop} />
                     ))}
                   </div>
                 </section>
@@ -181,6 +195,18 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
       <SelectionBar deleted={route.deleted} />
     </Page>
   )
+}
+
+/** Left and right arrows on a card move to the card before or after it. */
+function moveBetweenCards(e: React.KeyboardEvent<HTMLElement>) {
+  const card = e.target as HTMLElement
+  const step = { ArrowLeft: -1, ArrowRight: 1 }[e.key]
+  if (!step || !card.dataset.cardId || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
+  const cards = [...e.currentTarget.querySelectorAll<HTMLElement>("[data-card-id]")]
+  const next = cards[cards.indexOf(card) + step]
+  if (!next) return
+  e.preventDefault()
+  next.focus()
 }
 
 /**

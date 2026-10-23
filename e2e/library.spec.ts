@@ -1,6 +1,6 @@
 import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test"
 
-import { newDiagram, openEditor, tool, withAgentTools } from "./helpers"
+import { focusNext, focusPrevious, newDiagram, openEditor, tabTo, tool, withAgentTools } from "./helpers"
 
 test("Esc cancels a confirm without dropping the selection", async ({ context }) => {
   await withAgentTools(context)
@@ -191,12 +191,12 @@ test.describe("selecting", () => {
     expect(await page.evaluate(() => document.activeElement !== document.body && !document.activeElement?.closest("[inert]"))).toBe(true)
   }
   const bar = (page: Page) => page.getByRole("toolbar", { name: "Selection" })
-  /** Selects `target` with Space, then presses Enter on the bar's `action`. */
+  /** Selects `target` with Space, then Tabs to the bar's `action` and presses Enter. */
   async function selectAndPress(page: Page, target: Locator, action: string) {
     await target.focus()
     await page.keyboard.press(" ")
     await expect(page.getByText("1 selected")).toBeVisible()
-    await bar(page).getByRole("button", { name: action, exact: true }).focus()
+    await tabTo(page, bar(page).getByRole("button", { name: action, exact: true }))
     await page.keyboard.press("Enter")
   }
   /** Moves the cards titled `gone` to Deleted, and opens Deleted. */
@@ -222,7 +222,8 @@ test.describe("selecting", () => {
     const second = page.locator("[data-card-id]").nth(1)
     await second.focus()
     await page.keyboard.press(" ")
-    await bar(page).getByRole("button", { name: "Star" }).focus()
+    await focusNext(page)
+    await expect(bar(page).getByRole("button", { name: "Star" })).toBeFocused()
     await page.keyboard.press("Escape")
     await expect(selectionCount(page)).toHaveText("0 selected")
     await expectFocusOn(page, second)
@@ -268,6 +269,62 @@ test.describe("selecting", () => {
     await page.keyboard.press("ControlOrMeta+a")
     await expect.poll(() => search.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd])).toEqual([0, 7])
     await expect(selectionCount(page)).toHaveText("0 selected")
+  })
+
+  test("in a large library, one Tab reaches the selection bar from any card, and Shift+Tab returns to that card", async ({ context }) => {
+    test.setTimeout(90_000)
+    await withAgentTools(context)
+    const page = await context.newPage()
+    await page.goto("/#/")
+    await page.waitForFunction(() => "__tools" in window && "create_diagram" in (window as unknown as { __tools: object }).__tools)
+    await page.evaluate(async () => {
+      const create = (window as unknown as { __tools: Record<string, { execute(x: unknown): Promise<unknown> }> }).__tools.create_diagram
+      for (let i = 0; i < 300; i++) await create.execute({ title: `Card ${i}`, open: false })
+    })
+    const cards = page.locator("[data-card-id]")
+    await expect(page.getByRole("link", { name: /^Card 299 / })).toBeAttached()
+    const total = await cards.count()
+    const star = bar(page).getByRole("button", { name: "Star" })
+    for (const n of [0, total >> 1, total - 1]) {
+      const target = page.locator(`[data-card-id="${await cards.nth(n).getAttribute("data-card-id")}"]`)
+      await target.focus()
+      await page.keyboard.press(" ")
+      await expect(page.getByText("1 selected")).toBeVisible()
+      await focusNext(page)
+      await expect(star).toBeFocused()
+      await focusPrevious(page)
+      await expect(target).toBeFocused()
+      await page.keyboard.press("Escape")
+      await expect(selectionCount(page)).toHaveText("0 selected")
+    }
+  })
+
+  test("the left and right arrow keys move between cards in reading order, and the card last focused is the Tab stop", async ({
+    context,
+  }) => {
+    const page = await library(context)
+    for (let i = 0; i < 6; i++) await tool(page, "create_diagram", { title: `More ${i}`, open: false })
+    const cards = page.locator("[data-card-id]")
+    await expect(page.getByRole("link", { name: /^More 5 / })).toBeVisible()
+    const tops = await cards.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().top))
+    const perRow = tops.filter((t) => t === tops[0]).length
+    expect(perRow).toBeLessThan(tops.length)
+    const nth = async (n: number) => page.locator(`[data-card-id="${await cards.nth(n).getAttribute("data-card-id")}"]`)
+
+    // From the end of the first row to the start of the next, and back.
+    await (await nth(perRow - 1)).focus()
+    await page.keyboard.press("ArrowRight")
+    await expect(await nth(perRow)).toBeFocused()
+    await page.keyboard.press("ArrowLeft")
+    await expect(await nth(perRow - 1)).toBeFocused()
+    // Up and down are the page's: they scroll, and leave focus on the card.
+    await page.keyboard.press("ArrowDown")
+    await expect(await nth(perRow - 1)).toBeFocused()
+    await page.keyboard.press("ArrowRight")
+    await focusPrevious(page)
+    await expect(await nth(perRow)).not.toBeFocused()
+    await focusNext(page)
+    await expect(await nth(perRow)).toBeFocused()
   })
 })
 

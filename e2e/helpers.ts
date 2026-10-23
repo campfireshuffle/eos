@@ -1,4 +1,4 @@
-import { expect, type BrowserContext, type Page } from "@playwright/test"
+import { expect, type BrowserContext, type Locator, type Page } from "@playwright/test"
 
 /** Stands in for the browser's WebMCP API, so tests can call Eos's agent tools directly. */
 export async function withAgentTools(context: BrowserContext) {
@@ -48,4 +48,15 @@ export const expectEditor = (page: Page, text: string) => expect.poll(() => edit
 /** Moves focus to the next control. Safari's default Tab skips buttons and links; Option+Tab reaches them. */
 export function focusNext(page: Page) {
   return page.keyboard.press(page.context().browser()?.browserType().name() === "webkit" ? "Alt+Tab" : "Tab")
+}
+
+/** Moves focus to the previous control, as Shift+Tab does (Option+Shift+Tab in Safari; see focusNext). */
+export function focusPrevious(page: Page) {
+  return page.keyboard.press(page.context().browser()?.browserType().name() === "webkit" ? "Alt+Shift+Tab" : "Shift+Tab")
+}
+
+/** Tabs forward to `target`, which has to be at most `max` Tab stops ahead. */
+export async function tabTo(page: Page, target: Locator, max = 5) {
+  for (let i = 0; i < max && !(await target.evaluate((el) => el === document.activeElement)); i++) await focusNext(page)
+  await expect(target).toBeFocused()
 }

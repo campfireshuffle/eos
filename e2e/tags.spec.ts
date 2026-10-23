@@ -1,6 +1,6 @@
 import { expect, test, type BrowserContext, type Locator } from "@playwright/test"
 
-import { tool, withAgentTools } from "./helpers"
+import { tabTo, tool, withAgentTools } from "./helpers"
 
 /** Two diagrams tagged `tag`, with the library open at it. */
 async function viewing(context: BrowserContext, tag: string) {
@@ -217,7 +217,7 @@ test("unchecking a tag's last use in the Tags menu keeps focus on its row, and c
     (await tool<{ diagrams: { id: string; tags: string[] }[] }>(page, "get_library")).diagrams.find((d) => d.id === id)?.tags.includes("y")
   await page.locator(`[data-card-id="${id}"]`).focus()
   await page.keyboard.press(" ")
-  await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Tags" }).focus()
+  await tabTo(page, page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Tags" }))
   await page.keyboard.press("Enter")
   const y = page.getByRole("checkbox", { name: "y", exact: true })
   await y.focus()
@@ -247,7 +247,7 @@ test("unchecking a tag just created in the Tags menu keeps focus on its row", as
   const { id } = await tool<{ id: string }>(page, "create_diagram", { title: "Alpha", tags: ["x"], open: false })
   await page.locator(`[data-card-id="${id}"]`).focus()
   await page.keyboard.press(" ")
-  await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Tags" }).focus()
+  await tabTo(page, page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Tags" }))
   await page.keyboard.press("Enter")
   await page.keyboard.type("fresh")
   await page.keyboard.press("Enter")
@@ -295,7 +295,7 @@ test("unchecking the view's tag in the Tags menu when every card of it is select
   await expect(cards).toHaveCount(1)
   await cards.first().focus()
   await page.keyboard.press(" ")
-  await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Tags" }).focus()
+  await tabTo(page, page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Tags" }))
   await page.keyboard.press("Enter")
   await page.getByRole("checkbox", { name: "x", exact: true }).focus()
   await page.keyboard.press(" ")
