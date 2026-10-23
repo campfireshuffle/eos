@@ -321,6 +321,19 @@ for (const [size, viewport] of Object.entries({ desktop: { width: 1280, height: 
       await expect.poll(top).toBe(0)
     })
 
+    test("a search typed while scrolled stays at the top once its results show", async ({ context }) => {
+      const { page, cards, top, scrollTo, search } = await longLibrary(context)
+      await search.fill("Diagram")
+      await expect(cards).toHaveCount(149)
+      await searchScrolled(page)
+      await scrollTo(2000)
+      await search.fill("")
+      await expect(cards).toHaveCount(151)
+      // Past the frame in which anything else could still move the page.
+      await page.waitForTimeout(300)
+      expect(await top()).toBe(0)
+    })
+
     test("back to a search returns to where its results were scrolled", async ({ context }) => {
       const { page, cards, top, scrollTo, search } = await longLibrary(context)
       await search.fill("Diagram")

@@ -970,12 +970,6 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** forced colors (Windows High Contrast) is rare among this app's users, and Tab order still works.
   - **Fix:** add a `@media (forced-colors: active)` rule giving `:focus-visible` an `outline: 2px solid CanvasText`, and a border or `Highlight` colour for selected states.
 
-- **A search typed while a restore is still retrying can open at the bottom.**
-  - **What:** Back to a search whose saved position the view can no longer reach, then type a new search within about 330 ms. The new results open at the bottom, not the top.
-  - **Where:** `apps/web/src/lib/scroll-restore.ts`. Typing cancels the restore's retry loop, so the view never counts as restored. The new rows start a fresh restore from the stale position.
-  - **Why low:** it needs a saved position that no longer fits and typing within a third of a second.
-  - **Fix:** record a cancelled restore as done, or have the typed search's scroll to the top cancel any restore still running.
-
 ## Refactors to consider (from the round 11 cleanup review)
 
 - **What the preview shows, as one pure function.**
