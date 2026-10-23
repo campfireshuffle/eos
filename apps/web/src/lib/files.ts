@@ -11,7 +11,7 @@ export function safeName(name: string) {
 }
 
 /** Inlines the live CSS variables so an exported SVG looks the same outside Eos. */
-export function standaloneSvg(svgEl: SVGSVGElement): string {
+function standaloneSvg(svgEl: SVGSVGElement): string {
   const clone = svgEl.cloneNode(true) as SVGSVGElement
   const computed = getComputedStyle(svgEl)
   const vars = [...document.styleSheets]

@@ -49,7 +49,6 @@ export function Editor({ id }: { id: string }) {
   const eos = useEos()
   const diagram = useDiagram(id)
   const [source, setSource] = useState<string | null>(null)
-  const svgRef = useRef<SVGSVGElement | null>(null)
   const editorRef = useRef<CodeEditorHandle | null>(null)
   const pastRef = useRef<CodeEditorHandle | null>(null)
 
@@ -151,9 +150,11 @@ export function Editor({ id }: { id: string }) {
   const redo = () => void eos.redo(id).catch(() => {})
 
   const title = diagram?.meta.title ?? ""
-  // Exports are of the version shown, like the preview they're drawn from. Until a past
+  // What the preview draws: the version shown, or while its text doesn't render, the last good diagram.
+  const drawn = result?.ok ? (shown ?? "") : fallback
+  // Exports are of the version shown, as the preview draws it. Until a past
   // version's text arrives, the preview still shows the latest, and so do they.
-  const actions = useExportActions(title, shown ?? source ?? "", () => svgRef.current)
+  const actions = useExportActions(title, shown ?? source ?? "", drawn)
 
   useShortcuts(actions)
   const mobile = useIsMobile()
@@ -304,11 +305,7 @@ export function Editor({ id }: { id: string }) {
               <ExportMenu actions={actions} />
             </PanelHeader>
             <div className="relative min-h-0 flex-1">
-              <Preview
-                source={result?.ok ? (shown ?? "") : fallback}
-                stale={!result?.ok && !!fallback}
-                onSvg={(el) => (svgRef.current = el)}
-              />
+              <Preview source={drawn} stale={!result?.ok && !!fallback} />
               {result && !result.ok && (
                 <div className="absolute bottom-5 left-1/2 flex w-max max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-2xl border border-[var(--eos-line-active)] bg-accent px-3 py-1.5 text-center text-caption text-muted-foreground">
                   <TriangleAlert className="size-3.5 shrink-0 text-destructive" /> Couldn’t render
