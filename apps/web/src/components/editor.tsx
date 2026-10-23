@@ -15,8 +15,7 @@ import {
   RotateCcw,
   Trash2,
 } from "lucide-react"
-import { useEffect, useMemo, useRef, useState } from "react"
-import { flushSync } from "react-dom"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 
 import { validate, type SourceBinding } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
@@ -34,7 +33,7 @@ import { useDefaultLayout, useGroupRef, usePanelRef } from "react-resizable-pane
 
 import { useDiagram, useEos } from "@/lib/eos"
 import { useCopy } from "@/lib/use-copy"
-import { useIsMobile } from "@/lib/layout"
+import { togglePanel, useIsMobile, usePanelCollapsed } from "@/lib/layout"
 import { homeHref } from "@/lib/router"
 import { requestZoom, setUi, useUi } from "@/lib/ui-state"
 
@@ -106,22 +105,51 @@ export function Editor({ id }: { id: string }) {
     id: `eos-editor-${orientation}`,
     storage: localStorage,
   })
-  // Whether the source pane is collapsed, as the panel reports it after any resize: by its toggle, a drag, the keyboard
-  // on the splitter, or a saved layout. It starts as the saved layout has it where that says (collapsed to nothing, on
-  // desktop); a phone's collapsed size is in pixels, which the saved percentages can't say until the panel measures.
+  // Whether the source pane is collapsed, as the panel has it: by its toggle, a drag, the keyboard on the splitter, or a
+  // saved layout. Until the panel has mounted, the saved layout says where it can (collapsed to nothing, on desktop); a
+  // phone's collapsed size is in pixels, which its saved percentages can't say.
   const sourcePanel = usePanelRef()
-  const [collapsed, setCollapsed] = useState(() => layout.defaultLayout?.source === 0)
-  const toggleSource = () => (collapsed ? sourcePanel.current?.expand() : sourcePanel.current?.collapse())
+  const { collapsed, onResize } = usePanelCollapsed(sourcePanel, layout.defaultLayout?.source === 0)
+  // Animated, as the sidebar's toggle is.
+  const toggleSource = () => {
+    const group = document.getElementById("source")?.parentElement
+    if (sourcePanel.current) togglePanel(sourcePanel.current, group, group)
+  }
 
   // Previewing a past version shows its source read-only in both panes.
   const preview = useUi((s) => s.preview)
   const previewing = preview?.id === id ? preview : null
-  // The live source is hidden and inert while a past version shows (or the source pane is collapsed), but a selection left in it is still edited by
-  // execCommand in Firefox, and blocks typing elsewhere (see CodeEditor), so it goes. Its caret is in its state.
-  const live = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if ((previewing || collapsed) && live.current?.contains(getSelection()?.anchorNode ?? null)) getSelection()?.removeAllRanges()
-  }, [previewing, collapsed])
+  // Whether the live source can be reached: not while the pane is collapsed, nor while a past version shows. Everything
+  // that hides it or makes it inert goes by this, and so does focus.
+  const reachable = !collapsed && !previewing
+  // Whenever that changes, or the layout does, focus and selection left somewhere now out of reach are put right before
+  // the browser next renders, while they're still where the person had them. Focus goes to the live editor if it can
+  // take it (as after Back to latest), otherwise to the source's toggle, the one control for it that's always there.
+  // Focus on the page itself counts as lost only if it was in the banner or the past version's editor as they went
+  // (React detaches their refs before it removes them); otherwise it's where the person left it. A selection out of
+  // reach is still edited by execCommand in Firefox, and blocks typing elsewhere (see CodeEditor), so it goes; the live
+  // editor's caret is in its state.
+  const dropped = useRef(false)
+  const dropsFocus = useCallback(
+    (el: HTMLElement | null) => () => {
+      if (el?.contains(document.activeElement)) dropped.current = true
+    },
+    []
+  )
+  useLayoutEffect(() => {
+    const outOfReach = (node: Node | null | undefined) =>
+      !!node && (!node.isConnected || !!(node instanceof Element ? node : node.parentElement)?.closest("[inert], [hidden]"))
+    // Where focus is, before clearing the selection blurs the editor that has it.
+    const focus = document.activeElement
+    const lost = focus === document.body ? dropped.current : outOfReach(focus)
+    dropped.current = false
+    const selection = getSelection()
+    if (outOfReach(selection?.anchorNode)) selection?.removeAllRanges()
+    if (lost) {
+      if (reachable) editorRef.current?.focus()
+      else document.getElementById("source-toggle")?.focus()
+    }
+  }, [reachable, collapsed, mobile, previewing])
   // The past version's source, null until it has loaded, so its read-only editor starts with it.
   const [loaded, setLoaded] = useState<{ id: string; version: string; source: string } | null>(null)
   const previewSource = loaded?.id === id && loaded.version === previewing?.version ? loaded.source : null
@@ -158,11 +186,8 @@ export function Editor({ id }: { id: string }) {
     const t = setTimeout(() => setAnnounced(status), 1000)
     return () => clearTimeout(t)
   }, [status])
-  // Focus goes back to the live editor, where the person left it, rather than with the banner's buttons.
-  const backToLatest = () => {
-    flushSync(() => setUi({ preview: null }))
-    editorRef.current?.focus()
-  }
+  // Focus goes back to the live editor, where the person left it, rather than with the banner's buttons (see above).
+  const backToLatest = () => setUi({ preview: null })
   const undo = () => void eos.undo(id).catch(() => {})
   const redo = () => void eos.redo(id).catch(() => {})
 
@@ -211,7 +236,7 @@ export function Editor({ id }: { id: string }) {
       </PageHeader>
 
       {previewing && (
-        <Banner>
+        <Banner ref={dropsFocus}>
           <HistoryIcon className="size-4 text-muted-foreground" />
           {/* Wraps rather than being cut off, and the buttons move to the next row together. */}
           <span className="min-w-0 grow basis-48">
@@ -244,8 +269,8 @@ export function Editor({ id }: { id: string }) {
         </Banner>
       )}
       <ResizablePanelGroup groupRef={group} orientation={orientation} className="min-h-0 flex-1" {...layout}>
-        {/* Collapsed, it's hidden on desktop, so it takes no focus and screen readers skip it; on phones its header bar
-            stays, with the button that shows it again, and only what's below the header is. */}
+        {/* Collapsed, it's inert on desktop, so it takes no focus and screen readers skip it; on phones its header bar
+            stays, and only what's below the header is. */}
         <ResizablePanel
           id="source"
           panelRef={sourcePanel}
@@ -253,7 +278,7 @@ export function Editor({ id }: { id: string }) {
           minSize={mobile ? "120px" : "280px"}
           collapsible
           collapsedSize={mobile ? "48px" : "0px"}
-          onResize={() => setCollapsed(!!sourcePanel.current?.isCollapsed())}
+          onResize={onResize}
           inert={collapsed && !mobile}
           className="flex"
         >
@@ -275,20 +300,17 @@ export function Editor({ id }: { id: string }) {
               <IconButton label={copied ? "Copied" : "Copy source"} onClick={() => copy(shown ?? "")}>
                 {copied ? <Check className="text-[var(--eos-green)]" /> : <Copy />}
               </IconButton>
-              {mobile && (
-                <SourceToggle collapsed={collapsed} onToggle={toggleSource}>
-                  {collapsed ? <PanelTopOpen /> : <PanelTopClose />}
-                </SourceToggle>
-              )}
             </PanelHeader>
             <div inert={collapsed} className="flex min-h-0 flex-1 flex-col">
               {previewing && previewSource !== null && (
-                <CodeEditor key={`preview:${previewing.version}`} value={previewSource} readOnly errorAt={errorLine} handleRef={pastRef} />
+                <div key={`preview:${previewing.version}`} ref={dropsFocus} className="contents">
+                  <CodeEditor value={previewSource} readOnly errorAt={errorLine} handleRef={pastRef} />
+                </div>
               )}
               {/* Hidden, not unmounted, while a past version shows, so its caret and scroll are there to come back to;
                   inert, so the selection it keeps takes no editing. */}
               {binding ? (
-                <div ref={live} hidden={!!previewing} inert={!!previewing} className="flex min-h-0 flex-1 flex-col">
+                <div hidden={!!previewing} inert={!reachable} className="flex min-h-0 flex-1 flex-col">
                   <CodeEditor
                     key={key}
                     binding={binding}
@@ -302,9 +324,6 @@ export function Editor({ id }: { id: string }) {
               ) : (
                 <div className="min-h-0 flex-1" />
               )}
-              <p role="status" className="sr-only">
-                {announced}
-              </p>
               {result?.ok ? (
                 <footer className="flex items-center gap-1.5 px-4 py-2.5 text-caption text-muted-foreground">
                   <CircleCheck className="size-3.5 text-[var(--eos-green)]" /> Valid
@@ -335,16 +354,14 @@ export function Editor({ id }: { id: string }) {
           <Panel as="section" split="end" className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
             <PanelHeader
               title={
-                mobile ? (
-                  "Preview"
-                ) : (
-                  <>
-                    <SourceToggle collapsed={collapsed} onToggle={toggleSource}>
-                      {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
-                    </SourceToggle>
-                    <span className="ml-1.5">Preview</span>
-                  </>
-                )
+                <>
+                  {/* One toggle, at the preview's leading edge in both layouts, so it's the same element on either
+                      side of 768px and keeps focus as the layout changes. */}
+                  <SourceToggle collapsed={collapsed} onToggle={toggleSource}>
+                    {mobile ? collapsed ? <PanelTopOpen /> : <PanelTopClose /> : collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+                  </SourceToggle>
+                  <span className="ml-1.5">Preview</span>
+                </>
               }
             >
               <ZoomMenu />
@@ -362,13 +379,20 @@ export function Editor({ id }: { id: string }) {
           </Panel>
         </ResizablePanel>
       </ResizablePanelGroup>
+      {/* Outside the panes, so it's read out whether or not the source is collapsed. */}
+      <p role="status" className="sr-only">
+        {announced}
+      </p>
     </Page>
   )
 }
 
-function Banner({ children }: { children: React.ReactNode }) {
+function Banner({ ref, children }: { ref?: React.Ref<HTMLDivElement>; children: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 rounded-lg border border-[var(--eos-line-hover)] bg-card px-3 py-1.5 text-body md:mr-2 md:group-data-[collapsed=true]/shell:ml-2">
+    <div
+      ref={ref}
+      className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 rounded-lg border border-[var(--eos-line-hover)] bg-card px-3 py-1.5 text-body md:mr-2 md:group-data-[collapsed=true]/shell:ml-2"
+    >
       {children}
     </div>
   )
@@ -466,7 +490,8 @@ function IconButton({
 
 /**
  * Hides and shows the source pane, and stays where it is either way, so focus stays on it. It's a disclosure, expanded
- * whenever the source shows, so unlike a menu's trigger it doesn't look pressed then.
+ * whenever the source shows, so unlike a menu's trigger it doesn't look pressed then. A click focuses it too, as
+ * Safari's doesn't, so focus in the source it hides isn't left on the page.
  */
 function SourceToggle({ collapsed, onToggle, children }: { collapsed: boolean; onToggle: () => void; children: React.ReactNode }) {
   const label = collapsed ? "Show source" : "Hide source"
@@ -476,10 +501,14 @@ function SourceToggle({ collapsed, onToggle, children }: { collapsed: boolean; o
         <Button
           variant="ghost"
           size="icon-sm"
+          id="source-toggle"
           aria-label={label}
           aria-expanded={!collapsed}
           aria-controls="source"
-          onClick={onToggle}
+          onClick={(e) => {
+            e.currentTarget.focus()
+            onToggle()
+          }}
           className="text-muted-foreground aria-expanded:bg-transparent aria-expanded:text-muted-foreground aria-expanded:hover:bg-muted aria-expanded:hover:text-foreground dark:aria-expanded:hover:bg-muted/50"
         >
           {children}
