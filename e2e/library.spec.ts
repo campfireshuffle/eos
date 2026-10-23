@@ -299,7 +299,9 @@ test.describe("selecting", () => {
     }
   })
 
-  test("the arrow keys move between cards, across and down the rows", async ({ context }) => {
+  test("the left and right arrow keys move between cards in reading order, and the card last focused is the Tab stop", async ({
+    context,
+  }) => {
     const page = await library(context)
     for (let i = 0; i < 6; i++) await tool(page, "create_diagram", { title: `More ${i}`, open: false })
     const cards = page.locator("[data-card-id]")
@@ -309,21 +311,20 @@ test.describe("selecting", () => {
     expect(perRow).toBeLessThan(tops.length)
     const nth = async (n: number) => page.locator(`[data-card-id="${await cards.nth(n).getAttribute("data-card-id")}"]`)
 
-    await (await nth(0)).focus()
+    // From the end of the first row to the start of the next, and back.
+    await (await nth(perRow - 1)).focus()
     await page.keyboard.press("ArrowRight")
-    await expect(await nth(1)).toBeFocused()
-    await page.keyboard.press("ArrowDown")
-    await expect(await nth(1 + perRow)).toBeFocused()
-    await page.keyboard.press("ArrowUp")
-    await expect(await nth(1)).toBeFocused()
+    await expect(await nth(perRow)).toBeFocused()
     await page.keyboard.press("ArrowLeft")
-    await expect(await nth(0)).toBeFocused()
-    // The card last focused is the cards' one Tab stop.
+    await expect(await nth(perRow - 1)).toBeFocused()
+    // Up and down are the page's: they scroll, and leave focus on the card.
+    await page.keyboard.press("ArrowDown")
+    await expect(await nth(perRow - 1)).toBeFocused()
     await page.keyboard.press("ArrowRight")
     await focusPrevious(page)
-    await expect(await nth(1)).not.toBeFocused()
+    await expect(await nth(perRow)).not.toBeFocused()
     await focusNext(page)
-    await expect(await nth(1)).toBeFocused()
+    await expect(await nth(perRow)).toBeFocused()
   })
 })
 

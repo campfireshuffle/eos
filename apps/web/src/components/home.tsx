@@ -1,5 +1,5 @@
 import { Plus, Search } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { findEmoji, type LibrarySort } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
@@ -47,9 +47,12 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
   useScrollRestoration(mobile ? null : scroller, entry, shown)
   const emoji = route.tag ? findEmoji(tags ?? [], route.tag) : null
   const empty = rows?.length === 0
-  const groups = groupRows(rows ?? [], searched ? "none" : route.group, route.sort, route.tag)
+  const groups = useMemo(
+    () => groupRows(rows ?? [], searched ? "none" : route.group, route.sort, route.tag),
+    [rows, searched, route.group, route.sort, route.tag]
+  )
   // The cards are one Tab stop, so Tab reaches the selection bar after them in one press however many there are; the
-  // arrow keys move between them. The stop is the card last focused while it's shown, else the first, and where a card
+  // left and right arrows move between them. The stop is the card last focused while it's shown, else the first, and where a card
   // shows under several groups, its first.
   const [focused, setFocused] = useState<string>()
   const stop = groups.flatMap((g) => g.rows).find((r) => r.id === focused)?.id ?? groups[0]?.rows[0]?.id
@@ -194,30 +197,13 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
   )
 }
 
-/** Arrow keys on a card: left and right in reading order, up and down to the nearest card across in the next row. */
+/** Left and right arrows on a card move to the card before or after it. */
 function moveBetweenCards(e: React.KeyboardEvent<HTMLElement>) {
   const card = e.target as HTMLElement
-  if (!card.dataset.cardId || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
+  const step = { ArrowLeft: -1, ArrowRight: 1 }[e.key]
+  if (!step || !card.dataset.cardId || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
   const cards = [...e.currentTarget.querySelectorAll<HTMLElement>("[data-card-id]")]
-  const i = cards.indexOf(card)
-  const from = card.getBoundingClientRect()
-  const nextRow = (down: boolean) => {
-    let best: { card: HTMLElement; dy: number; dx: number } | undefined
-    for (const c of cards) {
-      const r = c.getBoundingClientRect()
-      const dy = down ? r.top - from.bottom : from.top - r.bottom
-      const dx = Math.abs(r.left + r.width / 2 - (from.left + from.width / 2))
-      if (dy >= 0 && (!best || dy < best.dy || (dy === best.dy && dx < best.dx))) best = { card: c, dy, dx }
-    }
-    return best?.card
-  }
-  const moves: Record<string, () => HTMLElement | undefined> = {
-    ArrowLeft: () => cards[i - 1],
-    ArrowRight: () => cards[i + 1],
-    ArrowUp: () => nextRow(false),
-    ArrowDown: () => nextRow(true),
-  }
-  const next = moves[e.key]?.()
+  const next = cards[cards.indexOf(card) + step]
   if (!next) return
   e.preventDefault()
   next.focus()

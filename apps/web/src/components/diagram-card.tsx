@@ -21,8 +21,8 @@ const CARD_HINT_ID = "eos-card-hint"
 export function CardHint() {
   return (
     <span id={CARD_HINT_ID} hidden>
-      Press Space, right-click or long-press to select. While selecting, clicking a diagram adds or removes it. The arrow keys move between
-      diagrams.
+      Press Space, right-click or long-press to select. While selecting, clicking a diagram adds or removes it. The left and right arrow
+      keys move between diagrams.
     </span>
   )
 }
