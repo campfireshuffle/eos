@@ -1149,6 +1149,13 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** it shows only for a moment at launch.
   - **Fix:** a neutral colour; the manifest can't follow the colour scheme.
 
+- **A restore within 2 minutes of the same actor's last change folds into that history entry.**
+  - **What:** `historyOf` folds a same-actor change made within 2 minutes into the previous entry, overwriting its version, and a restore is no exception. The text from just before the restore is then in no history entry, and after a reload ⌘Z can't reach it either. An agent's `revert` to a version folds the same way.
+    - Also, a restore to any version but the current one clears the other actor's undo stack, even when it reverses none of their steps.
+  - **Where:** `packages/core/src/docs.ts`, `historyOf` (about lines 287-291); `packages/core/src/store.ts`, `restoreVersion` (about line 422). Related to "A restore in one tab, then ⌘Z in another, duplicates the restored line".
+  - **Why low:** the owner chose to keep this behaviour for now. It needs a restore soon after the same actor's own edit, and the restored text itself is kept.
+  - **Fix:** the owner's call. Mark the restore commit (e.g. in its actor) and never fold it, and optionally cap an entry's length, since the 2-minute window slides. Clear the other actor's stack only when the restore reverses a step on it.
+
 ## Refactors to consider (from the round 11 cleanup review)
 
 - **What the preview shows, as one pure function.**
