@@ -123,6 +123,24 @@ for (const colorScheme of ["light", "dark"] as const) {
       await audit(page)
     })
 
+    for (const viewport of [
+      { width: 1280, height: 800 },
+      { width: 390, height: 844 },
+    ]) {
+      test(`editor at ${viewport.width}×${viewport.height} with the source hidden and shown`, async ({ page }) => {
+        await page.setViewportSize(viewport)
+        const id = await library(page)
+        await openEditor(page, id)
+        await expect(page.locator(".pele-preview svg")).toBeVisible()
+        await page.getByRole("button", { name: "Hide source" }).click()
+        await expect(page.getByRole("button", { name: "Show source" })).toBeFocused()
+        await audit(page)
+        await page.getByRole("button", { name: "Show source" }).click()
+        await expect(page.getByRole("textbox", { name: "Mermaid source" })).toBeFocused()
+        await audit(page)
+      })
+    }
+
     test("the source's search panel, with a match, and in a past version", async ({ page }) => {
       const id = await library(page)
       await openEditor(page, id)

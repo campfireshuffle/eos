@@ -495,7 +495,7 @@ test("a past version longer than the pane can be reached with Tab, scrolled with
   await expect(sourceEditor(page)).toHaveAttribute("aria-readonly", "true")
   const { violations } = await new AxeBuilder({ page }).withRules(["scrollable-region-focusable"]).analyze()
   expect(violations).toEqual([])
-  await page.getByRole("button", { name: "Copy source" }).focus()
+  await page.getByRole("button", { name: "Hide source" }).focus()
   await focusNext(page)
   await expect(sourceEditor(page)).toBeFocused()
   const scroller = sourceEditor(page).locator("..")
