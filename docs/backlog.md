@@ -318,18 +318,6 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Also:** every `scroll` event writes to sessionStorage, and `eos-scroll:*` keys are never pruned, so a long session keeps one per entry it visited.
   - **Fix:** if wanted, store `{ scrollTop }` with `navigation.updateCurrentEntry`, throttled to scrollend, and read `getState()` on restore. That fixes both: entry state goes with the entry, and the write happens once per scroll.
 
-- **The tag menu and the icon picker have no accessible name.**
-  - **What:** the `role="menu"` and the picker's popover are unnamed, because their trigger is an `aria-hidden` span. A screen reader announces "menu" with no tag.
-  - **Where:** `apps/web/src/components/tag-menu.tsx`, `tag-emoji-picker.tsx`.
-  - **Why low:** axe passes, and the focused item names its action.
-  - **Fix:** `aria-label={`${tag} actions`}` on the menu content, and `aria-label="Icon for ${tag}"` on the picker.
-
-- **`document.title` never changes per view.**
-  - **What:** every route has the title "Eos", so history, tabs and screen readers don't say which diagram or filter is open.
-  - **Where:** `apps/web/src/App.tsx` (route rendering).
-  - **Why low:** the page heading and the URL say it.
-  - **Fix:** set `document.title` from the route: "‹title› · Eos", "Starred · Eos", "#tag · Eos".
-
 - **A right-click on a second tag while the tag menu is open shows the browser's menu.**
   - **What:** with one tag's menu open, right-clicking another tag row opens the native context menu, and the first menu stays open.
   - **Where:** `apps/web/src/components/tag-tree.tsx` (the `onContextMenu` and Radix `DropdownMenu` modal layer).
@@ -397,35 +385,11 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** it's announced only when the selection changes, and reads correctly. The hidden toolbar is noise for anyone browsing by landmarks or roles.
   - **Fix:** render the status text empty at 0. Or move the status out of the toolbar and make the whole toolbar `inert` at 0.
 
-- **Tapping the current view in the phone drawer leaves the drawer open.**
-  - **What:** the drawer closes only when the location changes, so choosing the view that's already showing does nothing visible.
-  - **Where:** `apps/web/src/App.tsx` (the mobile drawer).
-  - **Why low:** the drawer can still be closed, and the user is already where they asked to go.
-  - **Fix:** close the drawer on any nav link activation. Or close it on the Navigation API's `navigate` event, which fires for same-URL navigations too.
-
-- **In-app Back/Forward across pages drops focus to the page.**
-  - **What:** Back or Forward between the library and a diagram swaps the page header, so the focused Back/Forward button is removed and focus falls to BODY.
-  - **Where:** `apps/web/src/components/history-nav.tsx`, `page.tsx`.
-  - **Why low:** it's on a less-used control. Browser Back (the common route) is unaffected, and the next Tab starts from the top.
-  - **Fix:** render the history nav once outside the swapped header, or refocus the same control by a stable key after the page swaps.
-
 - **get_view never says a past version is showing.**
   - **What:** `get_view` leaves out `ui.preview`, so an agent can't tell that the person is looking at a past version rather than the latest.
   - **Where:** `apps/web/src/lib/webmcp.ts`, `getView`.
   - **Why low:** agent-only. Edits still go to the latest version correctly.
   - **Fix:** add `preview: { version, at } | null` to the view, and document it in the tool description.
-
-- **The hidden live editor's `inert` is redundant, and its comment credits the wrong thing.**
-  - **What:** `hidden`, plus clearing the leftover selection, already keeps input out. Removing `inert` passes 60/60 runs, but the comment says `inert` is what stops the edits.
-  - **Where:** `apps/web/src/components/editor.tsx` (the comments at about lines 100 and 244, and the `inert={!!previewing}` on the live wrapper).
-  - **Why low:** harmless, it's only belt and braces.
-  - **Fix:** fix the comment to credit `hidden` and clearing the selection. Keep or drop `inert`, but say which does the work.
-
-- **Library multi-select is still hand-rolled.**
-  - **What:** selection, Space, ⌘A, Escape and the marquee are custom, where React Aria's `GridList` could own keyboard selection.
-  - **Where:** `apps/web/src/lib/selection.ts`, `components/diagram-card.tsx`, `components/marquee.tsx`.
-  - **Why low:** it works. A1's GridList attempt was dropped for performance and because it broke the cards' link behaviour.
-  - **Fix:** revisit when GridList supports link items without the per-item cost, or virtualize the grid first.
 
 - **No e2e test for downloading a backup or importing a valid one.**
   - **What:** these flows are only covered by core unit tests and hand checks. (The trash's Restore and Delete forever now have e2e tests in `e2e/library.spec.ts`, from A2's focus fix.)
@@ -463,17 +427,11 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** it needs an agent to open a past version while the person is typing. Nothing typed is saved anywhere wrong, and one click on the source gets back.
   - **Fix:** when a past version opens while focus is in the live source, focus the read-only editor. When the view returns to latest and focus is on BODY or in the past version's editor, focus the live source at its caret, with the same `CodeEditorHandle.focus()` that Back to latest uses.
 
-- **The version history popover is a nameless dialog.**
-  - **What:** the history popover has `role=dialog` but no accessible name, which fails axe's `aria-dialog-name`.
-  - **Where:** `apps/web/src/components/history-menu.tsx`.
-  - **Why low:** its focused items name themselves, and the trigger says "History".
-  - **Fix:** `aria-label="Version history"` on the popover content.
-
-- **The editor page has no heading, and its splitters have no name.**
-  - **What:** a screen reader's heading navigation finds nothing on a diagram's page, and the resize handles between the panes are announced as unnamed separators.
-  - **Where:** `apps/web/src/components/editor.tsx`, `page.tsx` (the editor's header); the resizable panel handles.
-  - **Why low:** the title field is labelled and is the first stop, and the splitters are pointer conveniences with a fixed default layout.
-  - **Fix:** a visually hidden `<h1>` with the diagram's title (or the title field inside an `h1`), and `aria-label="Resize source and preview"` (and so on) on each handle.
+- **The editor's splitters have no name.**
+  - **What:** the resize handles between the panes are announced as unnamed separators.
+  - **Where:** `apps/web/src/components/resize-handle.tsx`, used by `editor.tsx` and `App.tsx`.
+  - **Why low:** the splitters are pointer conveniences with a fixed default layout, and the source pane has a labelled toggle.
+  - **Fix:** `aria-label="Resize source and preview"` (and so on) on each handle.
 
 - **A concurrent edit at the edge of an IME composition leaves the composed letters behind (CodeMirror, upstream).**
   - **What:** while composing (pinyin `ni` at the end of `A --> B`), another tab's or an agent's edit that replaces, inserts at, or deletes the character just before the composition leaves `ni` in the text when `你` commits: `A --> Cni你`. The editor and the store agree.
