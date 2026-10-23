@@ -789,48 +789,83 @@ test("search results are one list, best match first, and Group applies again onc
   await expect(page.getByRole("combobox", { name: "Group by" })).toHaveValue("date")
 })
 
-// A card is its diagram (and group copy), not the search it showed in, so narrowing a search keeps the ones still in it.
-test("cards that stay in a search's results keep their thumbnails while it's typed, one key at a time", async ({ context }) => {
+// A card is its diagram (and subtag), not the search it showed in, so narrowing a search keeps the ones still in it.
+// A grouped view's first keystroke takes its cards out of their sections into one list, which draws them afresh; the
+// keystrokes after it are within that list (decision 011).
+for (const [view, hash, first] of [
+  ["ungrouped", "/?group=none&sort=title", ""],
+  ["grouped by date, after the first keystroke", "/?sort=title", "p"],
+] as const)
+  test(`cards that stay in a search's results keep their thumbnails while it's typed, one key at a time (${view})`, async ({ context }) => {
+    await withAgentTools(context)
+    const page = await context.newPage()
+    await page.goto(`/#${hash}`)
+    await seedLibrary(page, [..."ABCDEF"].map((c) => ({ title: `Pear ${c}` })).concat([{ title: "Plum" }, { title: "Peach" }]))
+    const pears = page.locator("[data-card-id]", { hasText: "Pear" })
+    await expect(pears).toHaveCount(6)
+    const search = page.getByRole("textbox", { name: "Search diagrams" }).first()
+    for (const key of first) {
+      await search.press(key)
+      await expect(page.locator(".eos-library-scroller h2")).toHaveCount(0)
+    }
+    // Every pear in view has drawn its thumbnail.
+    const kept = await pears.evaluateAll((cards) => {
+      const scroller = document.querySelector(".eos-library-scroller")!.getBoundingClientRect()
+      return cards.filter((c) => c.getBoundingClientRect().top < scroller.bottom).map((c) => c.getAttribute("data-card-id")!)
+    })
+    expect(kept.length).toBeGreaterThan(0)
+    for (const id of kept) await expect(page.locator(`[data-card-id="${id}"] .pele-thumb svg`)).toBeAttached()
+    // In every frame from here on, each of them that's in view shows its SVG.
+    await page.evaluate((kept) => {
+      const blank: string[] = []
+      Object.assign(window, { __blank: blank, __recording: true })
+      const record = () => {
+        const scroller = document.querySelector(".eos-library-scroller")!.getBoundingClientRect()
+        for (const id of kept) {
+          const card = document.querySelector(`[data-card-id="${id}"]`)
+          const box = card?.getBoundingClientRect()
+          const inView = !!box && box.bottom > scroller.top && box.top < scroller.bottom
+          if (!card || (inView && !card.querySelector(".pele-thumb svg"))) blank.push(id)
+        }
+        if ((window as unknown as { __recording: boolean }).__recording) requestAnimationFrame(record)
+      }
+      requestAnimationFrame(record)
+    }, kept)
+    for (const key of "pear".slice(first.length)) {
+      await search.press(key)
+      await page.evaluate(() => new Promise((r) => setTimeout(r, 200)))
+    }
+    await expect(page.locator("[data-card-id]")).toHaveCount(6)
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+    const blank = await page.evaluate(
+      () => (((window as unknown as { __recording: boolean }).__recording = false), (window as unknown as { __blank: string[] }).__blank)
+    )
+    expect(blank).toEqual([])
+  })
+
+// By subtag, a card is its diagram under that subtag, whatever subtags sort before it: a tag an agent adds or removes
+// leaves the card the person is on in place, and focused.
+test("a tag added or removed elsewhere leaves the focused card, under its own subtag, focused", async ({ context }) => {
   await withAgentTools(context)
   const page = await context.newPage()
-  await page.goto("/#/?group=none&sort=title")
-  await seedLibrary(page, [..."ABCDEF"].map((c) => ({ title: `Pear ${c}` })).concat([{ title: "Plum" }, { title: "Peach" }]))
-  const pears = page.locator("[data-card-id]", { hasText: "Pear" })
-  await expect(pears).toHaveCount(6)
-  // Every pear in view has drawn its thumbnail.
-  const kept = await pears.evaluateAll((cards) => {
-    const scroller = document.querySelector(".eos-library-scroller")!.getBoundingClientRect()
-    return cards.filter((c) => c.getBoundingClientRect().top < scroller.bottom).map((c) => c.getAttribute("data-card-id")!)
-  })
-  expect(kept.length).toBeGreaterThan(0)
-  for (const id of kept) await expect(page.locator(`[data-card-id="${id}"] .pele-thumb svg`)).toBeAttached()
-  // In every frame from here on, each of them that's in view shows its SVG.
-  await page.evaluate((kept) => {
-    const blank: string[] = []
-    Object.assign(window, { __blank: blank, __recording: true })
-    const record = () => {
-      const scroller = document.querySelector(".eos-library-scroller")!.getBoundingClientRect()
-      for (const id of kept) {
-        const card = document.querySelector(`[data-card-id="${id}"]`)
-        const box = card?.getBoundingClientRect()
-        const inView = !!box && box.bottom > scroller.top && box.top < scroller.bottom
-        if (!card || (inView && !card.querySelector(".pele-thumb svg"))) blank.push(id)
-      }
-      if ((window as unknown as { __recording: boolean }).__recording) requestAnimationFrame(record)
-    }
-    requestAnimationFrame(record)
-  }, kept)
-  const search = page.getByRole("textbox", { name: "Search diagrams" }).first()
-  for (const key of "pear") {
-    await search.press(key)
-    await page.evaluate(() => new Promise((r) => setTimeout(r, 200)))
-  }
-  await expect(page.locator("[data-card-id]")).toHaveCount(6)
-  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
-  const blank = await page.evaluate(
-    () => (((window as unknown as { __recording: boolean }).__recording = false), (window as unknown as { __blank: string[] }).__blank)
+  await page.goto("/#/?group=subtag&sort=title")
+  await seedLibrary(
+    page,
+    Array.from({ length: 60 }, (_, i) => ({ title: `Card ${String(i).padStart(2, "0")}`, tags: ["b"] }))
   )
-  expect(blank).toEqual([])
+  const cards = page.locator("[data-card-id]")
+  await expect(cards).toHaveCount(61)
+  const last = cards.filter({ hasText: "Card 59" })
+  await last.focus()
+  await last.evaluate((el) => Object.assign(el, { __focused: true }))
+  const id = (await last.getAttribute("data-card-id"))!
+  const stillFocused = () => page.evaluate(() => !!(document.activeElement as { __focused?: boolean } | null)?.__focused)
+  await tool(page, "update_diagram", { id, addTags: ["a"] })
+  await expect(cards).toHaveCount(62)
+  expect(await stillFocused()).toBe(true)
+  await tool(page, "update_diagram", { id, removeTags: ["a"] })
+  await expect(cards).toHaveCount(61)
+  expect(await stillFocused()).toBe(true)
 })
 
 // Nothing a page starts as it goes away is sure to land, so the row is rebuilt on the next start.

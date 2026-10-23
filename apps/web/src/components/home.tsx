@@ -39,14 +39,14 @@ export function Home({ route, entry }: { route: Extract<Route, { name: "home" }>
   const empty = rows?.length === 0
   // Search results are one list, best match first: grouped, the best match could sit under a later date or tag.
   // Decided by the search the shown rows were loaded with, so the view changes with the results, not a keystroke before.
-  const searched = !!library?.filter.query?.trim()
-  const groups = useMemo(
-    () => groupRows(rows ?? [], searched ? "none" : route.group, route.sort, route.tag),
-    [rows, searched, route.group, route.sort, route.tag]
-  )
+  // A grouped view's cards leave their sections for it, and go back once it's cleared, so those two changes draw the
+  // cards afresh; the keystrokes between keep them (see useGridSelection).
+  const grouping = library?.filter.query?.trim() ? "none" : route.group
+  const groups = useMemo(() => groupRows(rows ?? [], grouping, route.sort, route.tag), [rows, grouping, route.sort, route.tag])
   // The cards are one grid, which owns focus, the keyboard and the selection.
   const { byGroup, keys, selectedKeys, onSelectionChange } = useGridSelection(
     groups,
+    grouping,
     JSON.stringify([route.tag, route.starred, route.deleted])
   )
   // Back/forward returns to where you were, once the grid shows the URL's own view in full: until then, it shows the

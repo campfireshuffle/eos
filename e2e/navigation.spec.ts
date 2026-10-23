@@ -501,8 +501,13 @@ for (const [size, viewport] of Object.entries({ desktop: { width: 1280, height: 
       await page.goBack()
       await expect(page).toHaveURL(/group=subtag/)
       await expect(cards).toHaveCount(241)
-      await page.waitForTimeout(300)
-      expect(await top()).toBe(y)
+      // Back at y, and still there a frame later, once nothing else can move it.
+      const held = async () => {
+        const at = await top()
+        await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+        return at === y && (await top()) === y
+      }
+      await expect.poll(held).toBe(true)
     })
 
     test("back and forward between a search and Starred return to where each was scrolled", async ({ context }) => {
