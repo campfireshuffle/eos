@@ -15,8 +15,7 @@ import {
   RotateCcw,
   Trash2,
 } from "lucide-react"
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
-import { flushSync } from "react-dom"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 
 import { validate, type SourceBinding } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
@@ -34,7 +33,7 @@ import { useDefaultLayout, useGroupRef, usePanelRef } from "react-resizable-pane
 
 import { useDiagram, useEos } from "@/lib/eos"
 import { useCopy } from "@/lib/use-copy"
-import { useIsMobile } from "@/lib/layout"
+import { togglePanel, useIsMobile, usePanelCollapsed } from "@/lib/layout"
 import { homeHref } from "@/lib/router"
 import { requestZoom, setUi, useUi } from "@/lib/ui-state"
 
@@ -106,33 +105,45 @@ export function Editor({ id }: { id: string }) {
     id: `eos-editor-${orientation}`,
     storage: localStorage,
   })
-  // Whether the source pane is collapsed, as the panel itself has it, asked again each time it resizes: by its toggle, a
-  // drag, the keyboard on the splitter, or a saved layout. Until the panel has mounted, the saved layout says where it
-  // can (collapsed to nothing, on desktop); a phone's collapsed size is in pixels, which its saved percentages can't say.
+  // Whether the source pane is collapsed, as the panel has it: by its toggle, a drag, the keyboard on the splitter, or a
+  // saved layout. Until the panel has mounted, the saved layout says where it can (collapsed to nothing, on desktop); a
+  // phone's collapsed size is in pixels, which its saved percentages can't say.
   const sourcePanel = usePanelRef()
-  const resized = useRef(() => {})
-  const collapsed = useSyncExternalStore(
-    useCallback((changed: () => void) => {
-      resized.current = changed
-      return () => (resized.current = () => {})
-    }, []),
-    () => sourcePanel.current?.isCollapsed() ?? layout.defaultLayout?.source === 0
-  )
-  const toggleSource = () => (collapsed ? sourcePanel.current?.expand() : sourcePanel.current?.collapse())
-  // Where focus goes when the source can't take it: its toggle, the one control for it that's always there.
-  const toToggle = () => document.getElementById("source-toggle")?.focus()
+  const { collapsed, onResize } = usePanelCollapsed(sourcePanel, layout.defaultLayout?.source === 0)
+  // Animated, as the sidebar's toggle is.
+  const toggleSource = () => {
+    const group = document.getElementById("source")?.parentElement
+    if (sourcePanel.current) togglePanel(sourcePanel.current, group, group)
+  }
 
   // Previewing a past version shows its source read-only in both panes.
   const preview = useUi((s) => s.preview)
   const previewing = preview?.id === id ? preview : null
   // Whether the live source can be reached: not while the pane is collapsed, nor while a past version shows. Everything
-  // that hides it, makes it inert or moves focus to it goes by this.
+  // that hides it or makes it inert goes by this, and so does focus.
   const reachable = !collapsed && !previewing
-  // Out of reach, it's inert, but a selection left in it is still edited by execCommand in Firefox, and blocks typing
-  // elsewhere (see CodeEditor), so it goes. Its caret is in its state.
-  useEffect(() => {
-    if (!reachable && document.getElementById("source")?.contains(getSelection()?.anchorNode ?? null)) getSelection()?.removeAllRanges()
-  }, [reachable])
+  // Whenever that changes, or the layout does, focus and selection left somewhere now out of reach are put right before
+  // the browser next renders, while they're still where the person had them. Focus goes to the live editor if it can
+  // take it (as after Back to latest), otherwise to the source's toggle, the one control for it that's always there.
+  // Focus on the page itself counts as lost only when the version shown changed, which is when the banner's buttons
+  // and the past version's editor go; otherwise, as when the editor opens, it's the person's. A selection out of reach
+  // is still edited by execCommand in Firefox, and blocks typing elsewhere (see CodeEditor), so it goes; the live
+  // editor's caret is in its state.
+  const shownBefore = useRef(previewing)
+  useLayoutEffect(() => {
+    const outOfReach = (node: Node | null | undefined) =>
+      !!node && (!node.isConnected || !!(node instanceof Element ? node : node.parentElement)?.closest("[inert], [hidden]"))
+    // Where focus is, before clearing the selection blurs the editor that has it.
+    const focus = document.activeElement
+    const lost = focus === document.body ? shownBefore.current !== previewing : outOfReach(focus)
+    const selection = getSelection()
+    if (outOfReach(selection?.anchorNode)) selection?.removeAllRanges()
+    if (lost) {
+      if (reachable) editorRef.current?.focus()
+      else document.getElementById("source-toggle")?.focus()
+    }
+    shownBefore.current = previewing
+  }, [reachable, collapsed, mobile, previewing])
   // The past version's source, null until it has loaded, so its read-only editor starts with it.
   const [loaded, setLoaded] = useState<{ id: string; version: string; source: string } | null>(null)
   const previewSource = loaded?.id === id && loaded.version === previewing?.version ? loaded.source : null
@@ -169,13 +180,8 @@ export function Editor({ id }: { id: string }) {
     const t = setTimeout(() => setAnnounced(status), 1000)
     return () => clearTimeout(t)
   }, [status])
-  // Focus goes back to the live editor, where the person left it, rather than with the banner's buttons; or, with the
-  // source collapsed, to its toggle. Once the latest shows, the source is reachable unless it's collapsed.
-  const backToLatest = () => {
-    flushSync(() => setUi({ preview: null }))
-    if (collapsed) toToggle()
-    else editorRef.current?.focus()
-  }
+  // Focus goes back to the live editor, where the person left it, rather than with the banner's buttons (see above).
+  const backToLatest = () => setUi({ preview: null })
   const undo = () => void eos.undo(id).catch(() => {})
   const redo = () => void eos.redo(id).catch(() => {})
 
@@ -190,15 +196,12 @@ export function Editor({ id }: { id: string }) {
   // Each orientation keeps its own split. The group isn't remounted for the other one (that would lose the source's
   // caret, scroll and focus mid-edit, as a phone rotates), so it's given that one's split here. The source pane
   // changes shape, so the caret someone is typing at is brought back into view. Whether the source is hidden is the
-  // person's choice, not the orientation's, so that carries over. Collapsed on desktop, the whole pane is out of reach,
-  // header and all, so focus in it moves to the toggle. That's done before the browser next renders, while focus is
-  // still where the person had it, rather than after it has dropped it.
+  // person's choice, not the orientation's, so that carries over.
   const group = useGroupRef()
-  useLayoutEffect(() => {
+  useEffect(() => {
     group.current?.setLayout(layout.defaultLayout ?? { source: 42, preview: 58 })
     if (collapsed) sourcePanel.current?.collapse()
     else sourcePanel.current?.expand()
-    if (collapsed && !mobile && document.getElementById("source")?.contains(document.activeElement)) toToggle()
     for (const editor of [editorRef, pastRef]) editor.current?.keepCaretInView()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orientation])
@@ -269,7 +272,7 @@ export function Editor({ id }: { id: string }) {
           minSize={mobile ? "120px" : "280px"}
           collapsible
           collapsedSize={mobile ? "48px" : "0px"}
-          onResize={() => resized.current()}
+          onResize={onResize}
           inert={collapsed && !mobile}
           className="flex"
         >
@@ -476,7 +479,8 @@ function IconButton({
 
 /**
  * Hides and shows the source pane, and stays where it is either way, so focus stays on it. It's a disclosure, expanded
- * whenever the source shows, so unlike a menu's trigger it doesn't look pressed then.
+ * whenever the source shows, so unlike a menu's trigger it doesn't look pressed then. A click focuses it too, as
+ * Safari's doesn't, so focus in the source it hides isn't left on the page.
  */
 function SourceToggle({ collapsed, onToggle, children }: { collapsed: boolean; onToggle: () => void; children: React.ReactNode }) {
   const label = collapsed ? "Show source" : "Hide source"
@@ -490,7 +494,10 @@ function SourceToggle({ collapsed, onToggle, children }: { collapsed: boolean; o
           aria-label={label}
           aria-expanded={!collapsed}
           aria-controls="source"
-          onClick={onToggle}
+          onClick={(e) => {
+            e.currentTarget.focus()
+            onToggle()
+          }}
           className="text-muted-foreground aria-expanded:bg-transparent aria-expanded:text-muted-foreground aria-expanded:hover:bg-muted aria-expanded:hover:text-foreground dark:aria-expanded:hover:bg-muted/50"
         >
           {children}

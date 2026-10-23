@@ -116,9 +116,24 @@ test("after a reload, showing the source brings back the split it had before it 
   await expect.poll(() => size(page, "source", "width"), { timeout: 2000 }).toBeCloseTo(before, 0)
 })
 
-test("dragging the splitter to the edge hides the source", async ({ page }) => {
+/** Records each time the editor's panel group starts ("on") and stops ("off") animating. */
+async function watchAnimating(page: Page) {
+  await page.evaluate(() => {
+    const group = document.getElementById("source")!.parentElement!
+    const seen: string[] = []
+    Object.assign(window, { __animating: seen })
+    new MutationObserver(() => seen.push(group.hasAttribute("data-animating") ? "on" : "off")).observe(group, {
+      attributes: true,
+      attributeFilter: ["data-animating"],
+    })
+  })
+  return () => page.evaluate(() => (window as unknown as { __animating: string[] }).__animating)
+}
+
+test("dragging the splitter to the edge hides the source, without animating", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   await openEditor(page, await newDiagram(page, SOURCE))
+  const animating = await watchAnimating(page)
   const handle = (await page.getByRole("separator").last().boundingBox())!
   const source = (await page.locator("[data-panel]#source").boundingBox())!
   await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2)
@@ -127,6 +142,81 @@ test("dragging the splitter to the edge hides the source", async ({ page }) => {
   await page.mouse.up()
   await expect.poll(() => size(page, "source", "width")).toBe(0)
   await expect(page.getByRole("button", { name: "Show source" })).toHaveAttribute("aria-expanded", "false")
+  expect(await animating()).toEqual([])
+})
+
+test("the toggle animates hiding and showing the source, as the sidebar's does, and only while it does", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await openEditor(page, await newDiagram(page, SOURCE))
+  const animating = await watchAnimating(page)
+  await page.getByRole("button", { name: "Hide source" }).click()
+  await expect.poll(animating).toEqual(["on", "off"])
+  expect(await size(page, "source", "width")).toBe(0)
+  await page.getByRole("button", { name: "Show source" }).click()
+  await expect.poll(animating).toEqual(["on", "off", "on", "off"])
+  expect(await size(page, "source", "width")).toBeGreaterThan(0)
+
+  // Not across 768px, nor after a reload.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.setViewportSize({ width: 1280, height: 800 })
+  expect(await animating()).toHaveLength(4)
+  await page.reload()
+  await page.locator(".cm-content").waitFor()
+  expect(await page.locator("[data-animating]").count()).toBe(0)
+
+  // With reduced motion, nothing moves.
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  await page.getByRole("button", { name: "Hide source" }).click()
+  expect(await page.locator("[data-panel]#source").evaluate((el) => el.getAnimations().length)).toBe(0)
+  await expect(page.locator("[data-animating]")).toHaveCount(0)
+})
+
+for (const viewport of [
+  { width: 1280, height: 800 },
+  { width: 390, height: 844 },
+]) {
+  test(`at ${viewport.width}×${viewport.height} clicking Hide source with the caret in the editor leaves focus on the toggle`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport)
+    await openEditor(page, await newDiagram(page, SOURCE))
+    await cursorAtEndOf(page, 1)
+    // Safari doesn't focus a button that's clicked, so focus would stay in the editor as it goes out of reach.
+    await page.getByRole("button", { name: "Hide source" }).click()
+    await expect(page.getByRole("button", { name: "Show source" })).toBeFocused()
+  })
+}
+
+test("an agent showing a past version, and then the latest, never leaves focus on the page", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  const id = await newDiagram(page, SOURCE)
+  await tool(page, "update_diagram", { id, source: "flowchart TD\n  A --> C" })
+  await openEditor(page, id)
+  const { history } = await tool<{ history: { version: string }[] }>(page, "get_diagram", { id, history: true })
+  const editor = page.getByRole("textbox", { name: "Mermaid source" })
+  const banner = page.getByText("Viewing the version from")
+
+  // From the live editor, which the past version hides.
+  await cursorAtEndOf(page, 1)
+  await tool(page, "set_view", { diagramId: id, previewVersion: history.at(-1)!.version })
+  await expect(banner).toBeVisible()
+  await expect(page.getByRole("button", { name: "Hide source" })).toBeFocused()
+
+  // From the banner's button, which goes with it: back to the live editor.
+  await page.getByRole("button", { name: "Back to latest" }).focus()
+  await tool(page, "set_view", { diagramId: id, previewVersion: "latest" })
+  await expect(banner).toHaveCount(0)
+  await expect(editor).toBeFocused()
+  await expect(editor).not.toHaveAttribute("aria-readonly", "true")
+
+  // From the past version's editor, which goes too.
+  await tool(page, "set_view", { diagramId: id, previewVersion: history.at(-1)!.version })
+  await expect(editor).toHaveAttribute("aria-readonly", "true")
+  await editor.focus()
+  await tool(page, "set_view", { diagramId: id, previewVersion: "latest" })
+  await expect(banner).toHaveCount(0)
+  await expect(editor).toBeFocused()
+  await expect(editor).not.toHaveAttribute("aria-readonly", "true")
 })
 
 // Whether the live source can take focus is one thing, read by everything that moves focus or hides it: nothing sends
