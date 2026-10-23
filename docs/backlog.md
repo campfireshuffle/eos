@@ -1265,6 +1265,18 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** agent-only; the description says where the version is, and the person's typing is still in history.
   - **Fix:** owner's call: put `version` inside `diagram` too, or have `update_diagram` warn when a source comes without `baseVersion`.
 
+- **The tag menu and the icon picker have no accessible name.**
+  - **What:** the `role="menu"` and the picker's popover are unnamed, because their trigger is an `aria-hidden` span. A screen reader announces "menu" with no tag.
+  - **Where:** `apps/web/src/components/tag-menu.tsx`, `tag-emoji-picker.tsx`.
+  - **Why low:** axe passes, and the focused item names its action.
+  - **Fix:** `aria-label={`${tag} actions`}` on the menu content, and `aria-label="Icon for ${tag}"` on the picker.
+
+- **The version history popover is a nameless dialog.**
+  - **What:** the history popover has `role=dialog` but no accessible name, which fails axe's `aria-dialog-name`.
+  - **Where:** `apps/web/src/components/history-menu.tsx`.
+  - **Why low:** its focused items name themselves, and the trigger says "History".
+  - **Fix:** `aria-label="Version history"` on the popover content.
+
 ## Refactors to consider (from the round 11 cleanup review)
 
 - **What the preview shows, as one pure function.**
