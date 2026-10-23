@@ -88,6 +88,25 @@ test("an exported SVG opens at the diagram's own size, whatever the preview's zo
   expect(size.shown).toEqual(size.own)
 })
 
+test.describe("in a window whose preview pane is narrow", () => {
+  test.use({ viewport: { width: 1280, height: 800 } })
+
+  test("an exported SVG is laid out as the diagram is, not as the pane is, and equals the agent's export", async ({ context }) => {
+    await withAgentTools(context)
+    const page = await context.newPage()
+    const id = await newDiagram(page, "flowchart LR\n  A[Request] --> B[Validate] --> C[Authorize] --> D[Process] --> E[Respond]")
+    await openEditor(page, id)
+    await expect(page.locator(".pele-preview svg")).toBeVisible()
+    const svg = await exported(page, "SVG .svg")
+    const [, , w, h] = /viewBox="([^"]+)"/
+      .exec(svg)![1]
+      .split(/[\s,]+/)
+      .map(Number)
+    expect(w).toBeGreaterThan(h)
+    expect(svg).toBe((await tool<{ data: string }>(page, "export", { id, format: "svg" })).data)
+  })
+})
+
 test.describe("in dark mode", () => {
   test.use({ colorScheme: "dark" })
 

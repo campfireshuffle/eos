@@ -1,6 +1,6 @@
 import { ChevronDown, Code, Copy, Download, FileCode, FileImage, Image, Link } from "lucide-react"
 
-import { encodeShare, shareUrl } from "@eos/core"
+import { encodeShare, renderSvg, shareUrl } from "@eos/core"
 import { Button } from "@workspace/ui/components/button"
 import {
   DropdownMenu,
@@ -12,14 +12,17 @@ import {
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
 
-import { download, standaloneSvg, svgToPng } from "@/lib/files"
+import { download, svgToPng, themedSvg } from "@/lib/files"
 import { showAlert } from "@/lib/ui-state"
 
-export function useExportActions(title: string, source: string, getSvg: () => SVGSVGElement | null) {
+/**
+ * `source` is the text the .mmd export saves, and `drawn` the diagram the preview shows. The images are rendered
+ * from `drawn` as the agent's export renders them, so they depend only on it and the theme, never on the pane.
+ */
+export function useExportActions(title: string, source: string, drawn: string) {
   const svg = () => {
-    const el = getSvg()
-    if (!el) throw new Error("Nothing to export yet.")
-    return standaloneSvg(el)
+    if (!drawn) throw new Error("Nothing to export yet.")
+    return themedSvg(renderSvg(drawn))
   }
   // Say why when one fails (too big for a link, nothing rendered yet), rather than seeming to work.
   const guard = (run: () => unknown) => async () => {

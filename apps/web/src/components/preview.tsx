@@ -12,7 +12,7 @@ import { clamp, fit, FIT_MAX, holdCentre, pan, panBy, zoomAt, type Size, type Vi
  * (1 = 100%). Always draws `source`. While the text has errors the editor passes the last good diagram,
  * and `stale` dims it. An empty `source` shows nothing.
  */
-export function Preview({ source, stale, onSvg }: { source: string; stale: boolean; onSvg: (el: SVGSVGElement | null) => void }) {
+export function Preview({ source, stale }: { source: string; stale: boolean }) {
   const frame = useRef<HTMLDivElement>(null)
   const stage = useRef<HTMLDivElement>(null)
   const host = useRef<HTMLDivElement>(null)
@@ -88,7 +88,6 @@ export function Preview({ source, stale, onSvg }: { source: string; stale: boole
   const measure = () => {
     // Nothing valid to show (yet): not whatever was drawn before, such as a past version that was being viewed.
     const svg = sourceRef.current ? host.current?.querySelector("svg") : null
-    onSvg(svg ?? null)
     const vb = svg?.viewBox.baseVal
     if (!svg || !vb || vb.width <= 0) return
     // A resize that switched Pele to a different layout: fade the new one in so it doesn't read as a flicker.
