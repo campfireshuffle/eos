@@ -168,6 +168,18 @@ describe("webmcp tools", () => {
     expect(imported.id).toBe(id) // identical diagrams aren't duplicated
   })
 
+  it("says when importing a share link returned the person's existing diagram, and leaves it as it was", async () => {
+    const { call, eos } = await setup()
+    const mine = await call("create_diagram", { title: "Mine", source: "flowchart TD\n  A-->B", open: false })
+    expect(mine.existing).toBeUndefined()
+    const { id } = mine
+    const { url } = await call("export", { id, format: "link" })
+    const imported = await call("create_diagram", { fromShareLink: url, starred: true, open: false })
+    expect(imported).toMatchObject({ id, existing: true })
+    expect((await eos.getDiagram(id))?.starred).toBe(false)
+    expect((await eos.listDiagrams()).length).toBe(1)
+  })
+
   it("organises tags and the library", async () => {
     const { call } = await setup()
     const { id } = await call("create_diagram", { title: "Tagged", source: "flowchart TD\n  A-->B", tags: ["work/backend"], open: false })

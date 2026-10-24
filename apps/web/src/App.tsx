@@ -182,7 +182,7 @@ function useShareImport(data: string | null) {
     void decodeShare(data).then(async (payload) => {
       if (cancelled) return
       if (!payload) return navigate(homeHref(), { replace: true })
-      const id = await eos.importShare(payload)
+      const { id } = await eos.importShare(payload)
       navigate(diagramHref(id), { replace: true })
     })
     return () => {

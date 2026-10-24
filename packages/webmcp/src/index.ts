@@ -298,7 +298,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
     tool({
       name: "create_diagram",
       description:
-        "Create a diagram from Mermaid source, or import one from an Eos share link (fromShareLink). To duplicate, read a diagram with get_diagram and create from its source. Opens it unless open is false. Returns the version id its source is at and whether the source parses.",
+        "Create a diagram from Mermaid source, or import one from an Eos share link (fromShareLink). Importing a link whose title and source match a diagram already in the library returns that diagram, with existing: true, and leaves it as it is (starred isn't applied): editing it edits the person's diagram. To get a copy instead, or to duplicate any diagram, read it with get_diagram and create from its source. Opens it unless open is false. Returns the version id its source is at and whether the source parses.",
       input: {
         title: z.optional(z.string()),
         source: z.optional(z.string().check(z.describe("Mermaid source"))),
@@ -309,6 +309,7 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
       },
       execute: async (i) => {
         let id: DiagramId
+        let created = true
         if (i.fromShareLink !== undefined) {
           let encoded = ""
           try {
@@ -318,15 +319,16 @@ export function createTools(eos: Eos, ui: UiBridge): Tool[] {
           }
           const payload = await decodeShare(encoded)
           if (!payload) return fail("invalid_input", "Not a valid Eos share link")
-          id = await eos.importShare(payload)
+          ;({ id, created } = await eos.importShare(payload))
         } else {
           id = await eos.createDiagram({ title: i.title, source: i.source, tags: i.tags }, agent("create_diagram", ["created"]))
         }
         // Read before opening it, so the version is the source as created, without anything typed since.
         const d = (await eos.getDiagram(id))!
-        if (i.starred) await eos.setStarred(id, true, agent("create_diagram"))
+        // A diagram that was already there is the person's: leave its star alone.
+        if (i.starred && created) await eos.setStarred(id, true, agent("create_diagram"))
         if (i.open !== false) ui.openDiagram(id)
-        return ok({ id, version: d.version, ...check(d.source) })
+        return ok({ id, ...(created ? {} : { existing: true }), version: d.version, ...check(d.source) })
       },
     }),
     tool({

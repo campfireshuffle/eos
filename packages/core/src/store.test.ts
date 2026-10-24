@@ -1921,8 +1921,8 @@ describe("share imports", () => {
   it("reuses an identical diagram instead of duplicating it", async () => {
     const eos = await fresh()
     const id = await eos.createDiagram({ title: "Same", source: 'pie\n  "a": 1' })
-    expect(await eos.importShare({ title: "Same", source: 'pie\n  "a": 1' })).toBe(id)
-    expect(await eos.importShare({ title: "Same", source: 'pie\n  "a": 2' })).not.toBe(id)
+    expect(await eos.importShare({ title: "Same", source: 'pie\n  "a": 1' })).toEqual({ id, created: false })
+    expect(await eos.importShare({ title: "Same", source: 'pie\n  "a": 2' })).toEqual({ id: expect.not.stringMatching(id), created: true })
     expect((await eos.listDiagrams()).length).toBe(2)
   })
 })
@@ -1948,10 +1948,10 @@ describe("line endings", () => {
       expect(await eos.getSource(id)).toBe(want(one))
       await eos.editDiagram(id, { source: crlf([...two, "  C --> D"]) }, undefined, { base }) // merged from an older version
       expect(await eos.getSource(id)).not.toContain("\r")
-      const shared = await eos.importShare({ title: "Shared", source: crlf(two) })
+      const { id: shared } = await eos.importShare({ title: "Shared", source: crlf(two) })
       expect(await eos.getSource(shared)).toBe(want(two))
       // A link with the same diagram finds the copy it made.
-      expect(await eos.importShare({ title: "Shared", source: crlf(two) })).toBe(shared)
+      expect(await eos.importShare({ title: "Shared", source: crlf(two) })).toEqual({ id: shared, created: false })
     })
   }
 
@@ -1971,7 +1971,7 @@ describe("line endings", () => {
     await db.put("snapshots", { id, bytes: doc.export({ mode: "snapshot" }), savedAt: Date.now() })
     await db.put("diagrams", { ...(await db.get("diagrams", id))!, sourceText: source, sourcePreview: source })
     const eos = await Eos.create({ dbName: name, seed: false })
-    expect(await eos.importShare({ title: "Shared", source })).toBe(id)
+    expect(await eos.importShare({ title: "Shared", source })).toEqual({ id, created: false })
     expect((await eos.listDiagrams()).length).toBe(1)
   })
 })

@@ -65,7 +65,7 @@ flowchart LR
 
   DiagramDoc <-- "update · index · settings · close" --> BC["BroadcastChannel<br/>other tabs"]
   Actions -- "encode" --> Share["Share link<br/>#/import?d=…"]
-  Share -- "import as new doc" --> DiagramDoc
+  Share -- "import as new doc, or open an identical one" --> DiagramDoc
   Persist["navigator.storage.persist()"] -.-> IDB
 ```
 
@@ -390,19 +390,19 @@ Backups carry only the theme. Agent settings are the person's say over what agen
 
 ## 9. Lifecycle summary
 
-| Event           | Doc                                              | IndexedDB                                | Broadcast          |
-| --------------- | ------------------------------------------------ | ---------------------------------------- | ------------------ |
-| New diagram     | `new LoroDoc()`, set meta, commit as its creator | put snapshot + index row                 | `index`            |
-| Keystroke       | `text.insert/delete`, committed per edit         | append `updates`, mark `pendingRows`     | `update`           |
-| Agent tool      | store write, committed as the agent (§3)         | append `updates`, mark `pendingRows`     | `update`           |
-| Other tab edit  | `import(bytes)`                                  | —                                        | —                  |
-| Undo            | `undo.undo()`                                    | append `updates`, mark `pendingRows`     | `update`           |
-| Restore version | `revertTo` + commit                              | append `updates`, mark `pendingRows`     | `update`           |
-| Star / unstar   | workspace `starred` set/delete                   | workspace `updates`                      | workspace `update` |
-| Tag emoji       | workspace `tagEmoji` entry                       | workspace `updates`                      | workspace `update` |
-| Delete          | — (keeps its `starred` key)                      | set `deletedAt` on the index row         | `index`            |
-| Purge           | close the doc; drop its `starred` key            | delete snapshot, `updates` and index row | `close`            |
-| Open share link | new doc from payload                             | snapshot + index row                     | `index`            |
+| Event           | Doc                                                       | IndexedDB                                | Broadcast          |
+| --------------- | --------------------------------------------------------- | ---------------------------------------- | ------------------ |
+| New diagram     | `new LoroDoc()`, set meta, commit as its creator          | put snapshot + index row                 | `index`            |
+| Keystroke       | `text.insert/delete`, committed per edit                  | append `updates`, mark `pendingRows`     | `update`           |
+| Agent tool      | store write, committed as the agent (§3)                  | append `updates`, mark `pendingRows`     | `update`           |
+| Other tab edit  | `import(bytes)`                                           | —                                        | —                  |
+| Undo            | `undo.undo()`                                             | append `updates`, mark `pendingRows`     | `update`           |
+| Restore version | `revertTo` + commit                                       | append `updates`, mark `pendingRows`     | `update`           |
+| Star / unstar   | workspace `starred` set/delete                            | workspace `updates`                      | workspace `update` |
+| Tag emoji       | workspace `tagEmoji` entry                                | workspace `updates`                      | workspace `update` |
+| Delete          | — (keeps its `starred` key)                               | set `deletedAt` on the index row         | `index`            |
+| Purge           | close the doc; drop its `starred` key                     | delete snapshot, `updates` and index row | `close`            |
+| Open share link | new doc from payload, unless an identical one exists (§6) | snapshot + index row, if new             | `index`, if new    |
 
 ## 10. WebMCP tools
 
@@ -410,7 +410,7 @@ Backups carry only the theme. Agent settings are the person's say over what agen
 
 The exception: no tool permanently deletes chosen diagrams, as Delete forever in the selection bar does (`eos.purge`). An agent can move a diagram to Deleted (`update_diagram`) or wipe every diagram (`delete_all_data`), but not purge one. Agent settings aren't an exception, since the person has no UI for them either; agents can read them but not change them (below).
 
-- **Writes are attributed to the agent** (`{ kind: "agent", tool, changes }`), shown apart from the person's in the history menu, and kept off the person's undo stack (§4). The exceptions: `create_diagram({ fromShareLink })` goes through `eos.importShare`, so the new diagram is attributed `{ kind: "import", source: "share-link" }`; `import_backup` keeps each diagram's own history and records its workspace changes as `{ kind: "import", source: "backup" }` (a replace's wipe as `{ kind: "system", reason: "delete-all" }`); and `delete_all_data` leaves no diagram history, only a workspace change recorded as `{ kind: "system", reason: "delete-all" }`.
+- **Writes are attributed to the agent** (`{ kind: "agent", tool, changes }`), shown apart from the person's in the history menu, and kept off the person's undo stack (§4). The exceptions: `create_diagram({ fromShareLink })` goes through `eos.importShare`, so a new diagram is attributed `{ kind: "import", source: "share-link" }`, and when an identical diagram already exists (§6) it returns that one with `existing: true` and changes nothing, not even `starred`; `import_backup` keeps each diagram's own history and records its workspace changes as `{ kind: "import", source: "backup" }` (a replace's wipe as `{ kind: "system", reason: "delete-all" }`); and `delete_all_data` leaves no diagram history, only a workspace change recorded as `{ kind: "system", reason: "delete-all" }`.
 - **Results are typed.** `{ ok: true, … }` or `{ ok: false, code, message }` with codes like `not_found`, `invalid_input`, `parse_error`, `stale`, `user_declined`, and `busy` when another dialog is already open, so nothing was asked.
 - **Mermaid is always checked.** Tools that take or return source report `valid` and, on failure, the error's line and column. The exception is `export` with `format: "link"`, which returns only the link.
 - **Confirmation is in the page.** Deletes open Eos's own dialog and wait; a model can't get past it. Agents can read but not change agent settings, so they can't turn confirmation off.
@@ -423,7 +423,7 @@ The exception: no tool permanently deletes chosen diagrams, as Delete forever in
 | `get_view()`                                                                                                                  | read        | Page, open diagram, filters, zoom, Settings and sidebar open.                                                                                                                                                                                                                                    |
 | `get_settings()`                                                                                                              | read        | Settings, the theme in effect with full CSS, storage used.                                                                                                                                                                                                                                       |
 | `export({ format, id? \| source?, includeTags?, download? })`                                                                 | read        | `svg`, `png`, `mmd` (with its version), `link`, `backup`. `svg`, `png` and `mmd` double as a dry-run parse check.                                                                                                                                                                                |
-| `create_diagram({ title?, source?, tags?, starred?, fromShareLink?, open? })`                                                 | write       | New diagram, duplicate (from `get_diagram`'s source) or import a share link.                                                                                                                                                                                                                     |
+| `create_diagram({ title?, source?, tags?, starred?, fromShareLink?, open? })`                                                 | write       | New diagram, duplicate (from `get_diagram`'s source) or import a share link. An identical diagram already in the library is returned instead, with `existing: true`; to copy it, create from its source.                                                                                         |
 | `update_diagram({ id, title?, source?, starred?, addTags?, removeTags?, revert?, deleted?, baseVersion?, expectedVersion? })` | write       | Every edit as one change. `revert`: `"undo"`, `"redo"` or a version id. `deleted: true` moves to Deleted (asks). `source` merges as changes from `baseVersion` (else replaces the text); the result returns the merged source if others' edits were kept. `expectedVersion` refuses stale edits. |
 | `update_tag({ path, moveTo?, emoji? })`                                                                                       | write       | Rename or move a tag (including to the top level), set its icon.                                                                                                                                                                                                                                 |
 | `set_view({ page?, diagramId?, filters?, previewVersion?, zoom?, settingsOpen?, sidebarOpen? })`                              | write       | Navigation and UI state: page, filters, preview, zoom, Settings, sidebar.                                                                                                                                                                                                                        |

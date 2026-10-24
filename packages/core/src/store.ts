@@ -650,12 +650,15 @@ export class Eos {
     this.emit("library")
   }
 
-  /** Imports a shared diagram, or returns an existing one with the same title and source (line endings aside, whatever its tags). */
-  async importShare(shared: SharePayload): Promise<DiagramId> {
+  /**
+   * Imports a shared diagram, or returns an existing one with the same title and source (line endings aside, whatever its tags).
+   * `created` is false when `id` is a diagram that was already in the library.
+   */
+  async importShare(shared: SharePayload): Promise<{ id: DiagramId; created: boolean }> {
     const payload = { ...shared, source: lf(shared.source) }
     const existing = await this.findIdentical(payload.title, payload.source)
-    if (existing) return existing
-    return this.createDiagram(payload, { kind: "import", source: "share-link" })
+    if (existing) return { id: existing, created: false }
+    return { id: await this.createDiagram(payload, { kind: "import", source: "share-link" }), created: true }
   }
 
   private async findIdentical(title: string, source: string): Promise<DiagramId | null> {
