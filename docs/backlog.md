@@ -909,10 +909,10 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Fix:** in merge mode, keep the current theme, or take only the fields the current theme leaves unset.
 
 - **A backup diagram with id "\_\_workspace" is accepted.**
-  - **What:** `BackupSchema` takes any diagram id, including `WORKSPACE_ID`. Delete forever on that diagram then wipes stars and tag emoji.
+  - **What:** `BackupSchema` takes any diagram id (`z.string()`, store.ts:1085), including `WORKSPACE_ID`. Delete forever on that diagram then wipes stars and tag emoji. An empty id `""` and the workspace snapshot also come in as "Untitled" diagrams (A17).
   - **Where:** `packages/core/src/store.ts`, `BackupSchema`.
   - **Why low:** it needs a hand-made backup file; Eos never writes one.
-  - **Fix:** reject `WORKSPACE_ID` (with a refine on the diagram `id`).
+  - **Fix:** reject `WORKSPACE_ID` and an empty id (with a refine on the diagram `id`).
 
 - **In forced-colors mode, focus is invisible on most controls, and selected states look the same.**
   - **What:** controls draw focus as `outline-none` plus a ring box-shadow, and forced colors drops box-shadows. Focus doesn't show on most controls, and selected states lose the shadow that set them apart.
@@ -1109,10 +1109,10 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Why low:** it takes a highly compressible source well past Pele's 50,000-character limit, or a 1000-character title.
   - **Fix:** apply the decode limits when encoding, and throw the same "too large to share as a link" error.
 
-- **The search panel covers the source pane on a 320×568 phone.**
-  - **What:** CodeMirror's find panel sits at the top of the editor (`search({ top: true })`). On a 320×568 phone it takes most of the source pane's height, so little or none of the text shows while searching.
+- **The search panel covers the source pane on small phones, and Firefox clips "by word" on a narrow desktop pane.**
+  - **What:** CodeMirror's find panel sits at the top of the editor (`search({ top: true })`). On a 320×568 phone it takes most of the source pane's height, so little or none of the text shows while searching. It also hits common phones (A17): at 360×740 and 360×780, WebKit and Firefox leave 1 to 2 lines, and at 390×844 WebKit leaves about 104px. On desktop, Firefox clips the "by word" checkbox when the source pane is 162 to 212px wide.
   - **Where:** `apps/web/src/components/code-editor.tsx` (about line 154).
-  - **Why low:** only the smallest phones, and closing the panel brings the text back.
+  - **Why low:** closing the panel brings the text back, and the clipped checkbox needs a very narrow source pane.
   - **Fix:** a more compact panel on narrow screens (one row, options hidden behind a toggle).
 
 - **The first PNG export of a session draws non-ASCII labels in a narrower face.**
@@ -1274,7 +1274,7 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
 
 - **A keystroke from another tab during a purge leaves an orphan update.**
   - **What:** if another tab writes an edit while a purge is running, the update is stored for a diagram that is gone. It costs a few bytes, and it replays if a pre-purge backup is merged.
-  - **Where:** `packages/core/src/docs.ts:136-140, 250-264`, `packages/core/src/store.ts:898-907`.
+  - **Where:** `packages/core/src/store.ts:672-685` (the purge), `packages/core/src/docs.ts` (about lines 236-251).
   - **Why low:** it needs a keystroke in a second tab at the moment of a purge, and the effect is a few bytes.
   - **Fix:** have the purge refuse or discard writes for ids it is removing, and drop any update that arrives for a deleted id.
 
@@ -1325,6 +1325,36 @@ Each entry says what the issue is, where it is, why it's low, and a suggested fi
   - **Where:** `apps/web` (no service worker anywhere; the manifest).
   - **Why low:** out of scope, by the owner's call (decision 013, A16). The docs promise local-first, never offline, and now say a reload needs the network.
   - **Fix:** if it comes into scope, precache the built app shell with a library (vite-plugin-pwa or Workbox), with no custom service worker logic, and add an e2e check that reloads offline.
+
+- **The red error line can drift off the line the footer names.**
+  - **What:** paste text above the error line and the footer still says "Line 3" while the red line moves to line 4. Seen in all 3 engines (A17).
+  - **Where:** `apps/web/src/components/code-editor.tsx:278-280` sends `setErrorLine` only when `errorAt` changes, and `:24` maps the line through edits. This contradicts the "it works" note on the past-version error line.
+  - **Why low:** it lasts until the next parse, and the footer is right.
+  - **Fix:** send `setErrorLine` whenever the parse result changes, or drop the mapping and clear the line on any edit until the next parse.
+
+- **Every diagram open announces "Valid" about a second after arriving.**
+  - **What:** the status region says "Valid" on open, competing with the page heading for a screen reader (A17).
+  - **Where:** `apps/web/src/components/editor.tsx:184-188`.
+  - **Why low:** it is speech noise only; nothing is broken.
+  - **Fix:** announce only changes after the first parse, or only when the state turns invalid or returns to valid.
+
+- **WebKit phone: Delete all on a diagram page leaves focus on BODY.**
+  - **What:** the drawer's opener ("Show sidebar" in the editor header) unmounts when the page switches to "doesn't exist", so focus has nowhere to return. 10 of 10 runs (A17).
+  - **Where:** `packages/ui/src/components/dialog.tsx:22` (`openerClosed` only covers openers inside closed dialogs).
+  - **Why low:** phone WebKit only, and one Tab recovers.
+  - **Fix:** when a dialog's opener is gone, focus the page heading, as the other page changes do.
+
+- **Consider `untrustedContentHint` on write results.**
+  - **What:** `set_view`, `update_diagram` and `create_diagram`'s parse snippets return text the person typed without `untrustedContentHint`. `get_view` carries it.
+  - **Where:** `packages/webmcp/src/index.ts` (about lines 396-401 and 470, against `get_view` at 229-230).
+  - **Why low:** a consideration, not a defect. Reads-only is deliberate and tests enforce it; the agent already holds the text it just wrote.
+  - **Fix:** if wanted, set the hint on the write tools whose results echo person-typed text, and update the tests and the data-model.md principle.
+
+- **The cross-tab star tests fail under heavy machine load.**
+  - **What:** "lists the stars every tab agrees on when…" in `packages/core/src/store.test.ts` failed 5 of 24 runs on main 4ef46c7 under heavy load: timeouts, and 2 AssertionErrors "expected [ …(2) ] to deeply equal []". They pass in CI.
+  - **Where:** `packages/core/src/store.test.ts`; the cross-tab star path in `packages/core/src/store.ts`.
+  - **Why low:** passes in CI, so it may only be timing. The AssertionErrors may be a real race, which is why it needs a look.
+  - **Fix:** investigate: rerun under load with the timeout raised, and see if the assertions still fail. If so, find the race between the channel message and `recheckRows`; if not, wait on the event rather than a fixed delay.
 
 ## Refactors to consider (from the round 11 cleanup review)
 
